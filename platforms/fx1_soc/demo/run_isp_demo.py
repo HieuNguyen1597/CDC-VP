@@ -35,7 +35,6 @@ Exit status: 0 the platform ran and (unless --no-reference) matches the
 reference, 1 mismatch, 2 a step failed, 3 usage error.
 """
 import argparse
-import hashlib
 import os
 import re
 import struct
@@ -43,18 +42,17 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import isp_pack  # noqa: E402  (stdlib packer and checks, shared with the SDK)
+from isp_pack import BAYER, JOB_MAGIC, RESULT_FIELDS, VERSION, PackError, sha256  # noqa: E402
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ISP = os.path.join(ROOT, "components", "FX1_Components", "isp")
 MAP_H = os.path.join(ROOT, "components", "FX1_Components", "fx1_map", "include", "fx1", "fx1_memory_map.h")
 CSR_H = os.path.join(ISP, "include", "fx1_isp", "fx1_isp_csr.h")
 DEFAULT_PROFILE = os.path.join(ISP, "samples", "profiles", "outdoor1_bggr_2688x1520_full.csrw")
-BAYER = {"RGGB": 0, "GRBG": 1, "GBRG": 2, "BGGR": 3}  # COMMON_BAYER codes (DEC-11)
-
-# isp_demo_job.h
-JOB_MAGIC, RESULT_MAGIC, VERSION = 0x4A315846, 0x52315846, 1
+# isp_demo_job.h: where the job, the result block and the profile live in the shared region
 JOB_OFFSET, RESULT_OFFSET, PROFILE_OFFSET = 0x0000, 0x0100, 0x1000
-RESULT_FIELDS = ("magic status out_width out_height out_stride frames_done idma_frames odma_frames "
-                 "dma_err aec_frame_id awb_frame_id af_frame_id frame_ticks").split()
 
 
 def fail(msg, code=2):
@@ -92,14 +90,6 @@ def load_profile(path):
     return writes
 
 
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def run(cmd, log=None):
     print("+ " + " ".join(cmd), flush=True)
     r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -107,36 +97,6 @@ def run(cmd, log=None):
         with open(log, "w") as f:
             f.write(r.stdout)
     return r
-
-
-def read_job(path):
-    """job.bin of --prepare-only (isp_demo_job.h): the geometry the dumps were made with."""
-    data = open(path, "rb").read()
-    if len(data) != 64:
-        fail("%s: %d bytes, a job descriptor has 64" % (path, len(data)))
-    f = struct.unpack("<16I", data)
-    if f[0] != JOB_MAGIC or f[1] != VERSION or f[4] not in BAYER.values():
-        fail("%s: not a version-%d job descriptor" % (path, VERSION))
-    return dict(width=f[2], height=f[3], bayer=f[4], in_stride=f[6], out_stride=f[9], profile_count=f[10],
-                frames=f[11])
-
-
-def check_output(res, a, out_stride, y_len, uv_len, y, uv):
-    """Reject a result block or dump that cannot hold the frame (review G6a R2): the
-    packer would otherwise slice short data silently into a truncated NV12."""
-    ow, oh, stride = res["out_width"], res["out_height"], res["out_stride"]
-    problems = []
-    if not (0 < ow <= a.width and 0 < oh <= a.height) or ow % 2 or oh % 2:
-        problems.append("output %dx%d is not an even size within the %dx%d input" % (ow, oh, a.width, a.height))
-    if stride != out_stride or stride < ow:
-        problems.append("output stride %d, the job used %d (width %d)" % (stride, out_stride, ow))
-    if res["frames_done"] != a.frames or res["odma_frames"] != a.frames or res["idma_frames"] != a.frames:
-        problems.append("frames done %d, IDMA %d, ODMA %d, the job asked for %d"
-                        % (res["frames_done"], res["idma_frames"], res["odma_frames"], a.frames))
-    if len(y) != y_len or len(uv) != uv_len:
-        problems.append("dumps hold Y %d and UV %d bytes, expected %d and %d" % (len(y), len(uv), y_len, uv_len))
-    if problems:
-        fail("output rejected: " + "; ".join(problems))
 
 
 def port_listening(port):
@@ -203,6 +163,9 @@ def main():
                     help="prepare, run the FreeRTOS CLI image with the console in this terminal, then pack "
                          "and compare after `poweroff`")
     ap.add_argument("--port", type=int, default=5000, help="TCP port of the console (--interactive, --prepare-only)")
+    ap.add_argument("--job-env", metavar="FILE",
+                    help="with --prepare-only: also write the --load/--dump addresses and lengths as shell "
+                         "variables to FILE (the SDK's run_vp.sh reads them)")
     ap.add_argument("--pack-only", action="store_true",
                     help="only pack, preview and compare the result.bin, y.bin and uv.bin already dumped into "
                          "--out by the --prepare-only command")
@@ -211,6 +174,8 @@ def main():
         fail("--frames must be >= 1", 3)
     if a.prepare_only + a.pack_only + a.interactive > 1:
         fail("--prepare-only, --pack-only and --interactive exclude each other", 3)
+    if a.job_env and not a.prepare_only:
+        fail("--job-env needs --prepare-only", 3)
     if not a.pack_only and not a.raw:
         fail("--raw is required (except with --pack-only)", 3)
 
@@ -234,7 +199,10 @@ def main():
                                              else "build target fx1_all first"))
     os.makedirs(a.out, exist_ok=True)
     if a.pack_only:  # pack exactly what was prepared, whatever the command line says
-        job = read_job(out("job.bin"))
+        try:
+            job = isp_pack.read_job(out("job.bin"))
+        except PackError as e:
+            fail(str(e))
         a.width, a.height, a.frames = job["width"], job["height"], job["frames"]
         a.bayer = next(k for k, v in BAYER.items() if v == job["bayer"])
 
@@ -278,6 +246,14 @@ def main():
             if os.path.exists(out(name)):
                 os.remove(out(name))
 
+        if a.job_env:
+            with open(a.job_env, "w") as f:
+                f.write("# Generated by run_isp_demo.py --prepare-only: where fx1_soc loads and dumps this job.\n")
+                for k, v in (("RAW_ADDR", raw_base), ("JOB_ADDR", shared + JOB_OFFSET),
+                             ("PROFILE_ADDR", shared + PROFILE_OFFSET), ("RESULT_ADDR", shared + RESULT_OFFSET),
+                             ("RESULT_LEN", 4 * len(RESULT_FIELDS)), ("Y_ADDR", y_addr), ("Y_LEN", y_len),
+                             ("UV_ADDR", uv_addr), ("UV_LEN", uv_len)):
+                    f.write("%s=%s\n" % (k, ("0x%08x" % v) if k.endswith("ADDR") else str(v)))
         if a.prepare_only:
             print("\nJob prepared in %s. Start the FreeRTOS CLI with it loaded:\n" % a.out)
             print("  %s --fw %s \\\n    --uart0-socket %d --uart0-wait --timeout-ms 0 --realtime \\\n"
@@ -308,31 +284,23 @@ def main():
             print(r.stdout)
             if r.returncode:
                 fail("platform run failed (exit %d), see %s" % (r.returncode, out("platform.log")))
-    raw_res = open(out("result.bin"), "rb").read()
-    if len(raw_res) != 4 * len(RESULT_FIELDS):
-        fail("result.bin: %d bytes, the result block has %d" % (len(raw_res), 4 * len(RESULT_FIELDS)))
-    res = dict(zip(RESULT_FIELDS, struct.unpack("<%dI" % len(RESULT_FIELDS), raw_res)))
-    if res["magic"] != RESULT_MAGIC or res["status"] != 0:
-        fail("no valid result block from the firmware" + (" (was `isp run` PASS before poweroff?)"
-                                                           if a.pack_only or a.interactive else ""))
-    y, uv = open(out("y.bin"), "rb").read(), open(out("uv.bin"), "rb").read()
-    check_output(res, a, out_stride, y_len, uv_len, y, uv)
-    ow, oh, stride = res["out_width"], res["out_height"], res["out_stride"]
-
-    # 4. NV12 active bytes (Y rows then UV rows), preview
-    with open(out("platform.nv12"), "wb") as f:
-        for row in range(oh):
-            f.write(y[row * stride:row * stride + ow])
-        for row in range(oh // 2):
-            f.write(uv[row * stride:row * stride + ow])
-    if os.path.getsize(out("platform.nv12")) != ow * oh * 3 // 2:
-        fail("platform.nv12 is not %d bytes" % (ow * oh * 3 // 2))
+    # 4. checks, NV12 active bytes (Y rows then UV rows) and preview: isp_pack.py
+    try:
+        res = isp_pack.read_result(out("result.bin"))
+        y, uv = open(out("y.bin"), "rb").read(), open(out("uv.bin"), "rb").read()
+        isp_pack.check_output(res, a.width, a.height, a.frames, out_stride, y, uv)
+        ow, oh, stride = res["out_width"], res["out_height"], res["out_stride"]
+        nv12 = isp_pack.pack_nv12(y, uv, ow, oh, stride)
+        with open(out("platform.nv12"), "wb") as f:
+            f.write(nv12)
+        try:
+            isp_pack.nv12_to_png(nv12, ow, oh, out("platform.png"))
+        except OSError as e:
+            os.remove(out("platform.nv12"))
+            raise PackError("preview failed: cannot write %s: %s" % (out("platform.png"), e))
+    except PackError as e:
+        fail(str(e))
     platform_sha = sha256(out("platform.nv12"))
-    pr = run([sys.executable, os.path.join(ISP, "tools", "nv12_preview.py"), "--nv12", out("platform.nv12"),
-              "--width", str(ow), "--height", str(oh), "--out", out("platform.png")], out("preview.log"))
-    if pr.returncode or not os.path.isfile(out("platform.png")) or not os.path.getsize(out("platform.png")):
-        os.remove(out("platform.nv12"))
-        fail("preview failed (exit %d), see %s" % (pr.returncode, out("preview.log")))
 
     # 5. the stand-alone ISP model, same input and profile
     verdict, ref_sha = "not compared (--no-reference)", None

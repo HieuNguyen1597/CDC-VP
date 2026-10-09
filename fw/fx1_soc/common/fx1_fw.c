@@ -69,11 +69,19 @@ void fx1_unlock(fx1_lock_t* lock)
     __asm__ volatile("amoswap.w.rl zero, zero, (%0)" ::"r"(&lock->word) : "memory");
 }
 
-void fx1_putc(char c)
+static void uart_tx(char c)
 {
     while (fx1_read32(FX1_UART_BASE + UART_FR) & UART_TXFF) {
     }
     fx1_write32(FX1_UART_BASE + UART_DR, (uint8_t)c);
+}
+
+/* Lines end with CR LF, like a real serial console: terminal programs
+ * (picocom, minicom, screen, a raw socket) do not add the CR themselves. */
+void fx1_putc(char c)
+{
+    if (c == '\n') uart_tx('\r');
+    uart_tx(c);
 }
 
 void fx1_puts(const char* s)

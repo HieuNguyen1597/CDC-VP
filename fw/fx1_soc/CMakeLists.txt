@@ -287,17 +287,13 @@ if(CDC_BUILD_TESTS)
             set_tests_properties(fx1_regression_isp_fixture_check PROPERTIES
                 TIMEOUT 120 LABELS "fx1;fx1_regression")
         endif()
-        # The ISP demo's pack step on synthetic dumps: damaged results, dumps,
-        # jobs and a failing preview must all be rejected (review G6a R2).
-        # The preview tool also needs Pillow.
-        execute_process(COMMAND ${FX1_PYTHON3} -c "import numpy, PIL"
-                        RESULT_VARIABLE _fx1_pil OUTPUT_QUIET ERROR_QUIET)
-        if(_fx1_pil EQUAL 0)
-            add_test(NAME fx1_regression_isp_demo_pack
-                     COMMAND ${FX1_PYTHON3} ${CMAKE_SOURCE_DIR}/platforms/fx1_soc/demo/tests/test_pack.py)
-            set_tests_properties(fx1_regression_isp_demo_pack PROPERTIES
-                TIMEOUT 120 LABELS "fx1;fx1_regression")
-        endif()
+        # The ISP demo's pack step (isp_pack.py, stdlib only) on synthetic
+        # dumps: damaged results, dumps, jobs and a failing preview must all
+        # be rejected (review G6a R2).
+        add_test(NAME fx1_regression_isp_demo_pack
+                 COMMAND ${FX1_PYTHON3} ${CMAKE_SOURCE_DIR}/platforms/fx1_soc/demo/tests/test_pack.py)
+        set_tests_properties(fx1_regression_isp_demo_pack PROPERTIES
+            TIMEOUT 120 LABELS "fx1;fx1_regression")
     endif()
     # Throughput probe under both quanta (plan C11); slower, so fx1_regression.
     fx1_firmware(perf_loop SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf_loop/main.c)

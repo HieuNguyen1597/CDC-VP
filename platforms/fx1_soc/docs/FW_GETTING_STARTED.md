@@ -37,8 +37,7 @@ contract, the test list and the limitations, is
 | RISC-V cross toolchain | xPack `riscv-none-elf-gcc` 15.2 in `/opt/toolchains/riscv-none-elf` | Elsewhere: `RISCV_HOME=<dir>` or `-DFX1_RISCV_PREFIX=<dir>/bin/riscv-none-elf-` |
 | RISC-V VP++ sources | pinned, patched checkout in `third_party/riscv-vp-plusplus` | Run `cpu_models/riscv_vp_plusplus/fetch_riscv_vp_plusplus.sh` once |
 | FreeRTOS-Kernel | V11.2.0 (`0adc196`) in `third_party/FreeRTOS-Kernel`, for the FreeRTOS CLI image | Run `tools/third_party/setup_third_party.sh` once (gitignored, not in a fresh clone). Configure stops if it is missing or another version; elsewhere: `-DFX1_FREERTOS_KERNEL_DIR=<dir>` |
-| Python 3 + Pillow | with numpy, for `fx1_regression_isp_demo_pack` and the demo's PNG preview | Not needed to build or run firmware |
-| Python 3 + numpy | `python3` on `PATH` with numpy | Needed by the full CI gate (`fx1_regression_isp_fixture_check` in the regression stage), to regenerate ISP fixtures and to preview NV12. Not needed to build or run firmware, nor by `run_ci.sh --smoke-only` |
+| Python 3 + numpy | `python3` on `PATH` with numpy | Needed by the full CI gate (`fx1_regression_isp_fixture_check` in the regression stage), to regenerate ISP fixtures and to convert a RAW frame for the demo (`run_isp_demo.py`). Packing NV12 and the PNG preview (`isp_pack.py`) need only the standard library. Not needed to build or run firmware, nor by `run_ci.sh --smoke-only` |
 
 Put `/usr/bin` first on `PATH` and use the system compilers. Some hosts carry
 vendor binutils wrappers (`nm`, `as`) earlier on `PATH`, and those break the

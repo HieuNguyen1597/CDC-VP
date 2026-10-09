@@ -9,7 +9,7 @@ and SYS_DMA from tasks. It is the starting point for RTOS drivers on FX1.
 | Kernel | `third_party/FreeRTOS-Kernel` V11.2.0, GCC RISC-V port, `heap_4`, 256 KiB heap, 1 kHz tick |
 | ABI | `rv32imafc_zicsr_zifencei` / `ilp32f`, the same as the bare-metal SDK |
 | Harts | AMP. FreeRTOS runs on hart 0; hart 1 runs the bare-metal IP check at boot and then parks in WFI |
-| Console | UART (PL011 model), RX by interrupt (PLIC source 1) into a queue, TX by polling |
+| Console | UART (PL011 model), RX by interrupt (PLIC source 1) into a queue, TX by polling; lines end with CR LF (BSP `fx1_putc`), like a real serial console |
 | Image | `build-fx1/fw/fx1_soc/freertos_cli.elf` (target `fx1_all`) |
 
 ## Boot sequence
@@ -93,8 +93,11 @@ platforms/fx1_soc/tools/fx1_console.sh 5000     # second terminal; type `help`
   sees "Connection closed"; the timeout message prints only on the
   simulator's terminal. With `--realtime`, `uptime` matches wall time and the
   host barely loads the CPU while idle.
-- `fx1_console.sh`: puts the terminal in raw mode (socat, Ctrl-] quits; nc as
-  a fallback). The firmware echoes like a real UART. Plain `nc` or `telnet`
+- `fx1_console.sh`: puts the terminal in raw mode. It uses socat when
+  installed (Ctrl-] quits), else bash's `/dev/tcp`, which needs nothing
+  installed (ends with `poweroff`). The VP listens on 127.0.0.1 only: run the
+  client on the same host, or in the same container. The firmware echoes like
+  a real UART. Plain `nc` or `telnet`
   in line mode echo locally as well, so every command appears twice.
 
 Scripted (deterministic, what CI does). The script is

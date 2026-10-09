@@ -19,8 +19,7 @@
 #   4. smoke      ctest -L "fx1_unit|fx1_smoke", plus the components stage:
 #                 the FX1 bus tests and the UART models FX1 uses (by name)
 #   5. regression ctest -L fx1_regression (skipped with --smoke-only); needs
-#                 python3 with numpy (fx1_regression_isp_fixture_check) and
-#                 Pillow (fx1_regression_isp_demo_pack)
+#                 python3 with numpy (fx1_regression_isp_fixture_check)
 #
 # Every ctest stage runs with --no-tests=error and writes JUnit XML. Artifacts
 # go to <build-dir>/fx1-ci-artifacts: junit-*.xml, ctest logs, every firmware
@@ -96,8 +95,7 @@ MANIFEST="${FX1_CI_MANIFEST:-${ROOT}/platforms/fx1_soc/ci/required_tests.txt}" #
 # unreadable or empty manifest, no entries, an entry outside a known section,
 # a ctest listing that fails, or a required name that is not selected. With
 # --smoke-only the regression section is not checked (that stage does not run;
-# its isp_fixture_check and isp_demo_pack tests need python3 with numpy and
-# Pillow).
+# its isp_fixture_check test needs python3 with numpy).
 check_manifest() {
     local -a lines=() stages=(smoke components)
     [ ${SMOKE_ONLY} -eq 0 ] && stages+=(regression)

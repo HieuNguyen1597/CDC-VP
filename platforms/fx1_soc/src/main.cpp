@@ -19,9 +19,21 @@
 #include <systemc>
 #include <tlm>
 
+#include "fx1_soc_build_info.h"
 #include "fx1_soc_top.h"
 
 namespace {
+
+void version()
+{
+    std::cout << "fx1_soc " << fx1_soc_build::package << " (FX1 SoC VP, 2 x RV32IMAFC VP++ harts)\n"
+              << "  CDC-VP revision " << fx1_soc_build::git_revision << " (" << fx1_soc_build::git_state
+              << " at configure)\n"
+              << "  build type      " << fx1_soc_build::build_type << ", " << fx1_soc_build::cxx_compiler << "\n"
+              << "  SystemC         " << sc_core::sc_release() << "\n"
+              << "  RISC-V VP++     " << fx1_soc_build::vpp_revision << " + CDC-VP patch series\n"
+              << "  firmware ABI    " << fx1_soc_build::firmware_abi << "\n";
+}
 
 void usage()
 {
@@ -29,6 +41,7 @@ void usage()
                  "[--uart-log FILE] [--quiet-uart] [--trace] [--no-exclusive-monitor]\n"
                  "              [--load ADDR:FILE ...] [--dump ADDR:LEN:FILE ...]\n"
                  "              [--uart0-socket PORT [--uart0-wait]] [--uart0-rx-file FILE [--uart0-rx-delay-us N]]\n"
+                 "  --version           print the build identity (package, CDC-VP revision) and exit\n"
                  "  --uart0-socket      UART console over TCP on 127.0.0.1:PORT (connect with nc)\n"
                  "  --uart0-wait        with --uart0-socket: wait for the client before starting\n"
                  "  --uart0-rx-file     inject FILE into UART RX (deterministic console input)\n"
@@ -144,6 +157,14 @@ int sc_main(int argc, char* argv[])
             }
             return argv[++i];
         };
+        if (arg == "--version") {
+            version();
+            return 0;
+        }
+        if (arg == "--help" || arg == "-h") {
+            usage();
+            return 0;
+        }
         if (arg == "--fw") options.firmware = value();
         else if (arg == "--timeout-ms") {
             if (!parse_timeout(value(), timeout_ms)) {

@@ -5,7 +5,30 @@ add_executable(fx1_soc
     src/main.cpp
     src/fx1_soc_top.cpp)
 
-target_include_directories(fx1_soc PRIVATE src)
+# `fx1_soc --version`: the package name, the CDC-VP revision and tree state at
+# configure time, the build type and compilers (cmake/build_info.h.in).
+set(FX1_SOC_PACKAGE_NAME "VP_FX1_V3.0" CACHE STRING "SDK package name the fx1_soc binary reports")
+execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
+                OUTPUT_VARIABLE FX1_SOC_GIT_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" status --porcelain --untracked-files=no
+                OUTPUT_VARIABLE _fx1_git_status OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
+                RESULT_VARIABLE _fx1_git_rc)
+if(NOT FX1_SOC_GIT_REVISION OR NOT _fx1_git_rc EQUAL 0)
+    set(FX1_SOC_GIT_REVISION "unknown")
+    set(FX1_SOC_GIT_STATE "unknown")
+elseif(_fx1_git_status)
+    set(FX1_SOC_GIT_STATE "dirty")
+else()
+    set(FX1_SOC_GIT_STATE "clean")
+endif()
+if(CMAKE_BUILD_TYPE)
+    set(FX1_SOC_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+else()
+    set(FX1_SOC_BUILD_TYPE "none (developer build, not for packaging)")
+endif()
+configure_file(cmake/build_info.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/fx1_soc_build_info.h @ONLY)
+
+target_include_directories(fx1_soc PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_compile_options(fx1_soc PRIVATE -Wall -Wextra)
 target_link_libraries(fx1_soc PRIVATE
     SystemC::systemc
@@ -23,6 +46,10 @@ target_link_libraries(fx1_soc PRIVATE
     cdc::components::fx1_isp_tlm
     cdc::components::uart2_tlm
     cdc::components::uart_host_tlm)
+# Self-contained like the other packaged platforms (cmake/modules/CdcPortable.cmake):
+# RPATH=$ORIGIN, and the SystemC runtime copied beside the binary. The SDK
+# package (package/package_sdk.sh, target fx1_soc_package) ships exactly that.
+cdc_make_portable(fx1_soc)
 
 # Negative integration harness (review G2-R2): real VP++ hart + silent target.
 # Its firmware image and ctest registration live in fw/fx1_soc.
@@ -64,7 +91,8 @@ function(_fx1_collect_targets out dir)
     set(_list "")
     foreach(_t IN LISTS _targets)
         get_target_property(_type ${_t} TYPE)
-        if(NOT _type STREQUAL "INTERFACE_LIBRARY" AND NOT _t STREQUAL "fx1_all")
+        # fx1_soc_package consumes fx1_all, it is not part of it.
+        if(NOT _type STREQUAL "INTERFACE_LIBRARY" AND NOT _t STREQUAL "fx1_all" AND NOT _t STREQUAL "fx1_soc_package")
             list(APPEND _list ${_t})
         endif()
     endforeach()
@@ -136,3 +164,32 @@ endif()
 string(REGEX MATCH "^[^\n]*" _fx1_gcc_version "${_fx1_gcc_version}")
 message(STATUS "fx1_soc: firmware toolchain ${FX1_RISCV_PREFIX}gcc (${_fx1_gcc_version})")
 add_subdirectory(${CMAKE_SOURCE_DIR}/fw/fx1_soc ${CMAKE_BINARY_DIR}/fw/fx1_soc)
+
+# ── SDK package VP_FX1_V3.0 (G6b) ────────────────────────────────────────────
+# `cmake --build <dir> --target fx1_soc_package` assembles the delivery in the
+# SDK repository layout under ${CDC_PACKAGE_ROOT}/VP_FX1_V3.0 (package/README
+# in package_sdk.sh). The default ISP sample is the cleared D65 frame; with
+# FX1_DEMO_RAW set, the outdoor1 frame is added as a second, internal-only one.
+set(FX1_SOC_PACKAGE_DIR "${CDC_PACKAGE_ROOT}/VP_FX1_V3.0")
+get_filename_component(FX1_RISCV_TOOLDIR "${FX1_RISCV_PREFIX}gcc" DIRECTORY)
+set(_fx1_samples --sample "d65=${CMAKE_SOURCE_DIR}/components/isp_tlm/input/D65_raw_2688x1520_5376.raw")
+if(FX1_DEMO_RAW AND EXISTS "${FX1_DEMO_RAW}")
+    list(APPEND _fx1_samples --sample
+        "outdoor1=${FX1_DEMO_RAW},profile=${CMAKE_SOURCE_DIR}/components/FX1_Components/isp/samples/profiles/outdoor1_bggr_2688x1520_full.csrw,internal")
+endif()
+add_custom_target(fx1_soc_package
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/package/package_sdk.sh" --build-dir "${CMAKE_BINARY_DIR}"
+            --out "${FX1_SOC_PACKAGE_DIR}" --tooldir "${FX1_RISCV_TOOLDIR}" ${_fx1_samples}
+    COMMENT "Packaging VP_FX1_V3.0 -> ${FX1_SOC_PACKAGE_DIR}"
+    USES_TERMINAL
+    VERBATIM)
+add_dependencies(fx1_soc_package fx1_all)
+if(CDC_BUILD_TESTS)
+    # The distribution gate: fresh Release build, package, move, run with an
+    # empty environment, rebuild the firmware from the SDK. Slow; not part of
+    # run_ci.sh. Label fx1_packaging.
+    add_test(NAME fx1_packaging COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/package/run_packaging_regression.sh")
+    set_tests_properties(fx1_packaging PROPERTIES
+        LABELS "fx1;fx1_packaging" RUN_SERIAL TRUE TIMEOUT 3600
+        ENVIRONMENT "FX1_DEMO_RAW=${FX1_DEMO_RAW};PACKAGING_SYSTEMC_HOME=${SYSTEMC_HOME}")
+endif()

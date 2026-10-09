@@ -8,7 +8,7 @@ Plan and decisions: `VP_BK/ISP/plan/FX1_PLATFORM_FIX_PLAN.md` section 7 (outside
 **New to the platform? Start with [docs/FW_GETTING_STARTED.md](docs/FW_GETTING_STARTED.md)**
 (build, run, write firmware, get RAW/YUV out, debug). This README is the reference.
 
-## Status — stage G6 (FreeRTOS + CLI; packaging next)
+## Status — stage G6 (FreeRTOS + CLI, SDK package VP_FX1_V3.0)
 
 | Block | Model | State |
 |---|---|---|
@@ -62,8 +62,7 @@ It sets every test option the gate needs (a reused build directory whose
 cache turned one off is corrected) and refuses to run when a test listed in
 `ci/required_tests.txt` for a stage that runs is not registered, or when that
 manifest is missing, unreadable or empty; add new required tests there. The
-full run needs `python3` with numpy and Pillow (the regression stage's fixture
-and demo-pack checks);
+full run needs `python3` with numpy (the regression stage's fixture check);
 `--smoke-only` does not:
 
 ```bash
@@ -120,7 +119,7 @@ build-fx1/platforms/fx1_soc/fx1_soc --fw build-fx1/fw/fx1_soc/hello_2hart.elf \
 ```
 
 UART input from the host (`components/uart_host_tlm`): `--uart0-socket PORT`
-serves the console on 127.0.0.1:PORT (connect with `nc 127.0.0.1 PORT`;
+serves the console on 127.0.0.1:PORT only (connect with `tools/fx1_console.sh PORT` on the same host or in the same container;
 `--uart0-wait` holds the simulation until the client connects), and
 `--uart0-rx-file FILE` injects a file into RX, starting `--uart0-rx-delay-us`
 of simulated time after reset (deterministic, for CI). For an interactive
@@ -305,10 +304,28 @@ Exit status:
 | `uart2_tlm`, `uart_host_bridge` | The UART model and the host bridge FX1 uses (CI components stage). `uart2_tlm` includes the PL011 control-register readback the hart-1 IP check found missing (`CR`, `LCR_H`, `IBRD`, `FBRD` used to read 0), with `CR` reserved bits [6:3] reading 0 |
 | `fx1_smoke_example_quickstart` | The handoff example (`fw/fx1_soc/examples/quickstart`): two-hart hello, a CLINT timer interrupt, a SYS_DMA copy with its PLIC interrupt and the ownership calls |
 | `fx1_regression_isp_fixture_check` | `gen_fixture.py --check`: the committed fixture still matches the reference. Registered only when `python3` on PATH has numpy; the smoke tests never need Python |
-| `fx1_regression_isp_demo_pack` | `demo/tests/test_pack.py`: `run_isp_demo.py --pack-only` on synthetic 4×4 dumps. A valid job gives a 24-byte NV12 and a PNG. A short or long dump, a bad result block, a bad stride or geometry, an incomplete frame, a wrong or missing `job.bin`, another profile, or a failing preview must exit 2 and leave no output. Needs numpy and Pillow |
+| `fx1_regression_isp_demo_pack` | `demo/tests/test_pack.py`: `run_isp_demo.py --pack-only` on synthetic 4×4 dumps. A valid job gives a 24-byte NV12 and a PNG. A short or long dump, a bad result block, a bad stride or geometry, an incomplete frame, a wrong or missing `job.bin`, another profile, or a failing preview must exit 2 and leave no output. `python3` only (stdlib) |
 | `fx1_smoke_bus_fault` | Fetch, load and store faults with exact `mcause`/`mepc`/`mtval`; a store to BootROM faults and leaves the ROM unchanged |
+| `fx1_packaging` | The SDK distribution gate (`package/run_packaging_regression.sh`, label `fx1_packaging`, not in `run_ci.sh`). A fresh Release build is packaged and moved; the build tree is made unreadable; it runs with an empty environment (smoke, every ISP sample against its golden, a wrong golden must fail). The firmware is rebuilt from the shipped sources and must be byte-identical. Also checks `sha256sum -c` on a clone without `build/` and the one-terminal interactive flow |
 | `*_q10us` | Every smoke image is run again with a 10 µs quantum and must give the same verdict (plan C11) |
 | `fx1_regression_perf_loop_q*ns` | Two-hart integer and memory loop. Checksums must equal independently computed references (0x1762a79a, 0x124d31b2). Prints host MIPS: about 3.5 MIPS with both harts in a Release build (about half that unoptimised), either quantum, depending on host load |
+
+## SDK package (VP_FX1_V3.0)
+
+`cmake --build <dir> --target fx1_soc_package` assembles the delivery for the
+firmware/software teams under `out/VP_FX1_V3.0`, in the layout of the SDK
+repository `fx1`. It contains:
+
+- the portable VP (`RPATH=$ORIGIN` + `libsystemc`);
+- the FreeRTOS CLI sources with a stand-alone, location-independent Makefile;
+- `run_vp.sh` (smoke, run, interactive, isp);
+- the ISP samples: the cleared D65 frame and, with `FX1_DEMO_RAW`, the
+  internal outdoor1 frame;
+- docs, licences, `BUILD_MANIFEST.json` and `SHA256SUMS`.
+
+The release procedure, the gate and the export are described in
+[`package/README.md`](package/README.md). The delivery's own README is
+[`package/docs/README.md`](package/docs/README.md).
 
 ## Time model (plan C11)
 

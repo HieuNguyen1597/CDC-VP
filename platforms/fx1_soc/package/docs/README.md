@@ -1,0 +1,264 @@
+# VP_FX1_V3.0 — FX1 SoC virtual platform with FreeRTOS CLI
+
+This delivery gives the firmware and software teams a virtual FX1 SoC to run
+and debug firmware on before silicon. It contains:
+
+- the VP binary `fx1_soc`;
+- a FreeRTOS V11.2.0 command-line firmware with its full source and a
+  stand-alone Makefile;
+- ISP sample frames, which a RAW image goes through on the virtual chip.
+
+Treat the VP as the chip: build against `include/fx1/fx1_memory_map.h` and run
+the firmware ELF on `fx1_soc`.
+
+## Read first: V3.0 is not a superset of V2.0
+
+V3.0 is built from a different platform model than `VP_FX1_V2.0`. Firmware for
+one does not run on the other.
+
+| | VP_FX1_V2.0 (`vp_fx1_full_soc`) | **VP_FX1_V3.0 (`fx1_soc`)** |
+|---|---|---|
+| CPU | 1 hart, Bremen riscv-vp, `rv32imac` / `ilp32` | **2 harts, RISC-V VP++, `rv32imafc` / `ilp32f`** (hardware FP) |
+| Interconnect | generic bus | FX1 bus model with an exclusive monitor (LR/SC and AMOs are correct against DMA) |
+| Peripherals | about 25 IPs (UART×2, I2C, SPI, timers, WDT, PWM, GPIO, …) | **UART, CLINT, PLIC, SYS_DMA, ISP** only |
+| Accelerators | NPU (functional) | **ISP** (functional, bit-exact to the stand-alone ISP model); no NPU |
+| Memory map | V2.0 map | FX1 placeholder map ([MEMORY_MAP.md](MEMORY_MAP.md)), pending the HAS |
+
+What is not modelled in V3.0:
+
+- NPU, H.264/H.265, Ethernet and MIPI: their addresses and IRQ IDs are
+  reserved only;
+- I2C, SPI/QSPI, timers, WDT, PWM, GPIO, RTC, ADC, TRNG, OTP;
+- PMU, CMU and clock/reset control;
+- the DDR controller's CSRs and training;
+- caches and an MMU.
+
+## Quick start
+
+Run everything from the SDK repository root.
+
+```bash
+# 1. Build the firmware (xPack riscv-none-elf-gcc 15.2 on PATH, or TOOLDIR=<dir>/bin)
+make -C sw/bootloader/sources/VP_FX1_V3.0 -j"$(nproc)"
+
+# 2. Deterministic self-check: scripted CLI session, exit status 0 = PASS
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh smoke
+
+# 3. A RAW camera frame through the ISP, driven by the firmware
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh isp            # D65 ColorChecker sample
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh isp outdoor1   # second sample (internal use only)
+```
+
+`run_vp.sh smoke` passes when hart 1's boot IP check reports 0 failures and
+every check line says PASS. The checks are the FPU context switch, SYS_DMA,
+the ISP fixture and `selftest`; then `poweroff` ends the run with PASS.
+
+`run_vp.sh isp` loads a prepared job (RAW frame, ISP register profile, job
+descriptor) into DDR. It types `isp run` into the CLI. When the firmware
+powers off, it packs the NV12 output, writes a PNG preview and compares the
+SHA-256 with the expected output. The expected value comes from the
+stand-alone ISP model run on the same input and profile. Results go to
+`sw/bootloader/build/VP_FX1_V3.0/isp/<sample>/` (`platform.png`,
+`platform.nv12`, `summary.txt`).
+
+### Interactive console
+
+```bash
+# Terminal 1: the VP waits for the console, then boots
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh interactive 5000
+# Terminal 2: raw-mode client (socat if installed, else bash's /dev/tcp: nothing to install)
+sw/bootloader/test/VP_FX1_V3.0/fx1_console.sh 5000
+```
+
+Type `help`, then `poweroff` to end the simulation. The VP runs paced to wall
+time (`--realtime`) with no time limit, so an idle console neither races ahead
+nor disconnects. To process a sample frame by hand in one terminal:
+
+```bash
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh isp d65 interactive 5000
+# then type: isp run, isp stats, poweroff
+```
+
+Use `fx1_console.sh` rather than plain `nc` or `telnet`. The firmware echoes
+like a real UART console and ends lines with CR LF. A terminal in line mode
+echoes locally as well, so every command would appear twice.
+
+## Prerequisites
+
+| Need | For |
+|---|---|
+| Linux x86-64 (AlmaLinux/RHEL 9 validated) | the VP; `libsystemc` ships beside it (`$ORIGIN`), no SystemC install needed |
+| `riscv-none-elf-gcc` 15.2 (xPack), GNU Make | building the firmware |
+| `python3` (standard library only) | `run_vp.sh isp` (packing NV12, PNG preview) |
+| nothing extra; `socat` optional | the interactive console (`fx1_console.sh` falls back to bash's `/dev/tcp`) |
+
+On Windows or macOS, use the AlmaLinux 9 container described in the SDK
+README. The VP needs nothing installed in it: `python3` is already in the
+image, and the console needs neither `socat` nor `nc`.
+
+**The console listens on 127.0.0.1 inside the container only.** A published
+port (`-p 5000:5000`) does not reach it: the connection from the host is
+reset. Run the console client in the same container instead:
+
+```bash
+# start the container with a name (from the SDK root, as in the SDK README)
+docker run --rm -it --platform linux/amd64 --name fx1-vp -v "$PWD:/workspace" -w /workspace almalinux:9 bash
+
+# inside it: the VP waits for the console
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh interactive 5000
+
+# second terminal on the host: the client, in the same container
+docker exec -it fx1-vp /workspace/sw/bootloader/test/VP_FX1_V3.0/fx1_console.sh 5000
+```
+
+The ISP flow needs only the container's own terminal:
+`run_vp.sh isp d65 interactive 5000` starts the VP and attaches the console
+in that one terminal.
+
+## Layout
+
+```text
+vp/bin/VP_FX1_V3.0/                 fx1_soc + libsystemc.so.2.3
+vp/doc/VP_FX1_V3.0/                 this README, MEMORY_MAP.md, BUILD_MANIFEST.json, SHA256SUMS, licenses/
+sw/bootloader/sources/VP_FX1_V3.0/  FreeRTOS CLI firmware: app/, bsp/, include/, drivers/, kernel subset, Makefile
+sw/bootloader/build/VP_FX1_V3.0/    make outputs (freertos_cli.elf/.dis/.map); not tracked
+sw/bootloader/test/VP_FX1_V3.0/     run_vp.sh, fx1_console.sh, isp_pack.py, cli_smoke.txt, isp/<sample>/
+```
+
+The firmware sources, their structure and how to add a command are described
+in `sw/bootloader/sources/VP_FX1_V3.0/README.md`.
+
+## The firmware
+
+| | |
+|---|---|
+| Kernel | FreeRTOS V11.2.0, GCC RISC-V port, `heap_4` with a 256 KiB heap, 1 kHz tick from CLINT `mtime` (20 MHz) |
+| Harts | AMP. FreeRTOS runs on hart 0. Hart 1 runs a bare-metal IP check at boot, then parks in WFI |
+| FP | the FX1 port extension saves f0–f31 and `fcsr` in every task context (`ilp32f`) |
+| Console | UART, RX by interrupt (PLIC source 1) into a queue, TX by polling, CR LF line endings |
+
+**Boot sequence:**
+
+1. Hart 0 prints the banner and releases hart 1.
+2. Hart 1 checks every IP, touching nothing that hart 0 uses:
+   - BootROM is read-only;
+   - a DDR window passes pattern and byte-merge tests;
+   - an unmapped access faults;
+   - for CLINT, PLIC, UART, SYS_DMA and the ISP: ID/reset values, and
+     read/write registers that are restored afterwards.
+3. Any failure halts the boot (`boot halted: hwcheck FAIL`, exit code 1,
+   FAIL 0x50).
+4. Otherwise hart 0 starts the scheduler and the CLI.
+
+| Command | Does |
+|---|---|
+| `help`, `version` | command list; firmware identity, ISP `COMMON_VER_ID`, SYS_DMA capability |
+| `uptime`, `tasks`, `heap` | tick time and `mtime`; tasks with state, priority and stack headroom; heap use |
+| `hwcheck` | reprint hart 1's boot report |
+| `md ADDR [WORDS]`, `mw ADDR VALUE` | 32-bit reads/writes in the mapped regions. An address the device rejects prints `bus error` instead of trapping |
+| `regdump isp\|dma\|plic\|clint\|uart` | key registers of one IP |
+| `fpu test` | two tasks interleave FP work; results must equal the switch-free value bit for bit |
+| `dma test [BYTES]` | SYS_DMA memory-to-memory copy with completion IRQ, data verified |
+| `isp selftest` | 8 synthetic 64×48 frames through the ISP driver; every NV12 CRC must match the reference |
+| `isp run` | process the RAW job loaded into DDR (`run_vp.sh isp`), result block for the host |
+| `isp stats` | AEC/AWB/AF statistics of the last frame |
+| `selftest` | hwcheck report + `fpu test` + `dma test` + `isp selftest` |
+| `poweroff` | end the simulation: PASS if no check failed so far, otherwise FAIL `0x400 + failures` |
+
+## Running your own image
+
+```bash
+FX1_FW=path/to/app.elf sw/bootloader/test/VP_FX1_V3.0/run_vp.sh run --timeout-ms 5000
+vp/bin/VP_FX1_V3.0/fx1_soc --fw app.elf --timeout-ms 5000 --uart-log uart.log
+```
+
+The image is one ELF linked at `0x8000_0000`; both harts start at its entry.
+The firmware ends a run by writing a verdict to the VP-only sim-control
+device: `fx1_pass()` or `fx1_fail(code)` in the BSP.
+
+**`fx1_soc` options:**
+
+| Option | Meaning |
+|---|---|
+| `--fw ELF` | image to load into DDR (required) |
+| `--timeout-ms N` | simulated-time budget, default 1000; `0` = no limit |
+| `--realtime` | never let simulated time run ahead of wall time (interactive use) |
+| `--uart-log FILE`, `--quiet-uart` | copy the console to FILE; do not print it |
+| `--uart0-socket PORT [--uart0-wait]` | console over TCP on 127.0.0.1:PORT; optionally wait for the client before starting |
+| `--uart0-rx-file FILE [--uart0-rx-delay-us N]` | type FILE into the UART after N µs of simulated time (scripted sessions) |
+| `--load ADDR:FILE`, `--dump ADDR:LEN:FILE` | copy host data into DDR before reset; write DDR to a file after the run (at `poweroff`) |
+| `--quantum-ns N` | TLM quantum, a multiple of 10 ns (default 1000) |
+| `--trace` | bus trace |
+| `--version` | build identity: package, CDC-VP revision, build type, VP++ pin |
+
+**Exit status:**
+
+| Status | Meaning |
+|---|---|
+| 0 | PASS |
+| 1 | FAIL (the firmware reported a code) |
+| 2 | timeout without a verdict |
+| 3 | simulator or integration error |
+| 4 | usage error |
+
+## ISP samples
+
+| Sample | Frame | Status |
+|---|---|---|
+| `d65` (default) | `D65_raw_2688x1520_5376.raw`, a ColorChecker under D65, 2688×1520 BGGR 10-bit | Apache-2.0 project asset, cleared for distribution |
+| `outdoor1` | `khoid_outdoor1_raw_2688x1520_5376.raw`, outdoor scene, same format | **Internal use only**: not cleared for public release. Do not redistribute outside the project |
+
+**Common to both samples:**
+
+- **Profile:** a 'full' *test* profile computed from the frame itself; it is
+  not a sensor calibration.
+- **Output:** 1920×1080 NV12.
+- **Files:** each sample's `SAMPLE.txt` records the RAW SHA-256, the profile
+  and the expected NV12 SHA-256.
+
+**After a run:**
+
+- **`DMA_ERR 0x2`** (`IDMA_UNDERRUN`) is expected: no next frame was queued.
+- **The preview** uses the same inverse transform as the ISP team's tool. It
+  is a visual check; the pass/fail criterion is the SHA-256.
+
+## Integrity and provenance
+
+```bash
+sha256sum -c vp/doc/VP_FX1_V3.0/SHA256SUMS
+vp/bin/VP_FX1_V3.0/fx1_soc --version
+```
+
+- **`SHA256SUMS`** covers every delivered file that the SDK repository tracks.
+  The firmware outputs under `build/` are excluded, because every user rebuilds
+  them.
+- **`BUILD_MANIFEST.json`** records:
+  - the CDC-VP revision, and whether the tree was clean;
+  - the compilers;
+  - the VP++ pin and patch series, and the FreeRTOS pin;
+  - the memory and IRQ map, the samples and their expected hashes;
+  - the SHA-256 of every binary, including the packaged firmware ELF.
+
+## Limits
+
+- **Placeholder map.** The memory map, IRQ IDs and `mtime` rate are VP
+  placeholders, pending the HAS. Use the header, never literals, so a map
+  update is a rebuild.
+- **Functional, not timing-accurate.** Use the VP to validate register
+  semantics, interrupt ordering and data movement, not cycle counts or WCET.
+- **Single-core FreeRTOS.** Hart 1 is not scheduled; use it bare-metal if
+  needed. There is no tickless idle; the idle task executes `wfi`.
+- **No caches.** `fx1_dma_prepare()` / `fx1_dma_complete()` are no-ops in the
+  VP. Call them anyway: silicon will need them.
+
+## Licences
+
+`licenses/` holds every licence the binaries and sources require:
+
+- the CDC-VP model code (Apache-2.0, with `CDC-VP-NOTICE.txt`);
+- RISC-V VP++ (MIT) and Berkeley SoftFloat 3d (BSD-3-Clause), both statically
+  linked into `fx1_soc`;
+- SystemC (Apache-2.0), shipped as `libsystemc`;
+- FreeRTOS-Kernel (MIT), in the firmware sources.
+
+Keep `licenses/` with the tree whenever it is passed on.

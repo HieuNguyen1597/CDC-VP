@@ -4,8 +4,7 @@
 One 4x4 job packs to a 24-byte NV12 and a PNG; every damaged result block,
 dump, job or preview must make the script exit 2 and leave no platform.nv12
 or platform.png behind. No simulator is needed: the dumps are written here
-the way fx1_soc --dump writes them. Needs python3 with numpy and Pillow (the
-preview tool).
+the way fx1_soc --dump writes them. Python stdlib only, like isp_pack.py.
 """
 import os
 import shutil
