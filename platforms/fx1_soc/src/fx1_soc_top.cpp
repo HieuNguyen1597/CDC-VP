@@ -1,6 +1,8 @@
 #include "fx1_soc_top.h"
 
+#include <chrono>
 #include <fstream>
+#include <thread>
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
@@ -19,6 +21,7 @@
 #include <fx1_isp/fx1_isp_tlm.h>
 #include <riscv_vp_plusplus_wrapper.h>
 #include <uart.h>
+#include <uart_host_bridge.h>
 
 namespace cdc::platforms::fx1_soc {
 namespace {
@@ -80,6 +83,7 @@ struct fx1_soc_top::impl : sc_core::sc_module {
     // guest access fault before it can overrun the payload buffer.
     fx1::WordAccessGuard uart_guard;
     UartTLM uart;
+    cdc::components::uart_host_bridge uart_host; // host -> UART RX (socket / replay)
     fx1::SimControl sim;
     // Plan C7: one monitor for the address space. Declared before the CPUs and
     // the guards that refer to it, so it outlives them.
@@ -118,6 +122,7 @@ struct fx1_soc_top::impl : sc_core::sc_module {
         , plic("plic", FX1_PLIC_NUM_SOURCES, FX1_NUM_HARTS, FX1_PLIC_PRIORITY_MAX)
         , uart_guard("uart_guard")
         , uart("uart")
+        , uart_host("uart_host")
         , sim("sim_control", true, FX1_SIM_CTRL_IRQ_LINES)
         , monitor(FX1_NUM_HARTS, FX1_RESERVATION_GRANULE)
         , sys_dma_guard("sys_dma_guard", monitor, kMasterSysDma)
@@ -156,6 +161,13 @@ struct fx1_soc_top::impl : sc_core::sc_module {
         isp_odma_guard.out.bind(fabric.initiator("ISP_ODMA"));
         isp.rst_n(isp_rst_n);
         uart.tx(uart_tx);
+        uart_host.rx_out(uart.rx);
+        uart_host.tx_in(uart_tx);
+        if (!options.uart_rx_file.empty())
+            uart_host.replay_file(options.uart_rx_file,
+                                  sc_core::sc_time(static_cast<double>(options.uart_rx_delay_us), sc_core::SC_US));
+        if (options.uart_socket >= 0)
+            uart_host.listen_on(static_cast<std::uint16_t>(options.uart_socket), options.uart_wait);
 
         // Interrupt sources (fx1_memory_map.h): 1 UART, 2 SYS_DMA, 3 ISP;
         // 4..7 are the VP-only test lines.
@@ -200,6 +212,7 @@ struct fx1_soc_top::impl : sc_core::sc_module {
         sensitive << uart_tx;
         dont_initialize();
         SC_THREAD(power_on_reset);
+        if (options.realtime) SC_THREAD(pace_to_wall_clock);
     }
 
     // Hold SYS_DMA and the ISP in reset for a short pulse after power-up,
@@ -211,6 +224,21 @@ struct fx1_soc_top::impl : sc_core::sc_module {
         wait(kDmaResetPulse);
         dma_reset_n.write(true);
         isp_rst_n.write(true);
+    }
+
+    // --realtime: every millisecond of simulated time, sleep the host until
+    // wall-clock time has caught up. A simulation slower than real time is
+    // never slowed further.
+    void pace_to_wall_clock()
+    {
+        const auto start = std::chrono::steady_clock::now();
+        for (;;) {
+            wait(sc_core::sc_time(1, sc_core::SC_MS));
+            const auto due = start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                         std::chrono::duration<double>(sc_core::sc_time_stamp().to_seconds()));
+            const auto now = std::chrono::steady_clock::now();
+            if (due > now) std::this_thread::sleep_for(due - now);
+        }
     }
 
     void add_forward(cdc::cpu::cpu_base& cpu, sc_core::sc_signal<bool>& line, unsigned cause)
@@ -259,6 +287,20 @@ void fx1_soc_top::dump_ddr(std::uint64_t address, std::uint64_t length, const st
     std::ofstream out(path, std::ios::binary);
     out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     if (!out) throw std::runtime_error("fx1_soc: cannot write " + path);
+}
+
+void fx1_soc_top::load_ddr(std::uint64_t address, const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) throw std::runtime_error("fx1_soc: cannot read " + path);
+    const auto size = static_cast<std::uint64_t>(in.tellg());
+    if (address < FX1_DDR_BASE || !impl_->ddr.storage().contains(address - FX1_DDR_BASE, size))
+        throw std::out_of_range("fx1_soc: --load " + path + " does not fit in DDR at that address");
+    std::vector<std::uint8_t> bytes(size);
+    in.seekg(0);
+    in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
+    if (!in) throw std::runtime_error("fx1_soc: short read of " + path);
+    impl_->ddr.storage().write(address - FX1_DDR_BASE, bytes.data(), bytes.size());
 }
 
 std::string fx1_soc_top::atomics_report() const

@@ -208,6 +208,25 @@ void MasterTB::test_thread()
     do_transaction(tlm::TLM_READ_COMMAND, host0_base + UARTRIS, data);
     assert_equal("CASE 7c: RXRIS at 1/8 trigger (2 entries)", UART_RXRIS, (data & UART_RXRIS));
 
+    // CASE 8: control registers read back (PL011 RW), with their widths and
+    // the CR reset value.
+    do_transaction(tlm::TLM_READ_COMMAND, host0_base + UARTCR, data);
+    assert_equal("CASE 8a: UARTCR reset (TXE|RXE)", UART_CR_RESET, data);
+    const struct { uint32_t off; uint32_t written; uint32_t expected; const char* name; } rw[] = {
+        {UARTIBRD, 0x12345, 0x2345, "CASE 8b: UARTIBRD readback (16 bit)"},
+        {UARTFBRD, 0xFF, 0x3F, "CASE 8c: UARTFBRD readback (6 bit)"},
+        {UARTLCR_H, 0x170, 0x70, "CASE 8d: UARTLCR_H readback (8 bit)"},
+        {UARTCR, 0x10301, 0x0301, "CASE 8e: UARTCR readback (16 bit)"},
+        {UARTCR, 0x0378, 0x0300, "CASE 8f: UARTCR reserved bits [6:3] read as 0"},
+        {UARTCR, 0xFFFFFFFF, 0xFF87, "CASE 8g: UARTCR all ones -> implemented bits only"},
+    };
+    for (const auto& r : rw) {
+        data = r.written;
+        do_transaction(tlm::TLM_WRITE_COMMAND, host0_base + r.off, data);
+        do_transaction(tlm::TLM_READ_COMMAND, host0_base + r.off, data);
+        assert_equal(r.name, r.expected, data);
+    }
+
     cout << "Tests Complete! Failures: " << std::dec << failure_count() << endl;
     sc_stop();
 }

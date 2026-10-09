@@ -25,6 +25,7 @@ UartTLM::UartTLM(sc_module_name name, sc_core::sc_time rx_timeout)
     // clear regs
     bzero((void *)&regs, sizeof(regs));
     regs.uartifls = UART_IFLS_RESET; // 1/2,1/2 trigger levels at reset
+    regs.uartcr = UART_CR_RESET;     // TXE | RXE, as PL011
     set(regs.uartfr, UART_TXFE);
     set(regs.uartfr, UART_RXFE);
 }
@@ -115,6 +116,25 @@ uint32_t UartTLM::busRead(uint32_t uaddr)
         res = regs.uartifls;
         break;
     }
+    // Control registers read back what was written (PL011: RW). They used to
+    // read 0, so a driver's read-modify-write behaved differently than on
+    // silicon (found by the FX1 hart-1 boot IP check).
+    case UARTIBRD: {
+        res = regs.uartibrd;
+        break;
+    }
+    case UARTFBRD: {
+        res = regs.uartfbrd;
+        break;
+    }
+    case UARTLCR_H: {
+        res = regs.uartlcr_h;
+        break;
+    }
+    case UARTCR: {
+        res = regs.uartcr;
+        break;
+    }
     case UARTIMSC: {
         res = regs.uartimsc;
         break;
@@ -174,11 +194,19 @@ void UartTLM::busWrite(uint32_t uaddr, uint32_t wdata)
         break;
     }
     case UARTCR: {
-        regs.uartcr = wdata;
+        regs.uartcr = wdata & UART_CR_MASK;
         break;
     }
     case UARTLCR_H: {
-        regs.uartlcr_h = wdata;
+        regs.uartlcr_h = wdata & UART_LCRH_MASK;
+        break;
+    }
+    case UARTIBRD: {
+        regs.uartibrd = wdata & UART_IBRD_MASK;
+        break;
+    }
+    case UARTFBRD: {
+        regs.uartfbrd = wdata & UART_FBRD_MASK;
         break;
     }
     default: break;

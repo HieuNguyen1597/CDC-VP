@@ -8,7 +8,7 @@ Plan and decisions: `VP_BK/ISP/plan/FX1_PLATFORM_FIX_PLAN.md` section 7 (outside
 **New to the platform? Start with [docs/FW_GETTING_STARTED.md](docs/FW_GETTING_STARTED.md)**
 (build, run, write firmware, get RAW/YUV out, debug). This README is the reference.
 
-## Status — stage G5 (handoff)
+## Status — stage G6 (FreeRTOS + CLI; packaging next)
 
 | Block | Model | State |
 |---|---|---|
@@ -62,7 +62,8 @@ It sets every test option the gate needs (a reused build directory whose
 cache turned one off is corrected) and refuses to run when a test listed in
 `ci/required_tests.txt` for a stage that runs is not registered, or when that
 manifest is missing, unreadable or empty; add new required tests there. The
-full run needs `python3` with numpy (the regression stage's fixture check);
+full run needs `python3` with numpy and Pillow (the regression stage's fixture
+and demo-pack checks);
 `--smoke-only` does not:
 
 ```bash
@@ -77,7 +78,7 @@ cmake -S . -B build-fx1 -G Ninja -DCMAKE_BUILD_TYPE=Release -DSYSTEMC_HOME=/opt/
       -DCDC_BUILD_FX1_SOC=ON -DFX1_SOC_BUILD_FIRMWARE=ON -DCDC_BUILD_TESTS=ON
 cmake --build build-fx1 -j1 --target fx1_all
 ctest --test-dir build-fx1 -L "fx1_unit|fx1_smoke" --output-on-failure --no-tests=error
-ctest --test-dir build-fx1 -R '^(bus_behavior|bus_config|bus_arbitration)$' --no-tests=error
+ctest --test-dir build-fx1 -R '^(bus_behavior|bus_config|bus_arbitration|uart2_tlm|uart_host_bridge)$' --no-tests=error
 ctest --test-dir build-fx1 -L fx1_regression --output-on-failure --no-tests=error
 ```
 
@@ -93,6 +94,7 @@ neither the Bremen `riscv-vp` checkout nor `cpu_models/cva6_vp`.
 
 It does need:
 - the pinned VP++ checkout in `third_party/riscv-vp-plusplus`; see `cpu_models/riscv_vp_plusplus/fetch_riscv_vp_plusplus.sh`;
+- with firmware on, FreeRTOS-Kernel V11.2.0 in `third_party/FreeRTOS-Kernel`, fetched at its pin by `tools/third_party/setup_third_party.sh`. `third_party/` is gitignored, so a fresh clone does not contain it. Configure stops with this hint when the kernel is missing or is another version;
 - Boost headers.
 
 ### Firmware toolchain policy
@@ -112,9 +114,25 @@ use `ctest --no-tests=error`. The host compiler never builds firmware.
 ```bash
 build-fx1/platforms/fx1_soc/fx1_soc --fw build-fx1/fw/fx1_soc/hello_2hart.elf \
     [--timeout-ms 1000] [--quantum-ns 1000] [--uart-log uart.txt] [--quiet-uart] [--trace] \
-    [--no-exclusive-monitor] \
+    [--no-exclusive-monitor] [--load ADDR:FILE ...] \
+    [--uart0-socket PORT [--uart0-wait]] [--uart0-rx-file FILE [--uart0-rx-delay-us N]] [--realtime] \
     [--dump ADDR:LEN:FILE ...]   # e.g. --dump 0x88006000:3072:y.bin (DDR bytes after the run)
 ```
+
+UART input from the host (`components/uart_host_tlm`): `--uart0-socket PORT`
+serves the console on 127.0.0.1:PORT (connect with `nc 127.0.0.1 PORT`;
+`--uart0-wait` holds the simulation until the client connects), and
+`--uart0-rx-file FILE` injects a file into RX, starting `--uart0-rx-delay-us`
+of simulated time after reset (deterministic, for CI). For an interactive
+console use `--timeout-ms 0` (no simulated-time limit) and `--realtime`
+(simulated time never runs ahead of wall-clock time; an idle system otherwise
+races about 7× ahead and a finite budget ends the session within minutes), and
+connect with `tools/fx1_console.sh PORT` (raw terminal, no doubled echo). The FreeRTOS CLI
+firmware uses both: [`../../fw/fx1_soc/freertos/README.md`](../../fw/fx1_soc/freertos/README.md).
+
+`--load` copies a host file into DDR before reset (the ISP RAW-frame demo,
+[`demo/README.md`](demo/README.md), uses it to process a real camera frame on
+the whole platform).
 
 Every run prints one line of exclusive-monitor counters (`[fx1_soc] atomics:`).
 `--no-exclusive-monitor` falls back to upstream VP++'s bus-lock model, where no
@@ -280,8 +298,14 @@ Exit status:
 | `fx1_faulting_lr` | Plan C7: a real VP++ hart and the real monitor on a RAM that faults the first LR's load: after the trap the SC fails and writes nothing; a following LR/SC pair succeeds |
 | `fx1_smoke_isp_recovery` | Plan P5, real bus errors through an unmapped buffer address. A: ODMA AXI error on output 1 → firmware repairs the address, `fx1_isp_recover_ex` frees it again, the lost frame is reported by `fx1_isp_next_lost` and resubmitted; all 8 frames complete exactly once with the reference CRC, exactly one loss, a second recover with the same snapshot is a no-op. B: IDMA AXI error on input 2 → repair, recover re-arms it, the frame is retried, no loss. C: soft reset while the first input is still being read (both frame counters unchanged at the abort) → no completion, no ODMA progress and no DONE report afterwards; restart from buffer 0, 8 frames correct. D: `fx1_isp_stop` at the same point discards exactly one frame, nothing completes afterwards; start again, 8 frames correct. Every phase ends with nothing in flight, no fatal DMA_ERR and the ISP line low |
 | `fx1_smoke_dma_recovery` | SYS_DMA: WRITE_DECERR (unmapped destination) and READ_DECERR (unmapped source) with no completion and the channel inactive, then a re-armed copy on the same channel succeeds; a chain whose second command fails completes the first (data checked) and reports the error; an error on channel 0 leaves a concurrent channel-1 copy intact; a 16-command chain paused with `CH_ENABLE = 0` after 2 commands stops progressing and resumes to exactly 16 completed commands with correct data; the IRQ line is low at the end |
+| `fx1_smoke_uart_rx_q*ns` | UART RX from the host (`--uart0-rx-file`): one line received by polling `FR.RXFE`, one by the RX/receive-timeout interrupt through PLIC source 1 (cleared at the UART before the PLIC complete) |
+| `fx1_smoke_freertos_cli_q*ns` | FreeRTOS V11.2.0 + CLI ([`fw/fx1_soc/freertos`](../../fw/fx1_soc/freertos/README.md)) with a scripted console session: hart 1's boot IP check with 0 failures, then system, memory/register, `fpu test` (FP context switch), `dma test`, `isp selftest`, `selftest` and `poweroff` with PASS |
+| `fx1_smoke_freertos_cli_bad_input` | Bad `md`/`mw` input must be reported while the CLI keeps running: numbers above 32 bits, ranges that wrap past 4 GiB or a region end, and CLINT/PLIC register holes that fault on the bus (`bus error`, no trap) |
+| `fx1_smoke_freertos_cli_hwcheck_fail` | The boot gate: an image with an injected IP-check failure must halt before the scheduler with code 0x50 |
+| `uart2_tlm`, `uart_host_bridge` | The UART model and the host bridge FX1 uses (CI components stage). `uart2_tlm` includes the PL011 control-register readback the hart-1 IP check found missing (`CR`, `LCR_H`, `IBRD`, `FBRD` used to read 0), with `CR` reserved bits [6:3] reading 0 |
 | `fx1_smoke_example_quickstart` | The handoff example (`fw/fx1_soc/examples/quickstart`): two-hart hello, a CLINT timer interrupt, a SYS_DMA copy with its PLIC interrupt and the ownership calls |
 | `fx1_regression_isp_fixture_check` | `gen_fixture.py --check`: the committed fixture still matches the reference. Registered only when `python3` on PATH has numpy; the smoke tests never need Python |
+| `fx1_regression_isp_demo_pack` | `demo/tests/test_pack.py`: `run_isp_demo.py --pack-only` on synthetic 4×4 dumps. A valid job gives a 24-byte NV12 and a PNG. A short or long dump, a bad result block, a bad stride or geometry, an incomplete frame, a wrong or missing `job.bin`, another profile, or a failing preview must exit 2 and leave no output. Needs numpy and Pillow |
 | `fx1_smoke_bus_fault` | Fetch, load and store faults with exact `mcause`/`mepc`/`mtval`; a store to BootROM faults and leaves the ROM unchanged |
 | `*_q10us` | Every smoke image is run again with a 10 µs quantum and must give the same verdict (plan C11) |
 | `fx1_regression_perf_loop_q*ns` | Two-hart integer and memory loop. Checksums must equal independently computed references (0x1762a79a, 0x124d31b2). Prints host MIPS: about 3.5 MIPS with both harts in a Release build (about half that unoptimised), either quantum, depending on host load |

@@ -47,6 +47,14 @@
 
 // UARTIFLS field encodings: TXIFLSEL[2:0], RXIFLSEL[5:3]. Reset 0x12 = 1/2,1/2.
 #define UART_IFLS_RESET 0x12
+// PL011 control registers: implemented widths and reset values (PL011 TRM).
+// The model stores and returns them; it does not act on the line settings.
+#define UART_IBRD_MASK  0xFFFF
+#define UART_FBRD_MASK  0x3F
+#define UART_LCRH_MASK  0xFF
+// CR: [15:7] CTSEn..LBE and [2:0] SIRLP/SIREN/UARTEN; [6:3] reserved, read as 0.
+#define UART_CR_MASK    0xFF87
+#define UART_CR_RESET   0x0300 // TXE | RXE
 #define UART_FIFO_DEPTH 16
 
 class UartTLM : public sc_core::sc_module {

@@ -15,6 +15,16 @@ struct fx1_soc_options {
     // Mirror of the UART TX stream; empty for none.
     std::string uart_log;
     bool uart_stdout = true;
+    // UART RX from the host (components/uart_host_tlm): a TCP console on
+    // 127.0.0.1:<uart_socket> (-1: off; with uart_wait the run waits for the
+    // client at t=0), and/or bytes replayed from uart_rx_file starting at
+    // uart_rx_delay_us of simulated time (deterministic, for CI).
+    int uart_socket = -1;
+    // Throttle: simulated time never runs ahead of wall-clock time.
+    bool realtime = false;
+    bool uart_wait = false;
+    std::string uart_rx_file;
+    unsigned uart_rx_delay_us = 0;
     // Print every routed bus transaction.
     bool bus_trace = false;
     // Plan C7 exclusive monitor: real LR/SC reservations shared with SYS_DMA
@@ -40,6 +50,10 @@ public:
     // Copy `length` bytes of DDR at global `address` into `path` (debug
     // artifacts such as ISP NV12 output). Throws if out of range or unwritable.
     void dump_ddr(std::uint64_t address, std::uint64_t length, const std::string& path) const;
+    // Copy the file at `path` into DDR at global `address`, before the
+    // simulation starts (host-provided data such as a RAW frame or a job
+    // descriptor). Throws if out of range or unreadable.
+    void load_ddr(std::uint64_t address, const std::string& path);
     // One line of exclusive-monitor counters ("off" without a monitor).
     std::string atomics_report() const;
 

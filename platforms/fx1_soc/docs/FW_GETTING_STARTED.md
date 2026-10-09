@@ -36,6 +36,8 @@ contract, the test list and the limitations, is
 | SystemC | 2.3.4 in `/opt/systemc-2.3.4` | Elsewhere: `-DSYSTEMC_HOME=<prefix>` |
 | RISC-V cross toolchain | xPack `riscv-none-elf-gcc` 15.2 in `/opt/toolchains/riscv-none-elf` | Elsewhere: `RISCV_HOME=<dir>` or `-DFX1_RISCV_PREFIX=<dir>/bin/riscv-none-elf-` |
 | RISC-V VP++ sources | pinned, patched checkout in `third_party/riscv-vp-plusplus` | Run `cpu_models/riscv_vp_plusplus/fetch_riscv_vp_plusplus.sh` once |
+| FreeRTOS-Kernel | V11.2.0 (`0adc196`) in `third_party/FreeRTOS-Kernel`, for the FreeRTOS CLI image | Run `tools/third_party/setup_third_party.sh` once (gitignored, not in a fresh clone). Configure stops if it is missing or another version; elsewhere: `-DFX1_FREERTOS_KERNEL_DIR=<dir>` |
+| Python 3 + Pillow | with numpy, for `fx1_regression_isp_demo_pack` and the demo's PNG preview | Not needed to build or run firmware |
 | Python 3 + numpy | `python3` on `PATH` with numpy | Needed by the full CI gate (`fx1_regression_isp_fixture_check` in the regression stage), to regenerate ISP fixtures and to preview NV12. Not needed to build or run firmware, nor by `run_ci.sh --smoke-only` |
 
 Put `/usr/bin` first on `PATH` and use the system compilers. Some hosts carry
@@ -58,8 +60,9 @@ platforms/fx1_soc/ci/run_ci.sh                     # build dir: build-fx1-ci, -j
 platforms/fx1_soc/ci/run_ci.sh --smoke-only --jobs 4
 ```
 
-- **Stages:** configure, build of target `fx1_all`, smoke (labels `fx1_unit`
-  and `fx1_smoke`, plus the bus tests), regression (label `fx1_regression`).
+- **Stages:** configure, required-test manifest check, build of target
+  `fx1_all`, smoke (labels `fx1_unit` and `fx1_smoke`), components (the FX1
+  bus and UART model tests, by name), regression (label `fx1_regression`).
 - **Outputs:** `build-fx1-ci/fx1-ci-artifacts/` receives a summary, JUnit XML
   per stage, the ctest logs, and every firmware UART log.
 - **Exit status:** 0 means every stage passed.
@@ -107,11 +110,15 @@ Expected output, between the SystemC banner and the summary:
 | Option | Meaning |
 |---|---|
 | `--fw <elf>` | Image to load into DDR (required). Every hart starts at its entry |
-| `--timeout-ms N` | Simulated-time budget, default 1000 |
+| `--timeout-ms N` | Simulated-time budget, default 1000; `0` = no limit |
+| `--realtime` | Simulated time never runs ahead of wall-clock time (interactive consoles) |
 | `--quantum-ns N` | TLM quantum, multiple of 10 ns, default 1000. Results must not depend on it; the smoke tests run 1 µs and 10 µs |
 | `--uart-log FILE` | Copy of the console |
 | `--quiet-uart` | No console on stdout |
 | `--trace` | Print every bus transaction (time, port, initiator, address, target) |
+| `--load ADDR:FILE` | Before reset, copy `FILE` into DDR at `ADDR` (repeatable): host data such as a RAW frame |
+| `--uart0-socket PORT` (`--uart0-wait`) | UART console on TCP 127.0.0.1:PORT; connect with `nc`. With `--uart0-wait` the run waits for the client |
+| `--uart0-rx-file FILE` (`--uart0-rx-delay-us N`) | Inject `FILE` into UART RX, starting N µs of simulated time after reset (scripted console input) |
 | `--dump ADDR:LEN:FILE` | After the run, write `LEN` bytes of DDR at `ADDR` to `FILE` (repeatable) |
 | `--no-exclusive-monitor` | Upstream VP++ LR/SC model. Negative controls only |
 
@@ -222,7 +229,31 @@ The rules people trip over:
   store/AMO → 7, with `mtval` set to the address. A model that never answers
   is a simulator error (exit 3), not a guest fault.
 
-## 7. Drivers and examples to start from
+## 7. FreeRTOS and the CLI
+
+`fw/fx1_soc/freertos` contains FreeRTOS V11.2.0 on hart 0 with a UART CLI.
+- **Hart 1 at boot:** a bare-metal IP check; any failure halts the boot.
+- **FP context:** f0–f31 and `fcsr` are saved per task.
+- **Commands:** cover the system, memory and registers, ISP, SYS_DMA and a
+  `selftest`.
+
+Run it interactively:
+
+```bash
+build-fx1/platforms/fx1_soc/fx1_soc --fw build-fx1/fw/fx1_soc/freertos_cli.elf \
+    --uart0-socket 5000 --uart0-wait --timeout-ms 0 --realtime
+platforms/fx1_soc/tools/fx1_console.sh 5000     # second terminal, then type: help
+```
+
+`--timeout-ms 0` removes the simulated-time limit (end with `poweroff`).
+`--realtime` keeps simulated time at wall-clock pace while the system is
+idle; without it, idle time runs about 7× faster than real time.
+
+See [`../../../fw/fx1_soc/freertos/README.md`](../../../fw/fx1_soc/freertos/README.md)
+for the boot sequence, the command list, how to add a command and how
+interrupts reach tasks.
+
+## 8. Drivers and examples to start from
 
 | Topic | Where |
 |---|---|
@@ -260,7 +291,7 @@ The `--check` step is the `fx1_regression_isp_fixture_check` test, registered
 when numpy is available. These are project reference values, not silicon
 golden data.
 
-## 8. Get RAW and YUV out of a run
+## 9. Get RAW and YUV out of a run
 
 `--dump` copies DDR to files after the run. The ISP tests use 4 buffer slots of
 0x2000 bytes:
@@ -282,7 +313,22 @@ python3 components/FX1_Components/isp/tools/nv12_preview.py \
 After the 8-frame stream, slot `i` holds frame `i + 4`, because each buffer is
 used twice. A preview that looks right is not a pass criterion; the CRCs are.
 
-## 9. Debugging
+### A real RAW frame through the whole platform
+
+`--load ADDR:FILE` is the other direction of `--dump`: the simulator copies a
+host file into DDR before reset. The ISP demo uses it to process a real camera
+frame. The host loads the RAW, a register profile and a job descriptor; the
+firmware on hart 0 drives the ISP through the driver; the host takes the NV12
+back and compares it with the stand-alone ISP model:
+
+```bash
+platforms/fx1_soc/demo/run_isp_demo.py --raw <frame.raw> --build-dir build-fx1 --out /tmp/isp_demo
+```
+
+See [`../demo/README.md`](../demo/README.md) for the options, the outputs and
+the DDR layout.
+
+## 10. Debugging
 
 - **Read the FAIL code.** `RESULT FAIL code=0xNN` is the code your firmware
   passed to `fx1_check()` or `fx1_fail()`. The test prints what it checked on
@@ -298,7 +344,7 @@ used twice. A preview that looks right is not a pass criterion; the CRCs are.
 - **Quanta.** If a result changes between `--quantum-ns 1000` and `10000`,
   you have a race in your firmware or a VP time-model bug. Report it.
 
-## 10. Known limitations
+## 11. Known limitations
 
 The authoritative list is [`../README.md`](../README.md), "Limitations". In
 short:

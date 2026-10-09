@@ -1,0 +1,20 @@
+help
+version
+hwcheck
+uptime
+tasks
+heap
+md 0x11000000 4
+mw 0x90200000 0x12345678
+md 0x90200000 1
+md 0x60000000 1
+regdump isp
+regdump plic
+fpu test
+dma test 1023
+isp selftest
+isp stats
+isp run
+nosuchcommand
+selftest
+poweroff

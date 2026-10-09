@@ -21,7 +21,8 @@ target_link_libraries(fx1_soc PRIVATE
     cdc::components::fx1_sim_control
     cdc::components::fx1_dma
     cdc::components::fx1_isp_tlm
-    cdc::components::uart2_tlm)
+    cdc::components::uart2_tlm
+    cdc::components::uart_host_tlm)
 
 # Negative integration harness (review G2-R2): real VP++ hart + silent target.
 # Its firmware image and ctest registration live in fw/fx1_soc.
@@ -75,6 +76,8 @@ function(_fx1_collect_targets out dir)
 endfunction()
 function(_fx1_finish_all)
     set(_dirs "${CMAKE_SOURCE_DIR}/components/FX1_Components"
+              "${CMAKE_SOURCE_DIR}/components/uart2_tlm"
+              "${CMAKE_SOURCE_DIR}/components/uart_host_tlm"
               "${CMAKE_SOURCE_DIR}/cpu_models/riscv_vp_plusplus"
               "${CMAKE_SOURCE_DIR}/platforms/fx1_soc")
     if(FX1_SOC_BUILD_FIRMWARE)

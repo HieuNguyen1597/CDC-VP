@@ -16,9 +16,11 @@
 #                 before building (a gate that silently runs fewer tests must
 #                 not report PASS). FX1_CI_MANIFEST=<file> overrides the path.
 #   3. build      target fx1_all only (see platforms/fx1_soc/CMakeLists.txt)
-#   4. smoke      ctest -L "fx1_unit|fx1_smoke", plus the FX1 bus tests
+#   4. smoke      ctest -L "fx1_unit|fx1_smoke", plus the components stage:
+#                 the FX1 bus tests and the UART models FX1 uses (by name)
 #   5. regression ctest -L fx1_regression (skipped with --smoke-only); needs
-#                 python3 with numpy (fx1_regression_isp_fixture_check)
+#                 python3 with numpy (fx1_regression_isp_fixture_check) and
+#                 Pillow (fx1_regression_isp_demo_pack)
 #
 # Every ctest stage runs with --no-tests=error and writes JUnit XML. Artifacts
 # go to <build-dir>/fx1-ci-artifacts: junit-*.xml, ctest logs, every firmware
@@ -86,7 +88,7 @@ stage configure cmake -S "${ROOT}" -B "${BUILD}" -G Ninja \
     || { log "configure failed: no build, no tests"; exit 1; }
 
 SMOKE_SEL=(-L "fx1_unit|fx1_smoke")
-BUS_SEL=(-R '^(bus_behavior|bus_config|bus_arbitration)$')
+COMPONENTS_SEL=(-R '^(bus_behavior|bus_config|bus_arbitration|uart2_tlm|uart_host_bridge)$')
 REGRESSION_SEL=(-L fx1_regression)
 MANIFEST="${FX1_CI_MANIFEST:-${ROOT}/platforms/fx1_soc/ci/required_tests.txt}" # override: tests of the gate itself
 # Fails (nonzero) whenever it cannot prove that every required test of the
@@ -94,9 +96,10 @@ MANIFEST="${FX1_CI_MANIFEST:-${ROOT}/platforms/fx1_soc/ci/required_tests.txt}" #
 # unreadable or empty manifest, no entries, an entry outside a known section,
 # a ctest listing that fails, or a required name that is not selected. With
 # --smoke-only the regression section is not checked (that stage does not run;
-# its isp_fixture_check test needs python3 with numpy).
+# its isp_fixture_check and isp_demo_pack tests need python3 with numpy and
+# Pillow).
 check_manifest() {
-    local -a lines=() stages=(smoke bus)
+    local -a lines=() stages=(smoke components)
     [ ${SMOKE_ONLY} -eq 0 ] && stages+=(regression)
     if [ ! -f "${MANIFEST}" ] || [ ! -r "${MANIFEST}" ] || [ ! -s "${MANIFEST}" ]; then
         echo "manifest ${MANIFEST}: missing, unreadable or empty"
@@ -122,7 +125,7 @@ check_manifest() {
             ''|'#'*) continue ;;
             '['*']')
                 section="${line:1:${#line}-2}"
-                case "${section}" in smoke|bus|regression) ;; *)
+                case "${section}" in smoke|components|regression) ;; *)
                     echo "manifest: unknown section [${section}]"; return 1 ;;
                 esac
                 continue ;;
@@ -154,7 +157,7 @@ stage build cmake --build "${BUILD}" --target fx1_all -j "${JOBS}" \
 
 CTEST=(ctest --test-dir "${BUILD}" --no-tests=error -j "${JOBS}" --output-on-failure)
 stage smoke "${CTEST[@]}" "${SMOKE_SEL[@]}" --output-junit "${ART}/junit-smoke.xml"
-stage bus "${CTEST[@]}" "${BUS_SEL[@]}" --output-junit "${ART}/junit-bus.xml"
+stage components "${CTEST[@]}" "${COMPONENTS_SEL[@]}" --output-junit "${ART}/junit-components.xml"
 if [ ${SMOKE_ONLY} -eq 0 ]; then
     stage regression "${CTEST[@]}" "${REGRESSION_SEL[@]}" --output-junit "${ART}/junit-regression.xml"
 else
@@ -165,7 +168,7 @@ fi
 cp -f "${BUILD}"/Testing/Temporary/LastTest*.log "${ART}/" 2>/dev/null
 mkdir -p "${ART}/uart"
 cp -f "${BUILD}"/fw/fx1_soc/*.uart.log "${ART}/uart/" 2>/dev/null
-for name in smoke bus regression; do # failed tests, from each stage's own log
+for name in smoke components regression; do # failed tests, from each stage's own log
     [ -f "${ART}/${name}.log" ] || continue
     failed="$(sed -n '/The following tests FAILED:/,$p' "${ART}/${name}.log" | grep -E '^[[:space:]]+[0-9]+ - ')"
     [ -n "${failed}" ] && { log "failed in ${name}:"; echo "${failed}" | tee -a "${SUMMARY}"; }

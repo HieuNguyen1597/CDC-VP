@@ -32,10 +32,11 @@ set(FX1_FW_COMMON_SOURCES ${FX1_FW_COMMON}/crt0.S ${FX1_FW_COMMON}/fx1_fw.c)
 set(FX1_FW_COMMON_DEPENDS ${FX1_FW_COMMON_SOURCES} ${FX1_FW_COMMON}/fx1_fw.h
     ${FX1_FW_MAP_INCLUDE}/fx1/fx1_memory_map.h ${FX1_FW_IP_INCLUDES}/dma/fx1_dma_regs.h ${FX1_FW_LDS})
 
-# fx1_firmware(<name> SOURCES <files...> [DEFINES d...] [INCLUDES dir...] [DEPENDS f...])
+# fx1_firmware(<name> SOURCES <files...> [DEFINES d...] [INCLUDES dir...] [DEPENDS f...]
+#              [CFLAGS flag...])
 #   -> ${CMAKE_CURRENT_BINARY_DIR}/<name>.elf
 function(fx1_firmware name)
-    cmake_parse_arguments(FW "" "" "SOURCES;DEFINES;INCLUDES;DEPENDS" ${ARGN})
+    cmake_parse_arguments(FW "" "" "SOURCES;DEFINES;INCLUDES;DEPENDS;CFLAGS" ${ARGN})
     set(elf "${CMAKE_CURRENT_BINARY_DIR}/${name}.elf")
     set(extra "")
     foreach(d ${FW_DEFINES})
@@ -44,6 +45,7 @@ function(fx1_firmware name)
     foreach(i ${FW_INCLUDES})
         list(APPEND extra -I${i})
     endforeach()
+    list(APPEND extra ${FW_CFLAGS})
     add_custom_command(
         OUTPUT ${elf}
         COMMAND ${FX1_FW_CC} ${FX1_FW_CFLAGS} ${extra} -nostdlib -nostartfiles
@@ -174,6 +176,85 @@ if(CDC_BUILD_TESTS)
         SOURCE ${_rec_dir}/isp_recovery.c EXTRA_SOURCES ${_isp_sources}
         INCLUDES ${_isp_includes} DEPENDS ${_isp_depends})
     fx1_smoke_test(dma_recovery TIMEOUT_MS 200 SOURCE ${_rec_dir}/dma_recovery.c)
+    # ISP RAW-frame demo (platforms/fx1_soc/demo/run_isp_demo.py): host-loaded
+    # RAW, profile and job descriptor; not a gate test (it needs a RAW frame).
+    set(_demo_dir ${CMAKE_CURRENT_SOURCE_DIR}/demo/isp_raw_frame)
+    fx1_firmware(isp_demo SOURCES ${_demo_dir}/main.c ${_isp}/driver/src/fx1_isp_drv.c
+        INCLUDES ${_isp}/driver/include ${_isp}/include ${_demo_dir}
+        DEPENDS ${_demo_dir}/isp_demo_job.h ${_isp}/driver/include/fx1_isp/fx1_isp_drv.h
+                ${_isp}/include/fx1_isp/fx1_isp_csr.h)
+    # Optional: the demo on a real RAW frame as a test, outside the gate (label
+    # fx1_demo). Point FX1_DEMO_RAW at a BGGR 2688x1520 le16_raw10_msb frame
+    # (e.g. the dataset's outdoor1); the NV12 must equal the stand-alone model's.
+    set(FX1_DEMO_RAW "" CACHE FILEPATH "RAW frame for the optional fx1_demo_isp_raw test")
+    find_program(FX1_PYTHON3 python3)
+    if(FX1_DEMO_RAW AND EXISTS "${FX1_DEMO_RAW}" AND FX1_PYTHON3)
+        add_test(NAME fx1_demo_isp_raw
+                 COMMAND ${FX1_PYTHON3} ${CMAKE_SOURCE_DIR}/platforms/fx1_soc/demo/run_isp_demo.py
+                         --raw ${FX1_DEMO_RAW} --build-dir ${CMAKE_BINARY_DIR}
+                         --out ${CMAKE_CURRENT_BINARY_DIR}/isp_demo)
+        set_tests_properties(fx1_demo_isp_raw PROPERTIES TIMEOUT 600 LABELS "fx1_demo"
+            PASS_REGULAR_EXPRESSION "result +MATCH")
+    endif()
+    # G6: UART RX from the host (--uart0-rx-file), polled and interrupt-driven.
+    fx1_firmware(uart_rx SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_rx/main.c)
+    foreach(quantum 1000 10000)
+        fx1_expect_test(uart_rx_q${quantum}ns IMAGE uart_rx RC 0 TIMEOUT_MS 300
+            ARGS --quantum-ns ${quantum} --uart0-rx-file ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_rx/input.txt
+            REGEX "got poll: \\[poll line\\].*got irq: \\[irq line\\].*RESULT PASS")
+    endforeach()
+    # G6: FreeRTOS V11.2.0 + UART CLI on hart 0 (AMP), boot IP check on hart 1.
+    set(_rtos_dir ${CMAKE_CURRENT_SOURCE_DIR}/freertos)
+    # third_party/ is gitignored: the kernel is fetched at its pin by
+    # tools/third_party/setup_third_party.sh. Check here, so a fresh clone
+    # fails at configure with the fix instead of at build with a missing file.
+    set(FX1_FREERTOS_KERNEL_DIR ${CMAKE_SOURCE_DIR}/third_party/FreeRTOS-Kernel CACHE PATH
+        "FreeRTOS-Kernel V11.2.0 checkout for the fx1_soc FreeRTOS CLI image")
+    set(_kernel ${FX1_FREERTOS_KERNEL_DIR})
+    set(_kernel_version "")
+    if(EXISTS ${_kernel}/include/task.h)
+        file(STRINGS ${_kernel}/include/task.h _kernel_version
+             REGEX "^#define tskKERNEL_VERSION_NUMBER +\"V11\\.2\\.0\"")
+    endif()
+    if(NOT _kernel_version OR NOT EXISTS ${_kernel}/portable/GCC/RISC-V/portASM.S)
+        message(FATAL_ERROR "fx1_soc firmware: FreeRTOS-Kernel V11.2.0 not found in ${_kernel}. "
+                            "Run tools/third_party/setup_third_party.sh once (it pins 0adc196, V11.2.0), "
+                            "or set FX1_FREERTOS_KERNEL_DIR.")
+    endif()
+    set(_rtos_sources
+        ${_rtos_dir}/main.c ${_rtos_dir}/rtos_bsp.c ${_rtos_dir}/rtos_libc.c ${_rtos_dir}/cli.c
+        ${_rtos_dir}/hwcheck.c ${_rtos_dir}/cmd_fpu.c ${_rtos_dir}/cmd_dma.c ${_rtos_dir}/cmd_isp.c
+        ${_rtos_dir}/probe.S
+        ${_kernel}/tasks.c ${_kernel}/queue.c ${_kernel}/list.c
+        ${_kernel}/portable/MemMang/heap_4.c
+        ${_kernel}/portable/GCC/RISC-V/port.c ${_kernel}/portable/GCC/RISC-V/portASM.S
+        ${_isp_dir}/isp_common.c ${_isp}/driver/src/fx1_isp_drv.c)
+    set(_rtos_includes ${_rtos_dir} ${_kernel}/include ${_kernel}/portable/GCC/RISC-V
+        ${_isp_includes} ${_demo_dir})
+    file(GLOB _rtos_headers ${_rtos_dir}/*.h)
+    set(_rtos_depends ${_rtos_headers} ${_isp_depends} ${_demo_dir}/isp_demo_job.h)
+    # The upstream RV32 port casts the uint64_t mtimecmp base to a pointer
+    # (port.c, vPortSetupTimerInterrupt); harmless below 4 GiB, but -Werror.
+    set(_rtos_cflags -Wno-int-to-pointer-cast)
+    fx1_firmware(freertos_cli SOURCES ${_rtos_sources} CFLAGS ${_rtos_cflags}
+        INCLUDES ${_rtos_includes} DEPENDS ${_rtos_depends})
+    fx1_firmware(freertos_cli_hwfail SOURCES ${_rtos_sources} DEFINES HWCHECK_INJECT_FAILURE
+        CFLAGS ${_rtos_cflags} INCLUDES ${_rtos_includes} DEPENDS ${_rtos_depends})
+    foreach(quantum 1000 10000)
+        fx1_expect_test(freertos_cli_q${quantum}ns IMAGE freertos_cli RC 0 TIMEOUT_MS 3000
+            ARGS --quantum-ns ${quantum} --uart0-rx-file ${_rtos_dir}/tests/cli_smoke.txt
+                 --uart0-rx-delay-us 20000
+            REGEX "total: [0-9]+ checks, 0 failures -> PASS.*root@fx1:~# .*fpu context switch: PASS.*dma copy: PASS.*isp 8-frame fixture: PASS.*nosuchcommand: unknown command.*selftest: PASS.*poweroff: 0 failed.*RESULT PASS")
+    endforeach()
+    # Bad md/mw input: out-of-range numbers, ranges that wrap past 4 GiB or a
+    # region end, and register holes that fault on the bus must all be
+    # reported by the CLI, which then keeps working (no trap, no halt).
+    fx1_expect_test(freertos_cli_bad_input IMAGE freertos_cli RC 0 TIMEOUT_MS 1000
+        ARGS --uart0-rx-file ${_rtos_dir}/tests/cli_bad_input.txt --uart0-rx-delay-us 20000
+        REGEX "md 0xfffffffc 1[\r\n]+md: address range not mapped.*md 0xfffffff0 4[\r\n]+md: address range not mapped.*md 0x100000000 1[\r\n]+usage: md.*md 99999999999 1[\r\n]+usage: md.*0x100000000[\r\n]+usage: mw.*md 0x001ffffc 2[\r\n]+md: address range not mapped.*md: bus error at 0x02008000.*md: bus error at 0x0200fffc.*md: bus error at 0x0c3ffffc.*mw: bus error at 0x02008000.*0x80000000: 0x.*0x90000000 <- 0xa5a5a5a5, reads back 0xa5a5a5a5.*0x90000000: 0xa5a5a5a5.*MTIME_LO.*poweroff: 0 failed.*RESULT PASS")
+    # The boot gate: a failing IP check must stop the boot before the scheduler.
+    fx1_expect_test(freertos_cli_hwcheck_fail IMAGE freertos_cli_hwfail RC 1 TIMEOUT_MS 300
+        REGEX "FAIL ISP.*boot halted: hwcheck FAIL.*RESULT FAIL code=0x50")
     # The handoff example (docs/FW_GETTING_STARTED.md): kept building and passing.
     fx1_smoke_test(example_quickstart TIMEOUT_MS 200
         SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/examples/quickstart/main.c)
@@ -204,6 +285,17 @@ if(CDC_BUILD_TESTS)
             add_test(NAME fx1_regression_isp_fixture_check
                      COMMAND ${FX1_PYTHON3} ${_isp_dir}/gen_fixture.py --check)
             set_tests_properties(fx1_regression_isp_fixture_check PROPERTIES
+                TIMEOUT 120 LABELS "fx1;fx1_regression")
+        endif()
+        # The ISP demo's pack step on synthetic dumps: damaged results, dumps,
+        # jobs and a failing preview must all be rejected (review G6a R2).
+        # The preview tool also needs Pillow.
+        execute_process(COMMAND ${FX1_PYTHON3} -c "import numpy, PIL"
+                        RESULT_VARIABLE _fx1_pil OUTPUT_QUIET ERROR_QUIET)
+        if(_fx1_pil EQUAL 0)
+            add_test(NAME fx1_regression_isp_demo_pack
+                     COMMAND ${FX1_PYTHON3} ${CMAKE_SOURCE_DIR}/platforms/fx1_soc/demo/tests/test_pack.py)
+            set_tests_properties(fx1_regression_isp_demo_pack PROPERTIES
                 TIMEOUT 120 LABELS "fx1;fx1_regression")
         endif()
     endif()
