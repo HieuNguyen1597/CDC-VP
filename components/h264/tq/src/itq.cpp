@@ -7,7 +7,7 @@
 
 namespace h264::tq {
 
-// Báº£ng há»‡ sá»‘ Inverse Scaling V[QP % 6][pos_type]
+// Inverse Scaling V[QP % 6][pos_type]
 static const int V_TABLE[6][3] = {
     {10, 16, 13},
     {11, 18, 14},

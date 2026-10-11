@@ -15,7 +15,6 @@ void store_array_le(unsigned char* dst, const T* src, std::size_t count) {
     std::memcpy(dst, src, sizeof(T) * count);
 }
 
-// Hàm mock dùng tạm để không bị phụ thuộc common
 inline void temp_store_u32_le(unsigned char* p, std::uint32_t v) {
     p[0] = static_cast<unsigned char>(v & 0xffu);
     p[1] = static_cast<unsigned char>((v >> 8) & 0xffu);

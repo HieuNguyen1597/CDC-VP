@@ -18,7 +18,7 @@ public:
     explicit TqTop(sc_core::sc_module_name name);
     const TqResult& result() const { return result_; }
 
-    void reset(); // Nonblocking protocol reset; configuration must be loaded again.
+    void reset(); 
 private:
     unsigned loaded_ = 0;
     bool is_intra_ = true;
