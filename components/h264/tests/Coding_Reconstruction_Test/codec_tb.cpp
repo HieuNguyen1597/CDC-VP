@@ -1,5 +1,5 @@
 #include "slice_encoder.h"
-#include "cavlc_tables.h"
+#include "cavlc.h"
 #include "ftq.h"
 #include "itq.h"
 #include "df_filter.h"
