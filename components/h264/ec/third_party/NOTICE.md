@@ -1,6 +1,6 @@
 # VLC table provenance
 
-../include/cavlc_tables.h contains only numeric VLC tables extracted from
+../include/cavlc.h contains numeric VLC tables extracted from
 FFmpeg n7.1 libavcodec/h264_cavlc.c:
 https://github.com/FFmpeg/FFmpeg/blob/n7.1/libavcodec/h264_cavlc.c
 
