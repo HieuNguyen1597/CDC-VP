@@ -4,10 +4,7 @@
 #include <stdexcept>
 #include <vector>
 #include <algorithm>
-
 namespace h264::ec {
-
-// Bit Buffer mô phỏng thanh ghi dịch phần cứng
 struct BitStorage {
     std::uint8_t* data; std::size_t capacity;
     std::size_t size() const { return capacity; }
@@ -25,7 +22,6 @@ struct BitWriter {
         stream.fill(0);
     }
 
-    // Caller owns a pre-sized bounded slice buffer; it must not resize while writing.
     BitWriter(std::vector<std::uint8_t>& buf, std::uint32_t& count)
         : stream{buf.data(),buf.size()}, byte_count(count) { count=0;stream.fill(0); }
     std::size_t bits() const { return std::size_t(byte_count)*8+bit_offset; }

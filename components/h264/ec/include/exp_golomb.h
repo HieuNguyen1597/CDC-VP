@@ -1,6 +1,6 @@
 #pragma once
-#include "ec_types.h"
 
+#include "ec_types.h"
 namespace h264::ec {
 
 struct ExpGolomb {

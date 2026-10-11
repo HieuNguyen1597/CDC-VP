@@ -1,8 +1,9 @@
 #include "ec_top.h"
+
 #include <h264/block_transport.h>
+
 #include "syntax_builder.h"
 #include "nal_formatter.h"
-// #include "h264_tlm_utils.h"
 
 #include <cstring>
 
@@ -31,7 +32,11 @@ EcTop::EcTop(sc_core::sc_module_name name, bool test_payload, bool variable_payl
     socket.register_b_transport(this, &EcTop::b_transport);
 }
 
-void EcTop::reset() { request_={}; result_={}; loaded_=0; }
+void EcTop::reset() {
+    request_={}; 
+    result_={}; 
+    loaded_=0; 
+}
 
 void EcTop::start() {
     result_.valid = false;
@@ -40,20 +45,28 @@ void EcTop::start() {
             // Non-codec sparse record: TV, QP, nonzero count; (index, LE16 level).
             // Length is unpadded bytes; the DMA adapter owns final word padding.
             result_.nal_stream.fill(0);
-            result_.nal_stream[0]='T';result_.nal_stream[1]='V';result_.nal_stream[2]=request_.qp;
+            result_.nal_stream[0] = 'T';
+            result_.nal_stream[1] = 'V';
+            result_.nal_stream[2] = request_.qp;
             unsigned n=4,count=0;
             for(unsigned i=0;i<16;++i) if(request_.levels[i]) {
                 auto v=static_cast<std::uint16_t>(request_.levels[i]);
-                result_.nal_stream[n++]=i;result_.nal_stream[n++]=v&255;result_.nal_stream[n++]=v>>8;++count;
+                result_.nal_stream[n++] = i; 
+                result_.nal_stream[n++] = v&255;result_.nal_stream[n++] = v >> 8;
+                ++count;
             }
-            result_.nal_stream[3]=count;result_.stream_length=n;result_.valid=true;return;
+            result_.nal_stream[3] = count;
+            result_.stream_length = n;
+            result_.valid = true;
+            return;
         }
         // Test record: "TC", QP, mode, then 16 signed little-endian levels.
         // NOT Annex-B, NOT an H.264 syntax implementation.
         result_.nal_stream.fill(0);
-        result_.nal_stream[0]='T'; result_.nal_stream[1]='C';
-        result_.nal_stream[2]=request_.qp;
-        result_.nal_stream[3]=request_.entropy_coding_mode;
+        result_.nal_stream[0] = 'T'; 
+        result_.nal_stream[1] = 'C';
+        result_.nal_stream[2] = request_.qp;
+        result_.nal_stream[3] = request_.entropy_coding_mode;
         for(unsigned i=0;i<16;++i) {
             auto v=static_cast<std::uint16_t>(request_.levels[i]);
             result_.nal_stream[4+2*i]=v&255;
@@ -91,23 +104,36 @@ void EcTop::b_transport(tlm::tlm_generic_payload& tx, sc_core::sc_time& delay) {
 
     if (tx.get_command() == tlm::TLM_WRITE_COMMAND) {
         if (addr == 0x00 && len == 32) {
-            load_array_le(data, request_.levels.data(), 16); loaded_|=1; result_.valid=false;
+            load_array_le(data, request_.levels.data(), 16); 
+            loaded_|=1; 
+            result_.valid=false;
         } else if (addr == 0x20 && len == 1) {
-            if(data[0]>51) { tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE); return; }
+            if(data[0]>51) { 
+                tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+                return; 
+            }
             request_.qp = data[0]; loaded_|=2;
         } else if (addr == 0x24 && len == 1) {
-            if(data[0]>1) { tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE); return; }
+            if(data[0]>1) { 
+                tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+                return; }
             request_.entropy_coding_mode = data[0]; loaded_|=4;
         } else if (addr == 0x28 && len == 1) {
             if (data[0] & 0x80u) {
-                if(loaded_!=7) { tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE); return; }
-                try { start(); loaded_ &= ~1u; }
-                catch(const std::exception&) {
-                    result_={}; tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE); return;
+                if(loaded_!=7) { 
+                    tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+                     return; 
+                } try { 
+                    start(); 
+                    loaded_ &= ~1u; 
+                } catch(const std::exception&) {
+                    result_={}; 
+                    tx.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE); 
+                    return;
                 }
             }
         } else {
-            std::cout << "\n[DUT ERROR] WRITE bị từ chối. Địa chỉ: 0x" << std::hex << addr << " Độ dài: " << std::dec << len << "\n";
+            std::cout << "\nWRITE bị từ chối. Địa chỉ: 0x" << std::hex << addr << " Độ dài: " << std::dec << len << "\n";
             tx.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
             return;
         }
@@ -119,7 +145,7 @@ void EcTop::b_transport(tlm::tlm_generic_payload& tx, sc_core::sc_time& delay) {
         } else if (addr == 0xD0 && len == 4) {
             temp_store_u32_le(data, result_.stream_length);
         } else {
-            std::cout << "\n[DUT ERROR] READ bị từ chối. Địa chỉ: 0x" << std::hex << addr << " Độ dài: " << std::dec << len << "\n";
+            std::cout << "\nREAD bị từ chối. Địa chỉ: 0x" << std::hex << addr << " Độ dài: " << std::dec << len << "\n";
             tx.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
             return;
         }

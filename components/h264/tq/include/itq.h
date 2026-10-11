@@ -11,7 +11,6 @@ public:
     inverse_transform(const std::array<std::int16_t,16>& levels,
                       std::uint8_t qp, std::optional<std::int32_t> scaled_dc = std::nullopt) const;
 
-    // Inverse 2x2 Hadamard plus DC scaling for 8-bit 4:2:0 chroma.
     std::array<std::int32_t,4> inverse_chroma_dc(
         const std::array<std::int16_t,4>& levels, std::uint8_t qp) const;
 

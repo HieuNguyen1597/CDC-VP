@@ -5,7 +5,6 @@
 #include <tlm_utils/multi_passthrough_target_socket.h>
 #include <vector>
 #include <cstdint>
-
 namespace h264::mem {
 struct MemoryMap : sc_core::sc_module {
     tlm_utils::multi_passthrough_target_socket<MemoryMap> socket{"socket"};

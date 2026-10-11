@@ -13,9 +13,9 @@ struct EcTop : sc_core::sc_module {
     tlm_utils::simple_target_socket<EcTop> socket{"socket"};
 
     SC_HAS_PROCESS(EcTop);
-    EcTop(sc_core::sc_module_name name, bool transport_test_payload=false, bool variable_test_payload=false);
+    EcTop(sc_core::sc_module_name name, bool transport_test_payload = false, bool variable_test_payload = false);
 
-    void reset(); // Nonblocking protocol reset; configuration must be loaded again.
+    void reset(); 
 private:
     unsigned loaded_ = 0;
     bool transport_test_payload_;
