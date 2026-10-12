@@ -1,5 +1,5 @@
-# Tests của task
+# Module tests
 
-Thư mục dành cho unit test của module. Regression hiện gọi qua top-level trong
-`tests/vp_tests.cpp`, gồm registers, invalid_params, integration_*.
-Khi thêm unit test, đăng ký executable/test tại CMakeLists.txt của task này.
+This directory holds module unit tests. The regression currently exercises the top-level through
+`tests/vp_tests.cpp`, including registers, invalid_params, integration_*.
+When adding a unit test, register its executable/test in this module's CMakeLists.txt.

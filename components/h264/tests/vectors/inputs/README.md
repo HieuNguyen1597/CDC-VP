@@ -1,3 +1,3 @@
 # Inputs
 
-Chưa cần file ngoài: test hiện sinh planar YUV420 xác định trong RAM.
+No external files are needed yet: the tests generate deterministic planar YUV420 data in RAM.

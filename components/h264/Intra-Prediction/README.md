@@ -2,31 +2,31 @@
 
 Author: VinhNT124
 
-Mô hình dự đoán nội khung cho H.264, gồm core C++17 và lớp giao tiếp SystemC 2.3.4/TLM-2.0. Module tạo predictor, residual và quyết định mode cho từng block; các pixel đã tái tạo được lưu làm dữ liệu tham chiếu cho block tiếp theo.
+H.264 intra-frame prediction model with a C++17 core and a SystemC 2.3.4/TLM-2.0 interface. The module generates predictors, residuals and mode decisions for each block; reconstructed pixels are retained as references for subsequent blocks.
 
-## Chức năng
+## Functions
 
-- Luma 4×4: hỗ trợ đủ 9 mode; luma 16×16: vertical, horizontal, DC và plane.
-- Chroma U/V 8×8: hỗ trợ DC, horizontal, vertical và plane.
-- Tra cứu các mẫu top, left, upper-left và upper-right từ reconstructed context, với trạng thái hợp lệ riêng cho từng plane.
-- Đánh giá mode bằng SAD hoặc SATD Hadamard 4×4, kết hợp `mode_penalty` do bên gọi cung cấp. SATD của block lớn là tổng các tile 4×4; cost dùng accumulator 64 bit.
-- Giữ predictor, residual signed 16 bit và reference snapshot theo token đến khi nhận feedback reconstruction.
-- Quản lý frame, reset và hủy giao dịch qua shared epoch.
+- Luma 4x4: all 9 modes; luma 16x16: vertical, horizontal, DC and plane.
+- Chroma U/V 8x8: DC, horizontal, vertical and plane.
+- Looks up top, left, upper-left and upper-right samples from reconstructed context, with separate validity for each plane.
+- Evaluates modes using SAD or 4x4 Hadamard SATD plus caller-supplied `mode_penalty`. Larger-block SATD sums 4x4 tiles; costs use 64-bit accumulators.
+- Retains predictors, signed 16-bit residuals and reference snapshots by token until reconstruction feedback arrives.
+- Manages frames, reset and transaction cancellation through shared epochs.
 
-Các mode hợp lệ được xét theo số mode tăng dần. Khi cost bằng nhau, module giữ mode được xét trước. Nếu upper-right không khả dụng, các mẫu E..H được thay bằng D; các vị trí scan 3/7/11/13/15 không đọc upper-right chưa hợp lệ.
+Legal modes are evaluated in ascending mode-number order. Equal costs retain the first evaluated mode. If upper-right is unavailable, samples E..H are replaced with D; scan positions 3/7/11/13/15 do not read invalid upper-right samples.
 
-## Cấu trúc và CMake targets
+## Structure and CMake targets
 
 Public namespace: `h264::intra`.
 
-| Target | Vai trò |
+| Target | Role |
 |---|---|
-| `h264_intra_core` | Thuật toán prediction, chọn mode và reconstructed context; không phụ thuộc SystemC |
-| `h264_intra_tlm` | Socket TLM, timing, token và vòng đời frame/reset |
+| `h264_intra_core` | Prediction algorithms, mode selection and reconstructed context; no SystemC dependency |
+| `h264_intra_tlm` | TLM socket, timing, tokens and frame/reset lifecycle |
 
-Các alias tương ứng là `cdc::components::h264_intra_core` và `cdc::components::h264_intra_tlm`. Header công khai nằm trong `include/h264/intra/`, implementation trong `src/`, test riêng trong `tests/`. Lớp TLM sử dụng shared contracts từ `../interfaces` và `../synchronization`.
+The corresponding aliases are `cdc::components::h264_intra_core` and `cdc::components::h264_intra_tlm`. Public headers are in `include/h264/intra/`, implementation in `src/`, and standalone tests in `tests/`. TLM uses shared contracts from `../interfaces` and `../synchronization`.
 
-## Luồng dữ liệu và cấu hình
+## Data flow and configuration
 
 ```text
 CMB DMA / local RAM ── Evaluate(source) ──> IntraTlm
@@ -34,9 +34,9 @@ TQ adapter          <── Replay(predictor, residual)
 Reconstruction      ── Reconstruct(decoded pixels) ──> neighbor/mode RAM
 ```
 
-Adapter CMB đóng gói source pixels theo từng block row-major. Sau khi đọc predictor/residual, bên xử lý TQ/ITQ tái tạo và clip pixel về 8 bit rồi gửi lại module. Reference context được cập nhật bằng pixel đã tái tạo thông qua reconstruction feedback hoặc `ImportReconstructed`.
+The CMB adapter packs source pixels per block in row-major order. After reading predictors/residuals, TQ/ITQ reconstructs and clips pixels to 8 bits, then feeds them back to the module. Reference context is updated with reconstructed pixels through reconstruction feedback or `ImportReconstructed`.
 
-Ví dụ cấu hình và kết nối:
+Example configuration and connections:
 
 ```cpp
 h264::intra::Options opts;
@@ -48,11 +48,11 @@ intra.reset_n(reset_n);
 intra.frame_enable(frame_enable);
 ```
 
-Tạo module và kết nối socket/signals trước `sc_start`. Gọi `b_transport` từ `SC_THREAD`; giữ payload, buffer và extension tồn tại đến khi giao dịch trả về.
+Create modules and connect sockets/signals before `sc_start`. Call `b_transport` from `SC_THREAD`; keep payloads, buffers and extensions alive until the transaction returns.
 
-Coded width/height cố định cho mỗi instance, trong khoảng 16..4096 và chia hết cho 16. Tọa độ `Block::x/y` tính theo sample của plane; kích thước U/V bằng một nửa Y. Luma 4×4, luma 16×16 và chroma 8×8 phải căn chỉnh lần lượt theo 4, 16 và 8 sample. Khi kết nối với DMA, kích thước tối đa dùng chung là 1920×1088.
+Coded width/height are fixed per instance, ranging from 16..4096 in multiples of 16. `Block::x/y` coordinates are measured in plane samples; U/V dimensions are half those of Y. Luma 4x4, luma 16x16 and chroma 8x8 must be aligned to 4, 16 and 8 samples respectively. When connected to DMA, the shared maximum is 1920x1088.
 
-Bên gọi xử lý macroblock theo raster order và luma 4×4 theo thứ tự scan:
+The caller processes macroblocks in raster order and luma 4x4 blocks in this scan order:
 
 ```text
  0  1  4  5
@@ -61,34 +61,34 @@ Bên gọi xử lý macroblock theo raster order và luma 4×4 theo thứ tự s
 10 11 14 15
 ```
 
-## Giao tiếp TLM
+## TLM interface
 
-Các địa chỉ sau xác định operation của socket mô phỏng. Mỗi giao dịch cần `h264::intra::Extension`, buffer N×N byte, streaming width ít nhất bằng buffer length và không dùng byte-enable. Socket không cấp DMI.
+The following addresses identify simulation socket operations. Each transaction requires `h264::intra::Extension`, an NxN-byte buffer, streaming width at least equal to buffer length, and no byte enables. The socket does not provide DMI.
 
-| Address / operation | Command | Dữ liệu và kết quả |
+| Address / operation | Command | Data and result |
 |---|---|---|
-| `0` / Evaluate | WRITE | Source pixels, block, metric và penalty; trả decision/token |
-| `1` / Replay | READ | Token của Evaluate; trả predictor và decision chứa residual |
-| `2` / Reconstruct | WRITE | Pixel đã tái tạo cùng token; cập nhật neighbor/mode RAM và `block_done` |
-| `3` / ImportReconstructed | WRITE | Pixel đã tái tạo và block; nhập context khi không có block pending |
+| `0` / Evaluate | WRITE | Source pixels, block, metric and penalty; returns decision/token |
+| `1` / Replay | READ | Evaluate token; returns predictor and a decision containing residuals |
+| `2` / Reconstruct | WRITE | Reconstructed pixels and token; updates neighbor/mode RAM and `block_done` |
+| `3` / ImportReconstructed | WRITE | Reconstructed pixels and block; imports context when no block is pending |
 
-Module giữ tối đa một block pending. Replay có thể đọc nhiều lần với cùng token và luôn trả snapshot đã chọn. Reconstruct yêu cầu đã có Replay; Evaluate hoặc ImportReconstructed khi đang pending bị từ chối mà vẫn giữ block hiện tại. Replay/Reconstruct lấy thông tin block từ token đã lưu.
+The module holds at most one pending block. Replay may be read repeatedly with the same token and always returns the selected snapshot. Reconstruct requires a preceding Replay; Evaluate or ImportReconstructed while pending is rejected without disturbing the current block. Replay/Reconstruct obtain block information from the stored token.
 
-`ready()` cho biết predictor đang chờ feedback. `block_done()` giữ trạng thái hoàn thành đến Evaluate thành công tiếp theo hoặc frame/reset. Các event `predictor_ready` và `block_completed` dùng để đánh thức bên chờ; bên gọi vẫn cần kiểm tra trạng thái và tổng hợp completion của từng block thành completion của macroblock.
+`ready()` indicates that the predictor awaits feedback. `block_done()` retains completion until the next successful Evaluate or frame/reset. The `predictor_ready` and `block_completed` events wake waiters; callers must still check state and aggregate block completion into macroblock completion.
 
-### Timing và reset
+### Timing and reset
 
-Incoming delay được xử lý trước operation. Các latency mặc định cho reference, candidate, compare, replay và feedback lần lượt là 10/4/1/4/10 ns; đây là tham số timing của mô hình VP. Socket xử lý một giao dịch tại một thời điểm; giao dịch đồng thời nhận generic error và có thể thử lại sau khi giao dịch đang chạy trả về.
+Incoming delay is consumed before the operation. Default reference, candidate, compare, replay and feedback latencies are 10/4/1/4/10 ns respectively; these are VP timing parameters. The socket handles one transaction at a time; concurrent transactions receive a generic error and may retry after the active transaction returns.
 
-`reset_n` active-low hủy công việc và context cũ. Cạnh lên `frame_enable` bắt đầu frame mới và xóa context; giữ enable cao không tạo thêm frame. Sau reset, đưa enable xuống thấp rồi lên cao để bắt đầu lại. Token gồm generation và sequence, mất hiệu lực sau frame/reset.
+Active-low `reset_n` cancels work and old context. A rising `frame_enable` starts a new frame and clears context; holding enable high does not start another frame. After reset, drive enable low and then high to restart. Tokens contain generation and sequence and are invalidated by frame/reset.
 
-Có thể gắn `h264::EpochExtension` để dùng shared reset domain. Epoch đã stale tại entry bị từ chối mà vẫn giữ block hợp lệ hiện tại; nếu epoch bị hủy trong một giao dịch đang chạy, toàn bộ context frame đó bị vô hiệu hóa. Bên gọi phối hợp reset/frame-enable cả khi socket idle, giữ domain tồn tại đến response và chờ giao dịch cũ trả về (`transport_active()==false`) trước khi tái sử dụng buffer.
+An optional `h264::EpochExtension` connects the shared reset domain. An epoch stale at entry is rejected without disturbing the current valid block; cancellation during an active transaction invalidates the entire frame context. The caller coordinates reset/frame-enable even while the socket is idle, keeps the domain alive until the response, and waits for the old transaction to return (`transport_active()==false`) before reusing buffers.
 
-## Build và test riêng
+## Standalone build and tests
 
-Yêu cầu CMake từ 3.21 và compiler C++17. Các lệnh dưới đây chạy từ thư mục gốc `CDC-VP` trong WSL/Linux.
+Requires CMake 3.21 or later and a C++17 compiler. Run the following commands from the `CDC-VP` root in WSL/Linux.
 
-### Core không dùng SystemC
+### Core without SystemC
 
 ```sh
 cmake -S components/h264/Intra-Prediction -B build/h264-intra-core \
@@ -97,9 +97,9 @@ cmake --build build/h264-intra-core -j 4
 ctest --test-dir build/h264-intra-core --output-on-failure
 ```
 
-### Core và SystemC/TLM
+### Core and SystemC/TLM
 
-SystemC 2.3.4 phải tương thích compiler và C++ ABI với project. Thay đường dẫn dưới đây bằng vị trí cài đặt trên máy:
+SystemC 2.3.4 must match the project compiler and C++ ABI. Replace the paths below with your installation:
 
 ```sh
 cmake -S components/h264/Intra-Prediction -B build/h264-intra-tlm \
@@ -110,24 +110,24 @@ cmake --build build/h264-intra-tlm -j 4
 ctest --test-dir build/h264-intra-tlm --output-on-failure
 ```
 
-Có thể dùng `CMAKE_PREFIX_PATH` trỏ đến package `SystemCLanguage` 2.3.4 hoặc `SYSTEMC_SOURCE_DIR` thay cho cặp include/library.
+You may use `CMAKE_PREFIX_PATH` pointing to the `SystemCLanguage` 2.3.4 package, or `SYSTEMC_SOURCE_DIR`, instead of the include/library pair.
 
-| Nhóm test | Số test | Phạm vi |
+| Test group | Test count | Coverage |
 |---|---:|---|
-| Core | 2 | Prediction modes, neighbor context, SAD/SATD và regression |
-| TLM contract | 1 | Evaluate/Replay/Reconstruct, token và completion |
-| Shared epoch | 2 | Hủy giao dịch trong incoming delay và đánh thức wait |
-| Reset matrix | 1 | Reset trong các giai đoạn xử lý |
-| TLM regression | 2 | Timing tùy chỉnh và zero latency |
-| Reset boundaries | 2 | Reset quanh deadline với timing thường và zero latency |
+| Core | 2 | Prediction modes, neighbor context, SAD/SATD and regression |
+| TLM contract | 1 | Evaluate/Replay/Reconstruct, tokens and completion |
+| Shared epoch | 2 | Transaction cancellation during incoming delay and wait wake-up |
+| Reset matrix | 1 | Reset during processing stages |
+| TLM regression | 2 | Custom timing and zero latency |
+| Reset boundaries | 2 | Reset around deadlines with normal and zero latency |
 
-Build core-only đăng ký **2 test**; build có TLM đăng ký **10 test**. Kết quả kiểm chứng và logs được lưu trong [VALIDATION.md](VALIDATION.md).
+A core-only build registers **2 tests**; a TLM build registers **10 tests**. Verification results and logs are in [VALIDATION.md](VALIDATION.md).
 
-## Test tích hợp H.264
+## H.264 integration tests
 
-[Prediction_Test](../tests/Prediction_Test/README.md) nối CMB DMA với Intra qua `H264Arb` và `DmaTransport`, sử dụng arbiter/AXI bridge của DMA subsystem. Nhóm `cmb_intra` kiểm tra một ảnh 16×16 gồm 16 luma 4×4 và hai chroma 8×8 trên bus 32/64/128-bit. Nhóm này dùng identity reconstruction để kiểm tra luồng prediction/feedback.
+[Prediction_Test](../tests/Prediction_Test/README.md) connects CMB DMA to Intra through `H264Arb` and `DmaTransport`, using the DMA subsystem arbiter/AXI bridge. The `cmb_intra` group checks one 16x16 picture with sixteen luma 4x4 blocks and two chroma 8x8 blocks on 32/64/128-bit buses. It uses identity reconstruction to test the prediction/feedback flow.
 
-[Full codec test](../tests/Coding_Reconstruction_Test/FULL_PIPELINE_CODEC_REPORT.md) nối prediction với TQ/ITQ và reconstruction. Test adapter xử lý ảnh 32×32 YUV420, một frame I4×4 và ba frame P; chroma U/V dùng DC mode. Luma đi qua `TqTop` TLM, chroma DC được xử lý bởi arithmetic classes trong adapter.
+The [full codec test](../tests/Coding_Reconstruction_Test/FULL_PIPELINE_CODEC_REPORT.md) connects prediction with TQ/ITQ and reconstruction. Its adapter processes 32x32 YUV420 pictures, one I4x4 frame and three P frames; chroma U/V use DC mode. Luma passes through `TqTop` TLM, while chroma DC is processed by arithmetic classes in the adapter.
 
 ```sh
 cmake -S components/h264 -B build/h264-vp \
@@ -140,10 +140,10 @@ ctest --test-dir build/h264-vp -L prediction --output-on-failure
 ctest --test-dir build/h264-vp -R '^full_codec_' --output-on-failure
 ```
 
-Label `prediction` gồm **15 test tích hợp** cho DMA, Intra, Inter và control. Component H.264 import các library prediction với suite riêng bị tắt, nên cần build standalone ở trên để chạy đủ test của Intra. Nhóm **36 test `full_codec_*`** chỉ được đăng ký khi CMake tìm thấy Python3 và FFmpeg; kiểm tra danh sách bằng `ctest --test-dir build/h264-vp -N -R '^full_codec_'`.
+The `prediction` label includes **15 integration tests** for DMA, Intra, Inter and control. The H.264 component imports prediction libraries with their standalone suites disabled, so use the standalone build above for the complete Intra suite. The **36 `full_codec_*` tests** are registered only when CMake finds Python3 and FFmpeg; inspect them with `ctest --test-dir build/h264-vp -N -R '^full_codec_'`.
 
-## Phạm vi sử dụng
+## Usage scope
 
-Module hỗ trợ progressive 8-bit YUV 4:2:0 với luma 4×4/16×16 và chroma 8×8. Bên gọi chọn partition, tổ chức macroblock, cung cấp slice/constrained-intra availability và ghép TQ/ITQ, entropy, deblocking. `ImportReconstructed` yêu cầu đúng picture và thứ tự context; mode RAM lưu mode đã chọn, chưa xuất syntax MPM.
+The module supports progressive 8-bit YUV 4:2:0 with luma 4x4/16x16 and chroma 8x8. The caller selects partitions, organizes macroblocks, supplies slice/constrained-intra availability and connects TQ/ITQ, entropy and deblocking. `ImportReconstructed` requires the correct picture and context order; mode RAM stores the selected mode but does not yet emit MPM syntax.
 
-Automatic partition RDO, luma 8×8 High Profile, bit-depth trên 8 và MBAFF chưa được triển khai. Timing VP chưa được đối chiếu cycle với RTL. Pipeline codec hiện nằm trong test adapter; Intra chưa được đưa vào install/export của package H.264.
+Automatic partition RDO, High Profile luma 8x8, bit depths above 8 and MBAFF are not implemented. VP timing has not been compared cycle by cycle with RTL. The codec pipeline currently lives in a test adapter; Intra is not yet included in H.264 package install/export.

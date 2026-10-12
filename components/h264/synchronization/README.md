@@ -2,13 +2,13 @@
 
 Owner: Huy Nguyen Huynh Quoc.
 
-Chương 13: tiện ích reset generation và sticky completion (header-only).
+Chapter 13: reset generation and sticky completion utilities (header-only).
 
 CMake target: `h264_sync`. Public header: h264/sync/reset_domain.h.
 
-Regression hiện nằm trong tests vì cần host + DDR + top. Chạy từ thư mục components/h264:
-`ctest --test-dir build/vp --output-on-failure`. Nhóm test liên quan: reset, registers.
+Regression tests currently live in tests because they require host + DDR + top. Run from components/h264:
+`ctest --test-dir build/vp --output-on-failure`. Relevant tests: reset, registers.
 
-Xem `interfaces/docs/interface_contracts.md` trước khi
-thay interface. Tất cả header dùng .h. Không sao chép source giữa các task.
+Read `interfaces/docs/interface_contracts.md` before
+changing an interface. All headers use .h. Do not duplicate source files across tasks.
 

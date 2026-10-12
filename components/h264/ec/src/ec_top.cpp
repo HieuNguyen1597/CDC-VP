@@ -133,7 +133,7 @@ void EcTop::b_transport(tlm::tlm_generic_payload& tx, sc_core::sc_time& delay) {
                 }
             }
         } else {
-            std::cout << "\nWRITE bị từ chối. Địa chỉ: 0x" << std::hex << addr << " Độ dài: " << std::dec << len << "\n";
+            std::cout << "\nWRITE rejected. Address: 0x" << std::hex << addr << " Length: " << std::dec << len << "\n";
             tx.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
             return;
         }
@@ -145,7 +145,7 @@ void EcTop::b_transport(tlm::tlm_generic_payload& tx, sc_core::sc_time& delay) {
         } else if (addr == 0xD0 && len == 4) {
             temp_store_u32_le(data, result_.stream_length);
         } else {
-            std::cout << "\nREAD bị từ chối. Địa chỉ: 0x" << std::hex << addr << " Độ dài: " << std::dec << len << "\n";
+            std::cout << "\nREAD rejected. Address: 0x" << std::hex << addr << " Length: " << std::dec << len << "\n";
             tx.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
             return;
         }

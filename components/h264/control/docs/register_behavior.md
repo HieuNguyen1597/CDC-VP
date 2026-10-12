@@ -1,10 +1,10 @@
 # Register behavior — PDF table 20-3
 
-Nguồn: SISLAB H.264/AVC Hardware Architecture Specification v2.1.11, bảng 20-3,
-trang 53–55; activation/completion ở §4.3–4.5 và bảng 20-6 trang 57.
-Nhận định trước đây rằng PDF không có SPARA bit mapping là sai: đã bỏ sót phụ lục.
+Source: SISLAB H.264/AVC Hardware Architecture Specification v2.1.11, Table 20-3,
+pages 53-55; activation/completion in sections 4.3-4.5 and Table 20-6 on page 57.
+The earlier claim that the PDF lacks SPARA bit mappings was incorrect: the appendix had been overlooked.
 
-| Register | Bit fields áp dụng |
+| Register | Applicable bit fields |
 |---|---|
 | SCON | ECE[0], GIE[1] |
 | STAT | NORMAL[18], ERROR[17], BUSY[16], FMCNT[15:0] |
@@ -16,36 +16,36 @@ Nhận định trước đây rằng PDF không có SPARA bit mapping là sai: �
 | REFM/NAL/CMB | Physical base[31:0] |
 | STM_LEN | Accepted NAL words[31:0], activation-relative |
 
-Reset: SPARA0=0x12c (COMPAT=1, N=2, M=12); các register khác bằng 0.
-PKFM được lưu nhưng không tham gia scheduling. Reserved bits đọc zero sau mask.
-ControlRegs::config decode các trường từ register, không lấy QP/FMENC từ constructor.
-HostDriver::program_sequence encode cùng mapping. Các trường filter/syntax/crop được
-chuyển cho module thật; stub không thực hiện thuật toán lọc/crop/H.264.
+Reset: SPARA0=0x12c (COMPAT=1, N=2, M=12); all other registers are zero.
+PKFM is stored but does not affect scheduling. Reserved bits read as zero after masking.
+ControlRegs::config decodes register fields rather than taking QP/FMENC from the constructor.
+HostDriver::program_sequence encodes the same mapping. Filter/syntax/crop fields are
+forwarded to the real modules; the stub does not implement filtering/cropping/H.264 algorithms.
 
-STAT/STM_LEN read acknowledge IRQ. GIE mask output; tắt GIE không xóa event đã latch;
-start mới hoặc clearing read xóa event. Nếu hoàn tất khi GIE=0 thì không tạo event mới.
-Thao tác register invalid trả error là policy VP vì PDF chỉ đề cập zero/error behavior
-tùy RTL. Access chỉ 32-bit aligned, byte enable được tôn trọng.
+STAT/STM_LEN reads acknowledge IRQ. GIE masks the output; clearing GIE does not clear a latched event;
+a new start or clearing read clears it. Completion while GIE=0 does not create a new event.
+Returning an error for invalid register operations is VP policy: the PDF describes zero/error behavior
+as RTL-dependent. Accesses must be 32-bit aligned, and byte enables are honored.
 
-## Working set và sequence
+## Working set and sequence
 
-FMENC là tổng số frame, CMB_ON_MEM là số frame trong working set/activation (1..127).
-Preload xử lý min(remaining,CMB_ON_MEM); frame-address xử lý một picture tại REG_CMB.
-FMCNT giữ qua các activation. STM_LEN reset khi rising enable, giữ sau disable để drain.
-Host chỉ cập nhật CMB/NAL/SPARA1 khi disabled và BUSY clear. Thay batch bits của SPARA1
-không reset sequence counter. Khởi động sau khi đã đủ FMENC bắt đầu sequence mới.
+FMENC is the total frame count; CMB_ON_MEM is the frame count in the working set/activation (1..127).
+Preload processes min(remaining,CMB_ON_MEM); frame-address mode processes one picture at REG_CMB.
+FMCNT persists across activations. STM_LEN resets on rising enable and is retained after disable for draining.
+The host updates CMB/NAL/SPARA1 only while disabled and BUSY is clear. Changing SPARA1 batch bits
+does not reset the sequence counter. Starting after FMENC has been reached begins a new sequence.
 
-Chính sách VP cho sequence mới: thay FMSIZE/REFM/filter/crop hoặc active SPARA0 fields,
-hay low 25 bits SPARA1 thì restart count. Ghi lại cùng giá trị/đổi PKFM không restart.
-Chính sách này cần đối chiếu driver release cho các luồng cập nhật ngoài reactivation chuẩn.
+VP policy for a new sequence: changing FMSIZE/REFM/filter/crop, active SPARA0 fields,
+or the low 25 bits of SPARA1 restarts the count. Rewriting the same value or changing PKFM does not.
+This policy needs release-driver comparison for update flows outside standard reactivation.
 
 ## NAL progress / error
 
-Pipeline gọi nal_words_accepted tại lúc NAL DMA nhận word. STM_LEN tăng trước response;
-finalization phải đợi output/reference responses và báo total khớp counter. Error giữ số
-word accepted, không giả vờ đây là bitstream hợp lệ. Generation cũ không được cập nhật counter.
+The pipeline calls nal_words_accepted when NAL DMA accepts a word. STM_LEN increments before the response;
+finalization must wait for output/reference responses and report a total matching the counter. Errors retain
+the accepted count without treating it as a valid bitstream. Old generations must not update the counter.
 
-GOP_N=1: I mỗi M picture, còn lại P, coding index/display index tiến theo sequence.
-GOP_N>1: adapter release cung cấp PictureTask; thiếu lịch thì ERROR, không suy đoán B-order.
-Controller kiểm tra duplicate display index, coding index, source slot qua các activation.
-Source-slot mapping và reference lifetime thật vẫn thuộc adapter/modules của nhóm.
+GOP_N=1: one I picture every M pictures, with P pictures otherwise; coding/display indices advance with the sequence.
+GOP_N>1: the release adapter supplies PictureTask; a missing schedule causes ERROR rather than guessing B-picture order.
+The controller checks duplicate display indices, coding indices and source slots across activations.
+Actual source-slot mapping and reference lifetimes remain the responsibility of the team adapter/modules.

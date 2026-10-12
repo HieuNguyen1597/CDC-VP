@@ -7,8 +7,8 @@
 
 namespace h264::tq {
 
-// Bảng hệ số lượng tử hóa MF[QP % 6][pos_type] theo ITU-T H.264
-// pos_type: 0: (0,0),(0,2),(2,0),(2,2); 1: (1,1),(1,3),(3,1),(3,3); 2: còn lại
+// Quantization factor table MF[QP % 6][pos_type] from ITU-T H.264
+// pos_type: 0: (0,0),(0,2),(2,0),(2,2); 1: (1,1),(1,3),(3,1),(3,3); 2: all other positions
 static const int MF_TABLE[6][3] = {
     {13107, 5243, 8066},
     {11916, 4660, 7490},
@@ -37,13 +37,13 @@ Ftq::transform(const std::array<std::int16_t, 16>& residual, BlockClass block_cl
         d[i * 4 + 2] = p0 - p1;
         d[i * 4 + 3] = p3 - (p2 * 2);
 
-        transpose_.write_row(i, d); // Ghi từng hàng vào khối Transpose RAM
+        transpose_.write_row(i, d); // Write each row to Transpose RAM
     }
 
     // Core Transform 4x4 (Column pass)
     for (int j = 0; j < 4; ++j) {
 
-        auto col_data = transpose_.read_column(j); // Lấy dữ liệu đã xoay chiều từ Transpose RAM
+        auto col_data = transpose_.read_column(j); // Read transposed data from Transpose RAM
 
         int p0 = col_data[0 * 4 + j] + col_data[3 * 4 + j];
         int p1 = col_data[1 * 4 + j] + col_data[2 * 4 + j];
@@ -56,7 +56,7 @@ Ftq::transform(const std::array<std::int16_t, 16>& residual, BlockClass block_cl
         c[3 * 4 + j] = p3 - (p2 * 2);
     }
 
-    // Hadamard DC (Bật tùy theo loại BlockClass của H.264)
+    // DC Hadamard (enabled according to the H.264 BlockClass)
 
     bool is_dc = (block_class == BlockClass::Luma16x16Dc || block_class == BlockClass::ChromaDc);
 
@@ -85,7 +85,7 @@ Ftq::quantize(const std::array<std::int32_t, 16>& coeffs, std::uint8_t qp, Block
     int q_rem = qp % 6;
     int q_per = qp / 6;
     int qbits = 15 + q_per;
-    int f = (1 << qbits) / (is_intra ? 3 : 6); // f = (1 << qbits) / 3 cho Intra, / 6 cho Inter
+    int f = (1 << qbits) / (is_intra ? 3 : 6); // f = (1 << qbits) / 3 for Intra, / 6 for Inter
 
     for (int r = 0; r < 4; ++r) {
         for (int col = 0; col < 4; ++col) {

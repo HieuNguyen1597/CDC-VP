@@ -15,7 +15,7 @@ struct MemoryMap : sc_core::sc_module {
 private:
     void b_transport(int, tlm::tlm_generic_payload& tx, sc_core::sc_time& delay);
 
-    // Mảng bộ nhớ thực tế mô phỏng Hardware
+    // Backing memory arrays modeling hardware storage
     std::vector<std::uint8_t> internal_mem_;
     std::vector<std::uint8_t> external_mem_;
 

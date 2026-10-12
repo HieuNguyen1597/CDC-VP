@@ -1,29 +1,29 @@
 # Interface contracts v0.1
 
-Owner điều phối: Huy Nguyen Huynh Quoc. Vinh Nguyen Thanh và Nguyên
-cùng review các interface có producer/consumer thuộc mình. Quy trình ghép pipeline: [full_pipeline_testbench.md](../../top/docs/full_pipeline_testbench.md).
-Các API dưới đây mô tả VP đang chạy; API prediction/TQ/entropy thật chưa được chốt.
+Coordinating owner: Huy Nguyen Huynh Quoc. Vinh Nguyen Thanh and Nguyen
+review interfaces involving their producers/consumers. Pipeline assembly workflow: [full_pipeline_testbench.md](../../top/docs/full_pipeline_testbench.md).
+The APIs below describe the running VP; real prediction/TQ/entropy APIs have not yet been finalized.
 
-## Thời gian và concurrency
+## Timing and concurrency
 
-Mô hình loosely timed; các lời gọi blocking chỉ được gọi từ `SC_THREAD`.
-Các target tiêu thụ input delay và trả về với delay zero; bridge cũng tiêu thụ mọi
-output annotation từ target thay thế trước khi báo completion. Target register có
-latency zero (không mô hình từng handshake AXI-Lite).
+The model is loosely timed; blocking calls must run in `SC_THREAD`.
+Targets consume input delay and return with zero delay; the bridge also consumes all
+output annotations from replacement targets before reporting completion. The register target has
+zero latency (individual AXI-Lite handshakes are not modeled).
 
-Payload và data buffer do caller sở hữu, sống đến hết `b_transport`. Không giữ con trỏ
-payload sau return. Không cấp DMI. Địa chỉ là byte, little-endian, streaming_width
-phải >= data_length; không hỗ trợ streaming wrap. Byte enable tuần hoàn theo TLM,
-mỗi phần tử 00 hoặc FF; chiều dài byte enable phải >0 nếu có pointer.
+The caller owns payloads and data buffers and keeps them alive until `b_transport` returns. Do not retain
+payload pointers after return. DMI is not provided. Addresses are byte-based and little-endian; streaming_width
+must be >= data_length; streaming wrap is unsupported. Byte enables repeat according to TLM rules,
+with each element 00 or FF; byte-enable length must be >0 when a pointer is supplied.
 
 ## Register port
 
-`EncoderVp::registers.socket`: 32-bit aligned access, đúng 4 byte.
-Sai offset/alignment: ADDRESS_ERROR; write RO/live config: COMMAND_ERROR.
-Đây là chính sách VP rõ ràng cho các hành vi chưa xác định đầy đủ trong PDF.
-Side effect read-clear chỉ xảy ra một lần ở access được chấp nhận có ít nhất một byte enable.
-IRQ chỉ được một SC_METHOD drive, tránh multiple-writer dù register access và controller
-thực thi trong các process khác nhau.
+`EncoderVp::registers.socket`: 32-bit aligned accesses of exactly 4 bytes.
+Invalid offset/alignment: ADDRESS_ERROR; writes to RO/live configuration: COMMAND_ERROR.
+These are explicit VP policies for behavior not fully specified in the PDF.
+Read-clear side effects occur once per accepted access with at least one enabled byte.
+IRQ is driven by one SC_METHOD only, avoiding multiple writers when register accesses and the controller
+execute in different processes.
 
 ## DMA / memory
 
@@ -43,42 +43,42 @@ before waiting for DMA response. NalDma committed words serve drain validation.
 
 ## Functional adapter
 
-`ProcessingIf::process(Macroblock)` là blocking interface hiện tại. Một macroblock gồm
-256 byte Y + 64 U + 64 V, từng plane theo hàng; x/y là tọa độ macroblock, frame là index
-trong activation. `ProcessedBlock` chứa reconstruction và output bytes.
+`ProcessingIf::process(Macroblock)` is the current blocking interface. A macroblock contains
+256 Y bytes + 64 U + 64 V, each plane in row order; x/y are macroblock coordinates and frame is the index
+within the activation. `ProcessedBlock` contains reconstruction and output bytes.
 
-Pipeline stub hiện yêu cầu output đúng 4 byte/MB. Encoder hoàn chỉnh cần adapter frame
-executor mới với entropy length biến đổi; không buộc entropy thật vào interface checksum.
-`FrameExecutorIf` nằm trong `interfaces/include/h264/frame_executor_if.h`. Top nhận
-`PipelineFactory` để tạo pipeline lúc elaboration; factory bind các DMA client vào arbiter.
-`reset()` không wait; `begin_activation()` khởi tạo state; `execute()` trả số word mới đã
-commit (có thể 0 nếu còn buffering). `end_activation()` chờ toàn bộ output/reference DMA
-và trả **tổng** số word của activation. Controller không tự thêm EOS hoặc suy ra length từ MB.
-Only stub formatter adds its own EOS. Adapter phải kiểm tra generation sau mỗi wait và
-không phát request sau khi finalization đã trả về.
+The pipeline stub currently requires exactly 4 output bytes/MB. A complete encoder needs a new frame-executor
+adapter with variable entropy length; do not force real entropy output into the checksum interface.
+`FrameExecutorIf` lives in `interfaces/include/h264/frame_executor_if.h`. The top accepts a
+`PipelineFactory` to create the pipeline at elaboration; the factory binds DMA clients to the arbiter.
+`reset()` must not wait; `begin_activation()` initializes state; `execute()` returns newly
+committed words (possibly 0 while buffering). `end_activation()` waits for all output/reference DMA
+and returns the **total** word count for the activation. The controller neither appends EOS nor derives length from MB count.
+Only the stub formatter adds its own EOS. Adapters must check the generation after every wait and
+must not issue requests after finalization returns.
 
-Mapping đã có trong PDF bảng 20-3 (trang 53–55). ControlRegs decode SPARA0/1, DFCON,
-SPARA2 từ giá trị phần mềm ghi, đồng thời giữ raw fields trong FrameConfig. SequenceParameters
-ở HostDriver chỉ giúp encode register; trong EncoderVp chỉ nal_capacity_bytes là cấu hình
-allocation ngoài register. QP/frame count của constructor không override register.
-`nal_capacity_bytes` là allocation contract của VP, không phải register mới;
-DMA client phải kiểm tra capacity trước khi ghi. Kiểm tra length ở controller sau completion
-không thể rollback một write vượt vùng đã xảy ra.
+The mapping is provided in PDF Table 20-3 (pages 53-55). ControlRegs decodes SPARA0/1, DFCON and
+SPARA2 from software-written values, retaining raw fields in FrameConfig. SequenceParameters
+in HostDriver only helps encode registers; in EncoderVp, only nal_capacity_bytes is an allocation
+configuration outside the registers. Constructor QP/frame count values do not override registers.
+`nal_capacity_bytes` is a VP allocation contract, not a new register;
+DMA clients must check capacity before writing. A controller length check after completion
+cannot roll back an out-of-bounds write that has already occurred.
 
-## Progress và lịch picture
+## Progress and picture scheduling
 
-Adapter bắt buộc implement syntax_requirements và abort_and_drain; xem
-`control/docs/recovery_and_syntax.md` từ root. FN/POC preflight chạy trước
-begin_activation. Error sau begin chỉ clear BUSY khi adapter xác nhận đã ngừng producer và
-drain mọi transaction. Drain thất bại giữ BUSY cho đến reset.
+Adapters must implement syntax_requirements and abort_and_drain; see
+`control/docs/recovery_and_syntax.md` from the root. FN/POC preflight runs before
+begin_activation. Errors after begin clear BUSY only when the adapter confirms that producers have stopped and
+all transactions have drained. A failed drain retains BUSY until reset.
 
-Pipeline gọi nal_words_accepted(generation,count) đúng một lần tại lúc NAL DMA nhận words.
-STM_LEN tăng ngay, kể cả response đang chờ hoặc sau đó lỗi; normal/IRQ vẫn phải chờ drain.
-end_activation trả tổng accepted words và phải khớp STM_LEN. Nếu lỗi, giữ counter đã nhận.
+The pipeline calls nal_words_accepted(generation,count) exactly once when NAL DMA accepts words.
+STM_LEN increments immediately, even if responses are pending or later fail; normal/IRQ still waits for drain.
+end_activation returns the total accepted words, which must match STM_LEN. Errors retain the accepted count.
 
-FrameConfig có completed_frames và activation_frames. Preload activation dùng tối đa
-CMB_ON_MEM frame; frame-address dùng một picture/base do host chọn. validate vùng CMB
-theo working set, không theo tổng FMENC. Source slot và coding/display index nằm trong
-PictureTask. Controller giữ sequence progress qua CMB/NAL/batch updates, bắt duplicate
-display index và gọi execute_picture. N=1 có lịch I/P theo M; N>1 yêu cầu adapter override
-picture_task bằng coding order của release. Thiếu lịch => ERROR, không chạy nhầm raster.
+FrameConfig contains completed_frames and activation_frames. Preload activations use at most
+CMB_ON_MEM frames; frame-address mode uses one picture/base selected by the host. Validate the CMB region
+against the working set, not total FMENC. Source slot and coding/display indices belong to
+PictureTask. The controller retains sequence progress across CMB/NAL/batch updates, detects duplicate
+display indices and calls execute_picture. N=1 uses an I/P schedule based on M; N>1 requires the adapter to override
+picture_task with the released coding order. A missing schedule causes ERROR rather than an incorrect raster traversal.

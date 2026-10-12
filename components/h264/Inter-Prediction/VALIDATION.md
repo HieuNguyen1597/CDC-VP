@@ -1,33 +1,33 @@
 ﻿# Inter VP validation — 2026-10-10
 
-Đối chiếu [SISLAB HAS v2.1.11](../SISLAB_H264_AVC_HAS_Spec_Detailed_v2.1.11.md)
-§8 và §6.2. Phạm vi là functional transaction VP với explicit search/rate/MVP
-input. Lần này mở rộng tests và CMake trong Inter-Prediction; SHA256 của 9 file
-production header/source giữ nguyên so với baseline. Không sửa module/parent khác.
+Compared against [SISLAB HAS v2.1.11](../SISLAB_H264_AVC_HAS_Spec_Detailed_v2.1.11.md)
+sections 8 and 6.2. Scope: functional transaction VP with explicit search/rate/MVP
+inputs. This pass extends tests and CMake within Inter-Prediction; SHA256 hashes of the nine
+production headers/sources remain identical to the baseline. No other modules/parent files were changed.
 
-## Kết quả thực thi
+## Execution results
 
-| Configuration | Environment | Kết quả |
+| Configuration | Environment | Result |
 |---|---|---|
 | Full VP Release | WSL/Linux, GNU 15.2.0, C++17, SystemC 2.3.4 | 18/18 PASS |
-| Full VP Debug + UBSan | -fsanitize=undefined; halt_on_error=1:print_stacktrace=1 | 18/18 PASS, không sanitizer diagnostics |
-| Core Debug + ASan/UBSan | TLM/DMA OFF; -fsanitize=address,undefined; leak detection ON | 3/3 PASS, không sanitizer diagnostics |
+| Full VP Debug + UBSan | -fsanitize=undefined; halt_on_error=1:print_stacktrace=1 | 18/18 PASS, no sanitizer diagnostics |
+| Core Debug + ASan/UBSan | TLM/DMA OFF; -fsanitize=address,undefined; leak detection ON | 3/3 PASS, no sanitizer diagnostics |
 | Full VP Debug + gcov | --coverage; 7 production .cpp files | 18/18 PASS |
 | Core Release Windows | MSYS2 UCRT64 GNU 16.1.0; TLM/DMA OFF | 2 PASS, 1 NOT RUN: Application Control |
 
-Final Linux/UBSan/coverage rerun khoảng 13:47–13:48 +07. ASan core và native core
-được chạy trên bản core tests cuối; thay đổi sau đó chỉ bổ sung TLM rejection.
-Sanitizers instrument module/tests và DMA headers; không rebuild thư viện SystemC.
-Windows chặn khởi chạy `h264_inter_core_tests.exe` với thông báo
-“An Application Control policy has blocked this file”. CTest elevated cũng bị
-chặn; chưa hoàn tất toàn bộ native Windows suite. Hai executable interpolation
-và limits chạy PASS. Cùng core test bị chặn đã PASS trên Linux và sanitizers.
+Final Linux/UBSan/coverage reruns were around 13:47-13:48 +07. Core ASan and native core
+runs used the final core tests; later changes only added TLM rejection checks.
+Sanitizers instrumented the module/tests and DMA headers; the SystemC library was not rebuilt.
+Windows blocked `h264_inter_core_tests.exe` with the message
+"An Application Control policy has blocked this file". Elevated CTest was also
+blocked; the full native Windows suite remains incomplete. The interpolation
+and limits executables passed. The blocked core test passed on Linux and under sanitizers.
 
-Raw LastTest logs, CTest registration, config, coverage summary/script và SHA256:
+Raw LastTest logs, CTest registration, configuration, coverage summary/script and SHA256 hashes:
 [full_test_20261010.txt](tests/evidence/full_test_20261010.txt).
-[validation_20261010.txt](tests/evidence/validation_20261010.txt) là baseline
-13 tests lúc 12:49, không phải evidence của suite mở rộng hiện tại.
-Evidence được giữ lại sau khi dọn build.
+[validation_20261010.txt](tests/evidence/validation_20261010.txt) records the 13-test baseline
+at 12:49, not evidence for the current expanded suite.
+Evidence is retained after build cleanup.
 
 | Test group | Assertions |
 |---|---:|
@@ -35,21 +35,21 @@ Evidence được giữ lại sau khi dọn build.
 | Interpolation oracle, 3 seeds | 144002 |
 | Limits / geometry / invalid inputs | 30836 |
 | Actual SW DMA integration bus 32 / 64 / 128 | 33686 / 29078 / 27254 |
-| Normal / zero-latency TLM | 11337 mỗi group |
-| Shared / local / disable cancellation | 601 mỗi group |
+| Normal / zero-latency TLM | 11337 per group |
+| Shared / local / disable cancellation | 601 per group |
 | Retag / incoming-delay / stale-malformed-rearm | 594 / 605 / 51 |
-| Partitions / partitions-zero | 107359 mỗi group |
+| Partitions / partitions-zero | 107359 per group |
 | Boundaries / boundary-zero | 19843 / 19793 |
 
-Counts bao gồm assertions của harness/protocol, không phải tỷ lệ HAS coverage.
-Không có expected-failure test. Bench yêu cầu driver hoàn thành và helper action
-được settle; simulation starvation không được tính PASS.
+Counts include harness/protocol assertions; they are not HAS coverage percentages.
+There are no expected-failure tests. The bench requires driver completion and settled helper actions;
+simulation starvation is not counted as PASS.
 
 ## Coverage
 
-GCC 15.2.0 gcov JSON, counters được xóa trước final coverage run. Chỉ tính 7
-production .cpp; không tính headers, tests, standard library, SystemC hoặc DMA.
-Covered line/branch outcome nghĩa là execution count lớn hơn 0.
+GCC 15.2.0 gcov JSON, with counters cleared before the final coverage run. Only seven
+production .cpp files are counted, excluding headers, tests, the standard library, SystemC and DMA.
+A covered line/branch outcome has an execution count greater than zero.
 
 | Source | Lines | Branch outcomes taken |
 |---|---:|---:|
@@ -60,51 +60,51 @@ Covered line/branch outcome nghĩa là execution count lớn hơn 0.
 | ime/sad_tree.cpp | 17/18 | 16/18 |
 | ipc/inter_tlm.cpp | 150/150 | 232/321 |
 | mc/motion_compensation.cpp | 47/48 | 77/98 |
-| Total | **412/414 (99,52%)** | **627/831 (75,45%)** |
+| Total | **412/414 (99.52%)** | **627/831 (75.45%)** |
 
-Hai dòng chưa chạy là closing braces tại sad_tree.cpp:24 và
-motion_compensation.cpp:40. Gcov branch denominator gồm compiler exception/unwind
-paths; chưa đạt 100% branch coverage. Số liệu này không chứng minh mọi yêu cầu HAS.
+The two unexecuted lines are closing braces at sad_tree.cpp:24 and
+motion_compensation.cpp:40. The gcov branch denominator includes compiler exception/unwind
+paths; branch coverage is below 100%. These figures do not prove every HAS requirement.
 
-## Hành vi đã kiểm tra
+## Verified behavior
 
-IME kiểm tra 41 partition positions, max SAD 65280, wide rate, overflow, stable
-ties và randomized oracle. Nội suy kiểm tra 16 luma/64 chroma phases, âm/border,
-constant/ramp/impulse/checkerboard/step/random và signed diagonal intermediate.
+IME checks 41 partition positions, maximum SAD 65280, wide rate, overflow, stable
+ties and a randomized oracle. Interpolation checks 16 luma/64 chroma phases, negative/border coordinates,
+constant/ramp/impulse/checkerboard/step/random patterns and signed diagonal intermediates.
 
-Limits chạy 40 cases: 5 kích thước (16×16, 176×144, 1280×720, 1920×1088,
-4096×4096) × 4 cực trị MV signed ±65536 × 2 MB positions. Sparse corner fixtures
-kiểm tra clamping, inward fractional refinement và toàn bộ 384 MC samples;
-không encode full frame. Kiểm tra tối đa 4096 integer/64 fractional candidates,
-invalid dimensions/plane/search/MC, atomic refill và retag giữa core evaluation.
+Limits cover 40 cases: 5 dimensions (16x16, 176x144, 1280x720, 1920x1088,
+4096x4096) x 4 signed MV extremes at +/-65536 x 2 MB positions. Sparse corner fixtures
+check clamping, inward fractional refinement and all 384 MC samples;
+they do not encode full frames. Checks include up to 4096 integer/64 fractional candidates,
+invalid dimensions/plane/search/MC, atomic refill and retag during core evaluation.
 
-TLM partition regression chạy 246 cases mỗi timing profile: 3 seeds × P/B × 41
-positions. Source/oracle độc lập tạo fractional winner, kiểm tra list/tag/MV/MVD,
-residual, từng mẫu Y/U/V, independent transform-block order, phase/last, repeated
-Peek, bad Accept, consumer stall và final done. Tổng hai profiles: 492 cases.
+The TLM partition regression runs 246 cases per timing profile: 3 seeds x P/B x 41
+positions. Independent source/oracle data creates a fractional winner and checks list/tag/MV/MVD,
+residuals, every Y/U/V sample, independent transform-block order, phase/last, repeated
+Peek, bad Accept, consumer stalls and final done. Total across both profiles: 492 cases.
 
-Deadline regression chạy 144 cases mỗi profile: shared/local reset, disable hoặc
-retag × 12 sites × {-1,0,+1} ps. Sites gồm incoming delays, IME/FME service/compare,
-Commit, Peek/sample, Accept/final Accept và repeated held Peek. Normal: 46 accepted,
-98 cancelled; zero service: 96 accepted, 48 cancelled. Tại timestamp bằng deadline,
-chấp nhận thứ tự tuần tự hợp lệ của SystemC; không khẳng định priority RTL. Kiểm
-tra completion/cancel timestamp, owner invalidation và không stale output/done.
+The deadline regression runs 144 cases per profile: shared/local reset, disable or
+retag x 12 sites x {-1,0,+1} ps. Sites include incoming delays, IME/FME service/compare,
+Commit, Peek/sample, Accept/final Accept and repeated held Peek. Normal: 46 accepted,
+98 cancelled; zero service: 96 accepted, 48 cancelled. At the exact deadline timestamp,
+valid SystemC sequential orderings are accepted; no RTL priority is asserted. Checks cover
+completion/cancellation timestamps, owner invalidation and absence of stale output/done.
 
-Existing TLM tests còn kiểm tra row-start 8+8 columns, unrelated-list refill,
-delayed U, B startup, P/B/P, current-MB snapshot trước incoming delay, benign
-notification giữ deadline, stale-at-entry giữ owner, reset/enable-low rearm,
-malformed transport, Peek/Accept trước Commit, duplicate Commit và local-only
-waits khi không có EpochExtension.
+Existing TLM tests also check row-start 8+8 columns, unrelated-list refill,
+delayed U, B startup, P/B/P, current-MB snapshots before incoming delay, benign
+notifications retaining deadlines, stale-at-entry retaining the owner, reset/enable-low rearm,
+malformed transport, Peek/Accept before Commit, duplicate Commit and local-only
+waits without EpochExtension.
 
-Actual SwDma/H264Arb/AxiMasterBridge/DdrModel integration dùng 48×32, ba pictures
-P/B/P và 18 MBs mỗi bus width 32/64/128. Kiểm tra overlap reuse, successful read
-residency, RRESP fault/retry, stale outstanding responses sau retag, 4KiB splitting
-và predictor từ reconstructed DDR reference.
+Actual SwDma/H264Arb/AxiMasterBridge/DdrModel integration uses 48x32, three P/B/P pictures
+and 18 MBs per 32/64/128-bit bus width. It checks overlap reuse, successful-read
+residency, RRESP fault/retry, stale outstanding responses after retag, 4 KiB splitting
+and predictors from reconstructed DDR references.
 
-## Tái lập
+## Reproduction
 
-Chạy từ Inter-Prediction, xem [README](README.md) cho full/core build. Environment
-đã dùng SystemC include/library tại /opt/systemc-2.3.4, cùng compiler/C++17 ABI.
+Run from Inter-Prediction; see the [README](README.md) for full/core builds. The environment
+used SystemC include/library paths under /opt/systemc-2.3.4 with matching compiler/C++17 ABI.
 
 ```sh
 cmake -S . -B build/full -DCMAKE_BUILD_TYPE=Release \
@@ -132,8 +132,8 @@ ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
   ctest --test-dir build/asan-core --output-on-failure
 ```
 
-Coverage: cấu hình full Debug với CXX/link flags `--coverage`, build rồi chạy
-CTest tuần tự trên fresh build/counters. Từ `build/coverage`:
+Coverage: configure full Debug with CXX/link flags `--coverage`, build, then run
+CTest sequentially with a fresh build/counters. From `build/coverage`:
 
 ```sh
 find CMakeFiles/h264_inter_core.dir CMakeFiles/h264_inter_tlm.dir \
@@ -141,15 +141,15 @@ find CMakeFiles/h264_inter_core.dir CMakeFiles/h264_inter_tlm.dir \
 python3 ../../tests/evidence/coverage_report.py .
 ```
 
-## Giới hạn nghiệm thu
+## Acceptance limits
 
-Xem [spec mapping](docs/SPEC_MAPPING.md) và [tests còn mở](docs/TEST_PLAN.md).
-Suite này kiểm tra đầy đủ các tests hiện có của VP, chưa phải full encoder signoff.
-Chưa xác nhận SISLAB search/rate/MVP/comparator policy bằng Algorithm Spec/RTL;
-chưa có skip/direct, bi/weighted prediction, autonomous partition selection,
-actual TQ/entropy/DF feedback, QCIF byte/PSNR/601-frame qualification hay RTL cycle
-equivalence. Không suy ra fixed latency/throughput từ simulation time.
+See [spec mapping](docs/SPEC_MAPPING.md) and [open tests](docs/TEST_PLAN.md).
+This suite runs all current VP tests; it is not full encoder signoff.
+SISLAB search/rate/MVP/comparator policy has not been confirmed against the Algorithm Spec/RTL;
+skip/direct, bi/weighted prediction, autonomous partition selection,
+actual TQ/entropy/DF feedback, QCIF byte/PSNR/601-frame qualification and RTL cycle
+equivalence remain unverified. Simulation time does not establish fixed latency/throughput.
 
-Parent CMake/export chưa gắn module. Khi push riêng folder này, cần shared
-contracts và DMA dependencies trong repo đích; tắt DMA tests nếu chưa có sibling
-DMA. Spec được đọc ở sibling path, không chép vào module.
+Parent CMake/export has not yet connected the module. When pushing this folder separately, the
+destination repository needs the shared contracts and DMA dependencies; disable DMA tests if the sibling
+DMA module is absent. The specification is read from the sibling path, not copied into the module.

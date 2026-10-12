@@ -29,7 +29,7 @@ struct DfTb : sc_core::sc_module {
         tx.set_data_length(len); 
         tx.set_streaming_width(len);
         
-        // Chống lỗi TLM Target Socket
+        // Guard against TLM target socket errors
         tx.set_byte_enable_ptr(nullptr); 
         tx.set_byte_enable_length(0); 
         tx.set_dmi_allowed(false);
@@ -39,7 +39,7 @@ struct DfTb : sc_core::sc_module {
         socket->b_transport(tx, delay);
         
         if (tx.get_response_status() != tlm::TLM_OK_RESPONSE) {
-            std::cout << "\nGiao dịch bị từ chối - Address: 0x" << std::hex << addr << std::dec << "\n";
+            std::cout << "\nTransaction rejected - Address: 0x" << std::hex << addr << std::dec << "\n";
             sc_core::sc_stop();
         }
         wait(delay);
@@ -68,11 +68,11 @@ struct DfTb : sc_core::sc_module {
                       unsigned char qp) {
 
         std::cout << "[TEST " << test_id << "] " << case_name << "\n";
-        std::cout << "  - Cấu hình phần cứng : bS = " << (int)bs << ", QP = " << (int)qp << "\n";
+        std::cout << "  - Hardware configuration : bS = " << (int)bs << ", QP = " << (int)qp << "\n";
 
-        print_blocks("Ma trận trước xử lý (Input):", left_data, right_data);
+        print_blocks("Matrix before processing (Input):", left_data, right_data);
 
-        // Ghi dữ liệu khối điểm ảnh và cấu hình
+        // Write pixel block data and configuration
         send(tlm::TLM_WRITE_COMMAND, 0x00, const_cast<unsigned char*>(left_data), 16);
         send(tlm::TLM_WRITE_COMMAND, 0x10, const_cast<unsigned char*>(right_data), 16);
         send(tlm::TLM_WRITE_COMMAND, 0x20, &bs, 1);
@@ -81,7 +81,7 @@ struct DfTb : sc_core::sc_module {
         unsigned char start_cmd = 0x80;
         send(tlm::TLM_WRITE_COMMAND, 0x28, &start_cmd, 1);
 
-        // Polling cờ Valid
+        // Poll the Valid flag
         unsigned char valid[4]{};
         int attempts = 0;
         while (attempts < 100) {
@@ -92,7 +92,7 @@ struct DfTb : sc_core::sc_module {
         }
 
         if (temp_load_u32_le(valid) != 1) {
-            std::cout << "  => TRẠNG THÁI        : \033[1;31m[FAIL - TIMEOUT DF VALID]\033[0m\n\n";
+            std::cout << "  => STATUS           : \033[1;31m[FAIL - TIMEOUT DF VALID]\033[0m\n\n";
             sc_core::sc_stop();
             return;
         }
@@ -101,10 +101,10 @@ struct DfTb : sc_core::sc_module {
         send(tlm::TLM_READ_COMMAND, 0x50, left_out, 16);
         send(tlm::TLM_READ_COMMAND, 0x60, right_out, 16);
 
-        std::cout << "  - Ma trận sau xử lý (Output) [\033[1;33mSố vàng là pixel bị lọc\033[0m]:\n";
+        std::cout << "  - Matrix after processing (Output) [\033[1;33mYellow values indicate filtered pixels\033[0m]:\n";
         for (int i = 0; i < 4; ++i) {
             std::cout << "      ";
-            // Khối trái
+            // Left block
             for (int j = 0; j < 4; ++j) {
                 int idx = i * 4 + j;
                 if (left_out[idx] != left_data[idx]) {
@@ -114,7 +114,7 @@ struct DfTb : sc_core::sc_module {
                 }
             }
             std::cout << " | ";
-            // Khối phải
+            // Right block
             for (int j = 0; j < 4; ++j) {
                 int idx = i * 4 + j;
                 if (right_out[idx] != right_data[idx]) {
@@ -126,7 +126,7 @@ struct DfTb : sc_core::sc_module {
             std::cout << "\n";
         }
 
-        std::cout << "  => TRẠNG THÁI        : \033[1;32m[PASS - LỌC ĐÚNG CHUẨN SPECS]\033[0m\n\n";
+        std::cout << "  => STATUS           : \033[1;32m[PASS - FILTER MATCHES SPEC]\033[0m\n\n";
     }
     
     void run() {
@@ -134,51 +134,51 @@ struct DfTb : sc_core::sc_module {
         std::cout << "        H.264 DEBLOCKING FILTER UNIT TEST REPORT         \n";
         std::cout << "=========================================================\n\n";
 
-        // Mảng Helper tạo nhanh khối 4x4 đồng nhất
+        // Helper array for quickly creating uniform 4x4 blocks
         auto fill_blk = [](std::uint8_t val) { 
             std::array<std::uint8_t, 16> arr; arr.fill(val); return arr; 
         };
 
-        // LỌC MẠNH TỐI ĐA (Strong Filter, tác động 3 pixel)
-        // Điều kiện: bS = 4, |p0-q0| < Alpha, |p2-p0| < Beta.
-        // Dùng QP = 51 (Alpha = 255, Beta = 18).
+        // MAXIMUM STRONG FILTERING (affects 3 pixels)
+        // Conditions: bS = 4, |p0-q0| < Alpha, |p2-p0| < Beta.
+        // Use QP = 51 (Alpha = 255, Beta = 18).
         auto left_c1 = fill_blk(100);
         auto right_c1 = fill_blk(110);
-        execute_case(1, "Lọc mạnh bS = 4 -> Mờ lan 3 pixel mỗi bên:",
+        execute_case(1, "Strong filtering bS = 4 -> Smooth 3 pixels on each side:",
                      left_c1.data(), right_c1.data(), 4, 51);
 
-        // CASE 2: LỌC MẠNH BỊ HẠ CẤP (Fallback to 1 pixel)
-        // Điều kiện: bS = 4 nhưng nội bộ khối KHÔNG phẳng (|p2-p0| >= Beta).
-        // Mô phỏng: QP = 36 (Beta = 11). Đặt p0 = 100, p2 = 80 => Lệch 20 > 11.
+        // CASE 2: REDUCED STRONG FILTERING (fallback to 1 pixel)
+        // Condition: bS = 4 but the block interior is NOT flat (|p2-p0| >= Beta).
+        // Simulation: QP = 36 (Beta = 11). Set p0 = 100, p2 = 80 => Difference 20 > 11.
         std::array<std::uint8_t, 16> left_c2, right_c2;
         for(int i=0; i<4; ++i) {
-            left_c2[i*4+0]=100; left_c2[i*4+1]=90; left_c2[i*4+2]=80; left_c2[i*4+3]=70; // Gradient dốc
+            left_c2[i*4+0]=100; left_c2[i*4+1]=90; left_c2[i*4+2]=80; left_c2[i*4+3]=70; // Steep gradient
             right_c2[i*4+0]=110; right_c2[i*4+1]=110; right_c2[i*4+2]=110; right_c2[i*4+3]=110;
         }
-        execute_case(2, "Lọc mạnh bS = 4 nhưng độ dốc nội bộ > Beta -> Chỉ vuốt 1 pixel sát vách:",
+        execute_case(2, "Strong filtering bS = 4 with internal gradient > Beta -> Smooth only 1 pixel next to the edge:",
                      left_c2.data(), right_c2.data(), 4, 36);
 
         
-        // CASE 3: LỌC YẾU CÓ CLIPPING 
-        // Điều kiện: bS = 1,2,3.
-        // Mô phỏng: Lệch 120 | 140 (Lệch 20). tc0 hạn chế mức thay đổi tối đa.
+        // CASE 3: WEAK FILTERING WITH CLIPPING
+        // Condition: bS = 1,2,3.
+        // Simulation: 120 | 140 (difference 20). tc0 limits the maximum change.
         auto left_c3 = fill_blk(120);
         auto right_c3 = fill_blk(140);
-        execute_case(3, "Lọc yếu bS = 2, QP = 36 -> Thay đổi biên độ bị giới hạn:",
+        execute_case(3, "Weak filtering bS = 2, QP = 36 -> Magnitude of change is limited:",
                      left_c3.data(), right_c3.data(), 2, 36);
 
-        // CASE 4: NHẬN DIỆN VIỀN THẬT (Real Edge - Ngắt mạch)
-        // Điều kiện: |p0-q0| >= Alpha.
-        // Mô phỏng: QP = 30 (Alpha = 25). Lệch 50 | 200 (150 > 25).
+        // CASE 4: REAL EDGE DETECTION (filter disabled)
+        // Condition: |p0-q0| >= Alpha.
+        // Simulation: QP = 30 (Alpha = 25). 50 | 200 (150 > 25).
         auto left_c4 = fill_blk(50);
         auto right_c4 = fill_blk(200);
-        execute_case(4, "Nhận diện viền thật (Delta 150 > Alpha 25) -> Ngắt lọc, bảo toàn 100% chi tiết:",
+        execute_case(4, "Real edge detected (Delta 150 > Alpha 25) -> Disable filtering and preserve all details:",
                      left_c4.data(), right_c4.data(), 4, 30);
 
         // ---------------------------------------------------------
-        // CASE 5: TẮT LỌC (bS=0)
+        // CASE 5: FILTER DISABLED (bS=0)
         // ---------------------------------------------------------
-        execute_case(5, "Tắt mạch lọc hoàn toàn (bS = 0) -> Bypass 100%:",
+        execute_case(5, "Filter fully disabled (bS = 0) -> Complete bypass:",
                      left_c4.data(), right_c4.data(), 0, 30);
 
         std::cout << "=========================================================\n";

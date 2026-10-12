@@ -1,3 +1,3 @@
 # Expected
 
-Golden hiện là checksum fixture trong testbench; chưa có golden H.264.
+The current golden data consists of fixture checksums in the testbench; no H.264 golden files are provided here.

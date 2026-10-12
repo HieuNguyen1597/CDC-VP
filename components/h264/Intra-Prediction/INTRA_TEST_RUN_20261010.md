@@ -1,4 +1,4 @@
 # Intra regression results
 
-Kết quả regression, mapping spec, evidence và lệnh chạy test đã được gom vào
-[VALIDATION.md](VALIDATION.md). File này giữ link tương thích từ tài liệu tích hợp.
+Regression results, specification mapping, evidence and test commands are consolidated in
+[VALIDATION.md](VALIDATION.md). This file preserves a compatibility link from integration documentation.

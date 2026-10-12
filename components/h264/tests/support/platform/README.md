@@ -1,13 +1,13 @@
 # Platform models
 
-`host/`: HostDriver phát register/memory transaction qua TLM. Caller chạy trong SC_THREAD.
-`memory/`: DdrMemory lưu byte, latency cấu hình được, fault region và trace giao dịch.
+`host/`: HostDriver issues register/memory transactions over TLM. The caller runs in an SC_THREAD.
+`memory/`: DdrMemory stores bytes, with configurable latency, fault regions and transaction tracing.
 
-Đây là môi trường ngoài encoder IP, không đặt trong task thuật toán. CMake target h264_platform.
-Host và DMA bind hai initiator vào DDR multi-target. Memory serialize access, commit sau latency.
-Diagnostic in_flight/active_address chỉ phục vụ quan sát test, không phải giao diện phần mềm IP.
+This models the environment outside the encoder IP, rather than an algorithm task. CMake target: h264_platform.
+Host and DMA bind two initiators to the DDR multi-target socket. Memory serializes accesses and commits after latency.
+The in_flight/active_address diagnostics are for test observation only, not the IP software interface.
 
-Owner: Huy Nguyen Huynh Quoc (hạ tầng kiểm thử). Memory Architecture chương 12 thuộc
-Nguyên ở `module Memory Architecture (chương 12) do nhóm bàn giao`: local memory, layout/stride,
-reference slots và hợp đồng read latency/collision. DDR model này chỉ thực hiện giao dịch
-bộ nhớ ngoài; không tự quyết định slot rotation hoặc thay thế các RAM nội bộ của Nguyên.
+Owner: Huy Nguyen Huynh Quoc (test infrastructure). Chapter 12 Memory Architecture belongs to
+Nguyen in the team-provided Memory Architecture module: local memory, layout/stride,
+reference slots and read latency/collision contracts. This DDR model only performs external
+memory transactions; it does not choose slot rotation or replace Nguyen's internal RAMs.

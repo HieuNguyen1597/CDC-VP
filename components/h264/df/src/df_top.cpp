@@ -42,13 +42,13 @@ void DfTop::reset() {
 void DfTop::start() {
     result_.valid = false;
 
-    // Kéo Old Block từ Line Memory ra làm Left Block
+    // Load the old block from Line Memory as the left block
     line_mem_.read_block(result_.left_filtered);
     
-    // Lấy New Block đang nhận làm Right Block
+    // Use the incoming new block as the right block
     result_.right_filtered = request_.current_block;
 
-    // Đưa qua Engine lọc
+    // Run the filtering engine
     filter_.apply_filter(
         result_.left_filtered, 
         result_.right_filtered, 
@@ -59,7 +59,7 @@ void DfTop::start() {
         request_.beta_offset
     );
 
-    // Lọc xong => cất Right Block vào Line Memory để chuẩn bị cho chu kỳ tiếp theo
+    // Store the filtered right block in Line Memory for the next cycle
     line_mem_.write_block(result_.right_filtered);
 
     result_.valid = true;
@@ -83,7 +83,7 @@ void DfTop::b_transport(tlm::tlm_generic_payload& tx, sc_core::sc_time& delay) {
 
     if (tx.get_command() == tlm::TLM_WRITE_COMMAND) {
         if (addr == 0x00 && len == 16) {
-            // Testbench mồi sẵn data vào Line Memory
+            // The testbench preloads data into Line Memory
             std::array<std::uint8_t, 16> init_buf;
             load_array_le(data, init_buf.data(), 16);
             line_mem_.write_block(init_buf);

@@ -56,7 +56,7 @@ public:
 };
 
 // A client-visible completion sink. Clients report done here so the testbench
-// can assert the completion matrix in Bảng 6-1.
+// can assert the completion matrix in Table 6-1.
 class CompletionSink {
 public:
     virtual ~CompletionSink() = default;

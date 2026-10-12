@@ -2,95 +2,95 @@
 
 Author: VinhNT124
 
-Mô hình DMA cho H.264, gồm core C++17 và wrapper SystemC 2.3.4/TLM-2.0. Module vận chuyển dữ liệu giữa CMB, search window, reconstructed frame và NAL buffer thông qua arbiter và AXI memory bridge. Wrapper cung cấp MMIO, shared DDR, IRQ và reset để tích hợp với platform CDC-VP.
+H.264 DMA model with a C++17 core and a SystemC 2.3.4/TLM-2.0 wrapper. The module transfers data between CMB, search windows, reconstructed frames and the NAL buffer through an arbiter and AXI memory bridge. The wrapper provides MMIO, shared DDR, IRQ and reset for CDC-VP platform integration.
 
-## Chức năng
+## Functions
 
-| Thành phần | Vai trò |
+| Component | Role |
 |---|---|
-| CMB | Đọc current macroblock từ source frame, xuất Y16×16/U8×8/V8×8 |
-| SW | Nạp reference search window cho List0/List1 và tái sử dụng vùng overlap |
-| DF/REFM | Ghi reconstructed hoặc filtered pixels vào reference frame memory |
-| NAL | Ghi output words, quản lý buffer capacity và stream length |
-| Arbiter | Điều phối request của các DMA clients và giữ grant đến khi transaction hoàn tất |
-| AXI bridge | Lập kế hoạch burst, xử lý byte lanes/strobes và response trên bus 32/64/128-bit |
+| CMB | Reads the current macroblock from the source frame and outputs Y16x16/U8x8/V8x8 |
+| SW | Loads List0/List1 reference search windows and reuses overlapping regions |
+| DF/REFM | Writes reconstructed or filtered pixels to reference frame memory |
+| NAL | Writes output words and manages buffer capacity and stream length |
+| Arbiter | Schedules DMA client requests and retains the grant until the transaction completes |
+| AXI bridge | Plans bursts and handles byte lanes/strobes and responses on 32/64/128-bit buses |
 
-## Cấu trúc và CMake targets
+## Structure and CMake targets
 
-| Target | Vai trò |
+| Target | Role |
 |---|---|
-| `h264_dma` | Core header-only, không phụ thuộc SystemC |
-| `h264_dma_tlm` | Wrapper SystemC/TLM và MMIO |
+| `h264_dma` | Header-only core with no SystemC dependency |
+| `h264_dma_tlm` | SystemC/TLM and MMIO wrapper |
 
-Các alias tương ứng là `cdc::components::h264_dma` và `cdc::components::h264_dma_tlm`. Core nằm trong `common/`, `dma/` và `mem/`; wrapper trong `tlm/`; test riêng trong `tb/` và `tlm/tests/`. Component H.264 đăng ký và install/export các DMA targets này.
+The corresponding aliases are `cdc::components::h264_dma` and `cdc::components::h264_dma_tlm`. The core lives in `common/`, `dma/` and `mem/`; the wrapper in `tlm/`; standalone tests in `tb/` and `tlm/tests/`. The H.264 component registers and installs/exports these DMA targets.
 
-## Giao dịch và bộ nhớ
+## Transactions and memory
 
-`DmaRequest.beats` là số internal transfers, mỗi transfer có `size` byte; tổng payload bằng `beats * size`, độc lập với AXI data width. Arbiter lưu bản sao request và write payload. Read completion trả các byte được yêu cầu trong `DmaResponse.data`.
+`DmaRequest.beats` counts internal transfers, each of `size` bytes; total payload is `beats * size`, independent of AXI data width. The arbiter stores copies of the request and write payload. Read completion returns the requested bytes in `DmaResponse.data`.
 
-Bridge căn địa chỉ theo bus beat, chọn lane/WSTRB và chia burst tại ranh giới 4 KiB hoặc burst limit. Mỗi write segment nhận một B response; chỉ byte có strobe được ghi. Segment đã thành công giữ nguyên khi segment sau gặp lỗi.
+The bridge aligns addresses to bus beats, selects lanes/WSTRB and splits bursts at 4 KiB boundaries or the burst limit. Each write segment receives one B response; only strobed bytes are written. Successful segments remain committed if a later segment fails.
 
-`service_one()` trả client đang giữ grant, kể cả khi transaction còn pending; `NONE` biểu thị idle. `run(max_steps)` tiếp tục xử lý qua các stall và báo lỗi nếu hết giới hạn khi vẫn còn work. `error()` giữ trạng thái lỗi đến khi subsystem idle và host gọi `clear_error()`. Delay trong `AxiBridgeConfig` tính theo service steps; read FIFO chứa tối đa 16 internal words, mỗi entry tối đa 4 byte.
+`service_one()` returns the client holding the grant, even while the transaction is pending; `NONE` means idle. `run(max_steps)` continues through stalls and reports an error if the limit is reached while work remains. `error()` retains the failure state until the subsystem is idle and the host calls `clear_error()`. `AxiBridgeConfig` delays are measured in service steps; the read FIFO holds up to 16 internal words, each up to 4 bytes.
 
-Coded width/height phải dương, chia hết cho 16 và tối đa 1920×1088. Với planar YUV420, một frame cần `F = 3 * width * height / 2` byte; REFM gồm ba slots nên cần `3F` byte. Layout được kiểm tra về physical window, alignment theo bus width, capacity và overlap. `nal_capacity=0` suy ra capacity đến vùng kế tiếp hoặc cuối modeled DDR.
+Coded width/height must be positive multiples of 16, up to 1920x1088. A planar YUV420 frame needs `F = 3 * width * height / 2` bytes; REFM has three slots and needs `3F` bytes. Layout checks cover the physical window, bus-width alignment, capacity and overlap. `nal_capacity=0` derives capacity from the next region or the end of modeled DDR.
 
-`DmaSubsystem` có thể dùng DDR riêng hoặc nhận `MemoryIf&`, `memory_base` và `memory_bytes` từ platform. Platform giữ ownership của external memory. `memory()` trả interface chung; `ddr()` chỉ dùng khi subsystem sở hữu private DDR.
+`DmaSubsystem` can use private DDR or accept `MemoryIf&`, `memory_base` and `memory_bytes` from the platform. The platform retains ownership of external memory. `memory()` returns the common interface; `ddr()` is available only when the subsystem owns private DDR.
 
 ## Client API
 
 ### CMB: current macroblock
 
-`update_enable(true)` bắt đầu frame ở cạnh enable thấp→cao; giữ enable cao không tạo thêm start. `fetch_macroblock()` nhận tối đa một tile pending. `pixels()` sẵn sàng sau khi tất cả read thành công và trả planar Y256/U64/V64 samples.
+`update_enable(true)` starts a frame on a low-to-high enable edge; holding enable high does not start another frame. `fetch_macroblock()` accepts at most one pending tile. `pixels()` becomes ready after all reads succeed and returns planar Y256/U64/V64 samples.
 
-Ở mode `WorkingSet`, gọi `select_working_frame(slot)` trước enable. Controller cung cấp source slot theo coding order; `RegisterBases.cmb_frames` và source capacity xác định số frame được cấp phát.
+In `WorkingSet` mode, call `select_working_frame(slot)` before enabling. The controller supplies source slots in coding order; `RegisterBases.cmb_frames` and source capacity determine the allocated frame count.
 
 ### SW: reference search window
 
-`set_ref_slot(list, slot, picture_tag)` chọn và retag reference riêng cho từng list. `fill_window()` chỉ ready sau khi nạp xong toàn vùng Y/U/V; vùng overlap đã đọc thành công được tái sử dụng khi chuyển macroblock hoặc hàng.
+`set_ref_slot(list, slot, picture_tag)` selects and retags references separately for each list. `fill_window()` becomes ready only after the entire Y/U/V region is loaded; successfully read overlapping regions are reused when moving to another macroblock or row.
 
-Window bắt đầu tại tọa độ macroblock và được clip vào coded frame; `SwPlane` cung cấp origin/extent thực tế. Bên sử dụng xử lý search origin và padding biên. `invalidate()` xóa cả residency và reference selection, nên cần chọn slot lại. Chỉ sử dụng reference sau khi producer DF xác nhận frame đã hoàn tất.
+The window starts at the macroblock coordinates and is clipped to the coded frame; `SwPlane` provides its actual origin/extent. Consumers handle the search origin and boundary padding. `invalidate()` clears both residency and reference selection, so slots must be selected again. Use references only after the DF producer confirms frame completion.
 
 ### DF: reconstructed frame output
 
-Producer cung cấp `MacroblockPixels` đã tái tạo. Ví dụ ghi một macroblock ở chế độ bypass, với `vp` là `DmaSubsystem` và `reconstructed` là pixel đầu vào:
+The producer supplies reconstructed `MacroblockPixels`. Example of writing one macroblock in bypass mode, where `vp` is a `DmaSubsystem` and `reconstructed` contains the input pixels:
 
 ```cpp
 vp.df().latch_df_enable(false);
 vp.df().set_ref_slot(1);
 vp.df().on_sofm();
 vp.df().schedule_macroblock(mb_x, mb_y, reconstructed, false);
-vp.df().dma_fmdone();  // Gọi sau khi đã gửi toàn bộ work của frame.
+vp.df().dma_fmdone();  // Call after submitting all work for the frame.
 vp.df().consume_done();
 vp.run();
-// Reference sẵn sàng khi vp.df().frame_complete() trả true.
+// The reference is ready when vp.df().frame_complete() returns true.
 ```
 
-Nếu bật filter, truyền tile đã lọc với `already_filtered=true`, hoặc đăng ký `set_filter(callback)` cho tile chưa lọc. Callback chạy vertical trước horizontal, hoàn tất rồi DMA mới ghi Y/U/V. Thiếu pixel input hoặc filter producer cần thiết sẽ bị từ chối.
+When filtering is enabled, pass a filtered tile with `already_filtered=true`, or register `set_filter(callback)` for unfiltered tiles. The callback runs vertically before horizontally, and DMA writes Y/U/V only after it completes. Missing pixel input or a required filter producer is rejected.
 
-`dma_fmdone(frame_id)` và `frame_complete(frame_id)` theo dõi completion theo frame, tránh done đến trễ làm hoàn tất nhầm frame mới. API cũ `latch_dis_idc(0/1)` tương ứng DF enable, khác với trường syntax `disable_deblocking_filter_idc`.
+`dma_fmdone(frame_id)` and `frame_complete(frame_id)` track completion per frame, preventing a delayed done from completing a new frame incorrectly. The legacy `latch_dis_idc(0/1)` API corresponds to DF enable and differs from the syntax field `disable_deblocking_filter_idc`.
 
 ### NAL: output buffer
 
-Mỗi flush lưu snapshot của các words đã nhận; nhiều flush append trong cùng activation. Pointer/count chỉ cập nhật theo response thành công, và capacity được kiểm tra trước enqueue.
+Each flush snapshots accepted words; multiple flushes append within one activation. Pointers/counts update only after successful responses, and capacity is checked before enqueueing.
 
-`on_disable()` yêu cầu không còn output pending, reload pointer và giữ `STM_LEN` để host đọc. Activation tiếp theo đi qua disable rồi `begin_activation()`. `WordByteOrder` cấu hình thứ tự byte, mặc định little-endian. `accept_eos()` ghi bytes `00 00 01 0B`.
+`on_disable()` requires no pending output, reloads the pointer and preserves `STM_LEN` for host reads. The next activation follows disable and then `begin_activation()`. `WordByteOrder` configures byte order, defaulting to little-endian. `accept_eos()` writes bytes `00 00 01 0B`.
 
-## Kết nối SystemC/TLM
+## SystemC/TLM connections
 
-Wrapper cung cấp các cổng:
+The wrapper provides these ports:
 
-| Cổng | Vai trò |
+| Port | Role |
 |---|---|
-| `target_socket` | MMIO target, nhận offset local sau address decode |
-| `master_socket` | DMA initiator, phát địa chỉ vật lý |
+| `target_socket` | MMIO target accepting local offsets after address decoding |
+| `master_socket` | DMA initiator issuing physical addresses |
 | `reset_n` | Reset active-low |
-| `irq` | Level interrupt, nối với interrupt controller |
+| `irq` | Level interrupt connected to the interrupt controller |
 
-Map MMIO qua `bus_router.add_target()`, nối host và DMA master vào cùng router, và chia sẻ một DDR mapping. `H264DmaOptions.memory_base/memory_bytes` phải khớp physical RAM window.
+Map MMIO with `bus_router.add_target()`, connect host and DMA master to the same router, and share one DDR mapping. `H264DmaOptions.memory_base/memory_bytes` must match the physical RAM window.
 
-[Platform test](tlm/tests/h264_dma_platform.cpp) dùng cấu hình minh họa:
+The [platform test](tlm/tests/h264_dma_platform.cpp) uses this example configuration:
 
-| Vùng | Địa chỉ / kích thước |
+| Region | Address / size |
 |---|---|
 | MMIO | `0x10080000`, 4 KiB |
 | Shared DDR | `0x80000000`, 1 MiB |
@@ -98,47 +98,47 @@ Map MMIO qua `bus_router.add_target()`, nối host và DMA master vào cùng rou
 | REFM | `0x80010000` |
 | NAL | `0x80030000`, capacity 4 KiB |
 
-Địa chỉ trên dành cho test; platform tích hợp tự cấu hình memory map. Host nạp source và đọc REFM/NAL qua `b_transport` trên shared bus.
+These addresses are for testing; the integrating platform configures its own memory map. The host loads source data and reads REFM/NAL through `b_transport` on the shared bus.
 
-## Thanh ghi MMIO
+## MMIO registers
 
-| Offset | Thanh ghi | Nội dung |
+| Offset | Register | Contents |
 |---|---|---|
-| `0x00` | SCON | ECE bit 0, GIE bit 1; cạnh ECE 0→1 chốt config và start |
+| `0x00` | SCON | ECE bit 0, GIE bit 1; ECE 0-to-1 latches configuration and starts processing |
 | `0x04` | STAT | NORMAL bit 18, ERROR bit 17, BUSY bit 16, FMCNT bits 15:0 |
 | `0x08` | FMSIZE | Coded width bits 26:16, height bits 10:0 |
-| `0x0C` | DFCON | Enable bit 0; signed alpha/beta offsets cho producer |
-| `0x10` | SPARA0 | QP, CMB mode và syntax/GOP fields; reset `0x12C` |
+| `0x0C` | DFCON | Enable bit 0; signed alpha/beta offsets for the producer |
+| `0x10` | SPARA0 | QP, CMB mode and syntax/GOP fields; reset `0x12C` |
 | `0x14` | SPARA1 | Working-set allocation bits 31:25, syntax widths, FMENC bits 15:0 |
 | `0x18` | SPARA2 | Crop/delta fields |
-| `0x1C` | REFM | Physical base của ba reference slots |
+| `0x1C` | REFM | Physical base of three reference slots |
 | `0x20` | NAL | Physical output base |
 | `0x24` | CMB | Physical source base |
-| `0x28` | STM_LEN | Số 32-bit words đã ghi thành công |
+| `0x28` | STM_LEN | Number of successfully written 32-bit words |
 
-Config chỉ được ghi khi ECE=0 và BUSY=0. Start mới reset stream count/pointer; disable sau completion giữ `STM_LEN`. GIE điều khiển IRQ. Đọc STAT hoặc STM_LEN acknowledge IRQ và giữ các status/count fields; `transport_dbg` chỉ đọc và không acknowledge.
+Configuration writes require ECE=0 and BUSY=0. A new start resets stream count/pointer; disabling after completion preserves `STM_LEN`. GIE controls IRQ. Reading STAT or STM_LEN acknowledges IRQ while retaining status/count fields; `transport_dbg` is read-only and does not acknowledge.
 
-MMIO dùng giao dịch 32 bit căn chỉnh, register bytes little-endian và byte enables `00/FF`. Sai size/alignment trả BURST_ERROR; ghi read-only trả COMMAND_ERROR; sai reserved bits hoặc config phase trả GENERIC_ERROR. Offset chưa định nghĩa mặc định trả ADDRESS_ERROR; option `ReadZero` cho phép đọc zero.
+MMIO uses aligned 32-bit transactions, little-endian register bytes and `00/FF` byte enables. Invalid size/alignment returns BURST_ERROR; writes to read-only registers return COMMAND_ERROR; invalid reserved bits or configuration phase returns GENERIC_ERROR. Undefined offsets default to ADDRESS_ERROR; the `ReadZero` option permits zero reads.
 
-QP hợp lệ trong khoảng 0..51; FMENC và working-set allocation phải khác 0. Crop phải giữ lại vùng ảnh hợp lệ. Config không hợp lệ kết thúc activation bằng ERROR.
+Valid QP is 0..51; FMENC and working-set allocation must be nonzero. Cropping must retain a valid image region. Invalid configuration terminates the activation with ERROR.
 
-## Workload, completion và reset
+## Workload, completion and reset
 
-Cài `set_workload_provider(callback)` trước activation hoặc enqueue `H264ActivationWorkload` khi ECE=0/BUSY=0. Queued workloads có ưu tiên; mỗi start tiêu thụ một workload, kể cả khi config sai. Reset xóa queue và giữ callback/filter đã cài.
+Install `set_workload_provider(callback)` before activation, or enqueue `H264ActivationWorkload` while ECE=0/BUSY=0. Queued workloads take priority; each start consumes one workload, even if configuration is invalid. Reset clears the queue and retains installed callbacks/filters.
 
-Workload cung cấp đầy đủ macroblocks của từng coded picture, mỗi tọa độ đúng một lần, source/reference slots, List0/List1 selections, picture tags, reconstructed/filtered pixels và NAL words. Số frame không vượt FMENC. CMB mode 1 xử lý một picture mỗi activation; mode 0 chọn source slot trong working set. FMCNT đếm số pictures hoàn tất trong activation; codec producer quyết định coding order và reference validity.
+A workload supplies all macroblocks of each coded picture, each coordinate exactly once, source/reference slots, List0/List1 selections, picture tags, reconstructed/filtered pixels and NAL words. Frame count must not exceed FMENC. CMB mode 1 processes one picture per activation; mode 0 selects source slots in the working set. FMCNT counts completed pictures in the activation; the codec producer determines coding order and reference validity.
 
-`H264MacroblockJob.reconstructed` chứa Y256/U64/V64 samples. DF bypass vẫn cần reconstructed pixels; `replay_source_for_bypass=true` chỉ dành cho DMA-only tests khi DF tắt. SW cache được invalidate giữa các pictures; B-picture yêu cầu cả hai reference lists đã resident. NAL words append qua các frames, với EOS tùy chọn.
+`H264MacroblockJob.reconstructed` contains Y256/U64/V64 samples. DF bypass still requires reconstructed pixels; `replay_source_for_bypass=true` is only for DMA-only tests with DF disabled. SW cache is invalidated between pictures; B-pictures require both reference lists to be resident. NAL words append across frames, with optional EOS.
 
-NORMAL/IRQ chỉ xuất hiện sau khi REFM và NAL responses đều thành công. Downstream non-OK response hoặc lỗi core đặt ERROR. `max_service_steps` giới hạn core bị stall; target/harness cần watchdog riêng nếu `b_transport` không trả về. Register latency mặc định là 10 ns, service latency 8 ns.
+NORMAL/IRQ occur only after REFM and NAL responses succeed. A downstream non-OK response or core error sets ERROR. `max_service_steps` bounds a stalled core; the target/harness needs its own watchdog if `b_transport` does not return. Default register latency is 10 ns and service latency is 8 ns.
 
-Hạ ECE khi BUSY hoàn tất transaction đang chạy, dừng queued work rồi đặt ERROR. Reset active-low xóa registers/status/IRQ/count và vô hiệu hóa completion cũ. Các bytes đã được downstream nhận có thể đã tác động DDR; completion cũ sau reset không phát IRQ cho activation mới.
+Clearing ECE while BUSY completes the active transaction, stops queued work, then sets ERROR. Active-low reset clears registers/status/IRQ/count and invalidates stale completion. Downstream-accepted bytes may already have affected DDR; stale completion after reset does not issue an IRQ for a new activation.
 
-## Build và test riêng
+## Standalone build and tests
 
-Yêu cầu CMake từ 3.16 và compiler C++17. Các lệnh dưới đây chạy từ thư mục gốc `CDC-VP` trong WSL/Linux.
+Requires CMake 3.16 or later and a C++17 compiler. Run the following commands from the `CDC-VP` root in WSL/Linux.
 
-### Core không dùng SystemC
+### Core without SystemC
 
 ```sh
 cmake -S components/h264/dma_subsystems -B build/h264-dma-core \
@@ -147,9 +147,9 @@ cmake --build build/h264-dma-core -j 4
 ctest --test-dir build/h264-dma-core --output-on-failure
 ```
 
-### Core và SystemC/TLM
+### Core and SystemC/TLM
 
-SystemC 2.3.4 phải tương thích compiler và C++ ABI với project. Thay prefix dưới đây bằng vị trí cài đặt trên máy:
+SystemC 2.3.4 must match the project compiler and C++ ABI. Replace the prefix below with your installation path:
 
 ```sh
 cmake -S components/h264/dma_subsystems -B build/h264-dma-tlm \
@@ -159,21 +159,21 @@ cmake --build build/h264-dma-tlm -j 4
 ctest --test-dir build/h264-dma-tlm --output-on-failure
 ```
 
-| Test | Phạm vi |
+| Test | Coverage |
 |---|---|
-| `h264_dma_contracts` | CMB/SW/DF/NAL, arbiter, AXI bridge, capacity, lỗi và memory lifetime |
-| `h264_dma_shared_bus` | MMIO, DDR, IRQ và reset trên bus 32-bit |
-| `h264_dma_shared_bus_64` | Cùng contract trên bus 64-bit |
-| `h264_dma_shared_bus_128` | Cùng contract trên bus 128-bit |
-| `h264_dma_response_timeout` | Service-step limit khi channel bị stall |
+| `h264_dma_contracts` | CMB/SW/DF/NAL, arbiter, AXI bridge, capacity, errors and memory lifetime |
+| `h264_dma_shared_bus` | MMIO, DDR, IRQ and reset on a 32-bit bus |
+| `h264_dma_shared_bus_64` | The same contract on a 64-bit bus |
+| `h264_dma_shared_bus_128` | The same contract on a 128-bit bus |
+| `h264_dma_response_timeout` | Service-step limit for a stalled channel |
 
-Build core-only đăng ký **1 test** với **272 assertions**; build có TLM đăng ký **5 test**. Kết quả kiểm chứng, sanitizer và logs được lưu trong [VALIDATION.md](VALIDATION.md).
+A core-only build registers **1 test** with **272 assertions**; a TLM build registers **5 tests**. Verification results, sanitizer evidence and logs are recorded in [VALIDATION.md](VALIDATION.md).
 
-## Test tích hợp H.264
+## H.264 integration tests
 
-[Prediction_Test](../tests/Prediction_Test/README.md) gồm 15 test kết nối CMB/SW/DF/NAL với Intra/Inter và control/reset trên bus 32/64/128-bit. Nhóm này dùng `H264Arb` và [DmaTransport](../top/include/h264/top/dma_transport.h) với core arbiter/AXI bridge. Test MMIO wrapper chạy trong suite DMA riêng ở trên.
+[Prediction_Test](../tests/Prediction_Test/README.md) contains 15 tests connecting CMB/SW/DF/NAL with Intra/Inter and control/reset on 32/64/128-bit buses. This group uses `H264Arb` and [DmaTransport](../top/include/h264/top/dma_transport.h) with the core arbiter/AXI bridge. MMIO wrapper tests run in the separate DMA suite above.
 
-[Full codec test](../tests/Coding_Reconstruction_Test/FULL_PIPELINE_CODEC_REPORT.md) nối DMA/prediction với TQ/ITQ, CAVLC/NAL và reconstruction. Test adapter xử lý ảnh 32×32 YUV420, bốn frame I-P-P-P, một List0 reference và P16×16 với zero MV.
+The [full codec test](../tests/Coding_Reconstruction_Test/FULL_PIPELINE_CODEC_REPORT.md) connects DMA/prediction with TQ/ITQ, CAVLC/NAL and reconstruction. Its adapter processes 32x32 YUV420 pictures, four I-P-P-P frames, one List0 reference and P16x16 with zero MV.
 
 ```sh
 cmake -S components/h264 -B build/h264-vp \
@@ -187,10 +187,10 @@ ctest --test-dir build/h264-vp -L prediction --output-on-failure
 ctest --test-dir build/h264-vp -R '^full_codec_' --output-on-failure
 ```
 
-Nhóm **36 test `full_codec_*`** chỉ được đăng ký khi CMake tìm thấy Python3 và FFmpeg; kiểm tra danh sách bằng `ctest --test-dir build/h264-vp -N -R '^full_codec_'`.
+The **36 `full_codec_*` tests** are registered only when CMake finds Python3 and FFmpeg; inspect the list with `ctest --test-dir build/h264-vp -N -R '^full_codec_'`.
 
-## Phạm vi sử dụng
+## Usage scope
 
-Module phục vụ functional DMA và driver integration với shared DDR, MMIO, IRQ/reset. Codec producer đảm nhiệm scheduling, prediction, transform, entropy/NAL generation và deblocking arithmetic. Timing ở mức service steps/TLM chưa được đối chiếu cycle/pin với RTL; platform test sử dụng SystemC host driver.
+This module supports functional DMA and driver integration with shared DDR, MMIO and IRQ/reset. The codec producer handles scheduling, prediction, transform, entropy/NAL generation and deblocking arithmetic. Service-step/TLM timing has not been compared with RTL cycle/pin timing; the platform test uses a SystemC host driver.
 
-Chi tiết layout, cấu hình và client contracts nằm trong [DMA_SUBSYSTEM_SPEC.md](DMA_SUBSYSTEM_SPEC.md).
+Layout, configuration and client contracts are detailed in [DMA_SUBSYSTEM_SPEC.md](DMA_SUBSYSTEM_SPEC.md).

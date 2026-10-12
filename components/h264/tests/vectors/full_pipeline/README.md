@@ -1,13 +1,13 @@
 # Full-pipeline harness vectors
 
-Vector tổng hợp tự tạo trong project, không phải dữ liệu H.264 được encode bởi encoder tham chiếu.
-source.hex có 768 byte: hai frame YUV420 16x16, byte i = i mod 256.
+These synthetic vectors are generated within the project, not H.264 data encoded by a reference encoder.
+source.hex contains 768 bytes: two 16x16 YUV420 frames, with byte i = i mod 256.
 
-stub_expected.hex: FNV-1a 32-bit little-endian của từng tile 384 byte, sau đó EOS fixture
-00 00 01 0B. reference.hex là frame thứ hai, dùng offset 768 (slot 2).
-contract_expected.hex: 20 byte liên tiếp 01..14, thuộc adapter thử nghiệm variable length.
-bad_expected.hex cố ý đổi byte đầu; dùng negative test, không phải golden hợp lệ.
+stub_expected.hex: little-endian 32-bit FNV-1a for each 384-byte tile, followed by the EOS fixture
+00 00 01 0B. reference.hex is the second frame, placed at offset 768 (slot 2).
+contract_expected.hex: 20 consecutive bytes 01..14 from the variable-length test adapter.
+bad_expected.hex deliberately changes the first byte for a negative test; it is not valid golden data.
 
-Mỗi case chạy hai activation để kiểm tra counters/output pointer được reset đúng.
-Không dùng các vector fixture này làm golden cho backend real. Case real cần nguồn/golden
-độc lập và ghi rõ cấu hình/revision của release theo hướng dẫn testbench.
+Each case runs two activations to check that counters/output pointers reset correctly.
+Do not use these fixture vectors as golden data for the real backend. Real cases require independent
+source/golden data and an explicit release configuration/revision, as described in the testbench guide.

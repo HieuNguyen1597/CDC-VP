@@ -1,6 +1,6 @@
 # Test vectors
 
-Regression hiện tạo vector xác định trong RAM, không cần tải ảnh ngoài.
-Seed, dimensions và golden checksum nằm trong test integration.
-Khi thêm vector H.264 thật: đặt input/expected ở đây và ghi nguồn, license,
-configuration, checksum file, version golden encoder. Không commit ảnh/video không rõ nguồn.
+The regression generates deterministic vectors in RAM; no external images are required.
+Seeds, dimensions and golden checksums are defined in the integration tests.
+When adding real H.264 vectors, place input/expected files here and record their source, license,
+configuration, file checksums and golden encoder version. Do not commit images/videos of unknown provenance.

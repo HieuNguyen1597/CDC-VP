@@ -1,6 +1,6 @@
 // vp_tests.cpp — VP self-check suite mapped to the HAS verification cases.
 //
-// Spec: §15.3 Verification cases and pass criteria, and the Bảng 6-1
+// Spec: section 15.3 Verification cases and pass criteria, and the Table 6-1
 // completion matrix. Each test names the HAS-V-* case it corresponds to.
 //
 // This suite drives the transaction-level model directly (no SystemC kernel
@@ -371,7 +371,7 @@ static void test_arb_no_preempt() {
 }
 
 // ---------------------------------------------------------------------
-// §6.5 / Bảng 6-1 — end-to-end integration through the subsystem.
+// Section 6.5 / Table 6-1: end-to-end integration through the subsystem.
 // ---------------------------------------------------------------------
 static void test_integration_activation() {
     section("§6.5  End-to-end activation through DmaSubsystem");

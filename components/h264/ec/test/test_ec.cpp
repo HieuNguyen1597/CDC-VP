@@ -38,9 +38,9 @@ struct EcTb : sc_core::sc_module {
         socket->b_transport(tx, delay);
 
         if (tx.get_response_status() != tlm::TLM_OK_RESPONSE) {
-            std::cout << "\nGiao dịch bị từ chối - Không thể " << (cmd == tlm::TLM_WRITE_COMMAND ? "GHI" : "ĐỌC")
-                      << " vào địa chỉ: 0x" << std::hex << addr
-                      << " với độ dài " << std::dec << len << " bytes!\n";
+            std::cout << "\nTransaction rejected - Cannot " << (cmd == tlm::TLM_WRITE_COMMAND ? "WRITE" : "READ")
+                      << " at address: 0x" << std::hex << addr
+                      << " with length " << std::dec << len << " bytes!\n";
         }
 
         assert(tx.get_response_status() == tlm::TLM_OK_RESPONSE);
@@ -54,7 +54,7 @@ struct EcTb : sc_core::sc_module {
         unsigned char valid[4]{};
         send(tlm::TLM_READ_COMMAND, 0x40, valid, 4);
         if (temp_load_u32_le(valid) != 1) {
-            std::cout << "  => TRẠNG THÁI     : \033[1;31m[FAIL - EC CHƯA TRẢ VỀ VALID]\033[0m\n\n";
+            std::cout << "  => STATUS         : \033[1;31m[FAIL - EC HAS NOT ASSERTED VALID]\033[0m\n\n";
             return;
         }
 
@@ -68,16 +68,16 @@ struct EcTb : sc_core::sc_module {
         // NAL Formatter Header (00 00 00 01)
         assert(stream[0] == 0x00 && stream[1] == 0x00 && stream[2] == 0x00 && stream[3] == 0x01);
 
-        std::cout << "[TEST " << test_id << "] Mã hóa chế độ: " << mode << "\n";
+        std::cout << "[TEST " << test_id << "] Encoding mode: " << mode << "\n";
 
-        std::cout << " -> Mã hóa thành công. \n";
+        std::cout << " -> Encoding successful. \n";
         std::cout << "Length NAL: " << stream_len << " bytes.\n";
         std::cout << "    Bitstream (hex): ";
         for(std::uint32_t i = 0; i < stream_len; ++i) {
             std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0') << (int)stream[i] << " ";
         }
         std::cout << std::dec << "\n";
-        std::cout << "  => TRẠNG THÁI      : \033[1;32m[PASS - ĐÓNG GÓI NAL CHUẨN]\033[0m\n\n";
+        std::cout << "  => STATUS          : \033[1;32m[PASS - CORRECT NAL PACKAGING]\033[0m\n\n";
     }
 
     void run() {
@@ -102,17 +102,17 @@ struct EcTb : sc_core::sc_module {
         verify_and_print("CABAC Engine", 2);
 
         std::cout << "----------------------------------------\n";
-        std::cout << "Kiểm tra trường hợp biên (Stress & Zero-run Test)...\n";
+        std::cout << "Testing boundary cases (Stress & Zero-run Test)...\n";
 
-        // Chuyển lại về chế độ CAVLC để dễ quan sát chuỗi bit đầu ra
+        // Switch back to CAVLC to make the output bit sequence easier to inspect
         send(tlm::TLM_WRITE_COMMAND, 0x24, &mode_cavlc, 1);
 
-        // Chuỗi dữ liệu phức tạp (Stress Test Buffer, ép size NAL stream tăng cao)
+        // Complex data sequence (buffer stress test, forcing a larger NAL stream)
         std::int16_t complex_levels[16] = { 15, -12, 10, -8, 7, -6, 5, -4, 3, -2, 1, -1, 2, -3, 4, -5 };
         send(tlm::TLM_WRITE_COMMAND, 0x00, reinterpret_cast<unsigned char*>(complex_levels), 32);
         verify_and_print("CAVLC / Complex Data Stress Test", 3);
 
-        // Chuỗi toàn số 0 (Kiểm tra thuật toán Zero Run / TotalZeros)
+        // Zero-run sequence (tests Zero Run / TotalZeros encoding)
         std::int16_t zero_run_levels[16] = { 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1 };
         send(tlm::TLM_WRITE_COMMAND, 0x00, reinterpret_cast<unsigned char*>(zero_run_levels), 32);
         verify_and_print("CAVLC / Zero Run Length Test", 4);

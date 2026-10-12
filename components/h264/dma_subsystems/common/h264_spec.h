@@ -22,7 +22,7 @@ namespace h264 {
 // --- Coded dimensions (§12.3, §16) -------------------------------------
 // 1080p presentation uses 1920x1088 for coded storage/plane stride.
 // The 8 cropped rows are SPS information and MUST NOT make Hc=1080 when
-// computing DDR. §12.3 "Điểm cẩn thận [X]".
+// computing DDR. Section 12.3: "Caution [X]" (translated).
 struct CodedDims {
     uint32_t Wc;  // coded width  in pixels, multiple of 16
     uint32_t Hc;  // coded height in pixels, multiple of 16
@@ -103,7 +103,7 @@ inline const char* client_name(ClientId c) {
     }
 }
 
-// §5.4: "Thứ tự priority là implementation-specific ... [TBD] chốt từ
+// Section 5.4 (translated): "Priority order is implementation-specific ... [TBD] finalized from
 // h264_arb.vhd". The PDF does NOT publish a copyable priority order, so the
 // model exposes it as a configurable policy rather than hard-coding a guess.
 // Default reflects the spec's stated intent to protect the critical path

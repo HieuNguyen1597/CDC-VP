@@ -2,31 +2,31 @@
 
 Author: VinhNT124
 
-Mô hình dự đoán liên khung cho H.264, gồm core C++17 và lớp giao tiếp SystemC 2.3.4/TLM-2.0. Module thực hiện integer/fractional motion estimation, motion compensation và tạo metadata cho motion syntax từ dữ liệu current macroblock và reconstructed reference.
+H.264 inter-frame prediction model with a C++17 core and a SystemC 2.3.4/TLM-2.0 interface. The module performs integer/fractional motion estimation, motion compensation and motion-syntax metadata generation from the current macroblock and reconstructed reference data.
 
-## Chức năng
+## Functions
 
-- IME (Integer Motion Estimation): tính SAD trên 16 block 4×4 cho mỗi candidate, tổng hợp 41 vị trí thuộc 7 loại partition.
-- FME (Fractional Motion Estimation): lấy integer winner làm điểm khởi đầu, đánh giá fractional offsets do bên gọi cung cấp; nội suy luma bằng bộ lọc six-tap và quarter-sample averaging.
-- MC (Motion Compensation): xuất predictor Y/U/V theo thứ tự transform block, kèm metadata plane/block/phase/last.
-- EEI: tạo thông tin reference, partition, MV và MVD từ MVP do bên gọi cung cấp.
-- Reference cache riêng cho List0 và List1, quản lý picture tag, vùng pixel đã nạp và mở rộng biên ảnh.
-- Giữ sample/metadata ổn định khi downstream chờ; quản lý token, reset và shared epoch qua lớp TLM.
+- IME (Integer Motion Estimation): computes SAD over sixteen 4x4 blocks for each candidate, aggregating 41 positions across 7 partition shapes.
+- FME (Fractional Motion Estimation): starts from the integer winner and evaluates caller-supplied fractional offsets; luma interpolation uses a six-tap filter and quarter-sample averaging.
+- MC (Motion Compensation): outputs Y/U/V predictors in transform-block order with plane/block/phase/last metadata.
+- EEI: generates reference, partition, MV and MVD information from the caller-supplied MVP.
+- Separate List0 and List1 reference caches manage picture tags, loaded pixel regions and picture-edge extension.
+- Holds samples/metadata stable during downstream stalls; manages tokens, reset and shared epochs through TLM.
 
-Cost dùng accumulator 64 bit và từ chối overflow. Bên gọi cung cấp thứ tự candidate, rate cost và MVP; khi total cost bằng nhau, module giữ candidate được xét trước. Nội suy giữ intermediate có dấu trước khi clip kết quả.
+Costs use 64-bit accumulators and reject overflow. The caller supplies candidate order, rate cost and MVP; equal total costs retain the first evaluated candidate. Interpolation preserves signed intermediates before clipping results.
 
-## Cấu trúc và CMake targets
+## Structure and CMake targets
 
 Public namespace: `h264::inter`.
 
-| Target | Vai trò |
+| Target | Role |
 |---|---|
-| `h264_inter_core` | Reference cache, SAD, search, interpolation, MC và motion syntax; không phụ thuộc SystemC |
-| `h264_inter_tlm` | Socket TLM, timing và điều khiển Evaluate/Commit/Peek/Accept |
+| `h264_inter_core` | Reference cache, SAD, search, interpolation, MC and motion syntax; no SystemC dependency |
+| `h264_inter_tlm` | TLM socket, timing and Evaluate/Commit/Peek/Accept control |
 
-Các alias tương ứng là `cdc::components::h264_inter_core` và `cdc::components::h264_inter_tlm`. Header công khai nằm trong `include/h264/inter/`, implementation trong `src/`, test riêng trong `tests/`. Lớp TLM sử dụng shared contracts từ `../interfaces` và `../synchronization`; SW DMA integration tests dùng sibling module `../dma_subsystems`.
+The corresponding aliases are `cdc::components::h264_inter_core` and `cdc::components::h264_inter_tlm`. Public headers are in `include/h264/inter/`, implementation in `src/`, and standalone tests in `tests/`. TLM uses shared contracts from `../interfaces` and `../synchronization`; SW DMA integration tests use the sibling `../dma_subsystems` module.
 
-## Luồng dữ liệu và core API
+## Data flow and core API
 
 ```text
 Reconstructed reference ── SW DMA / refill ──> Reference cache
@@ -35,40 +35,40 @@ Selected decision       ── Commit ─────────> MC
 Downstream              <── Peek / Accept ── Predictor + metadata
 ```
 
-[inter_core.h](include/h264/inter/inter_core.h) cung cấp API không phụ thuộc SystemC. Request nhận current luma macroblock Y16×16, tọa độ macroblock tuyệt đối và một partition. P-picture dùng List0; B-picture yêu cầu integer candidates và dữ liệu search hợp lệ trên cả List0/List1. Kết quả chọn uni-prediction trên một list. Fractional offsets tương đối với integer winner, trong khoảng [-3,3] quarter sample.
+[inter_core.h](include/h264/inter/inter_core.h) provides a SystemC-independent API. Requests supply a current Y16x16 luma macroblock, absolute macroblock coordinates and a partition. P-pictures use List0; B-pictures require integer candidates and valid search data in both List0/List1. The result selects uni-prediction on one list. Fractional offsets are relative to the integer winner and range from [-3,3] quarter samples.
 
-Reference tag gồm picture identity và REFM slot 0..2. Mỗi lần `retag` tạo một incarnation mới, kể cả khi tag không đổi. `fill` kiểm tra toàn vùng trước khi cập nhật trạng thái đã nạp; pixel đã nạp giữ nguyên đến lần retag tiếp theo, và vùng overlap được chấp nhận khi dữ liệu giống nhau.
+Reference tags contain picture identity and REFM slot 0..2. Each `retag` creates a new incarnation, even if the tag is unchanged. `fill` validates the entire region before updating loaded state; loaded pixels remain immutable until the next retag, and overlapping regions are accepted when their data matches.
 
-Hỗ trợ progressive 8-bit planar YUV 4:2:0. Coded width/height trong khoảng 16..4096, chia hết cho 16; khi kết nối với DMA, kích thước tối đa dùng chung là 1920×1088. Motion vector giới hạn ±65536 quarter sample.
+Supports progressive 8-bit planar YUV 4:2:0. Coded width/height range from 16..4096 in multiples of 16; when connected to DMA, the shared maximum is 1920x1088. Motion vectors are limited to +/-65536 quarter samples.
 
-## Giao tiếp TLM
+## TLM interface
 
-[inter_tlm.h](include/h264/inter/inter_tlm.h) định nghĩa các operation của socket mô phỏng:
+[inter_tlm.h](include/h264/inter/inter_tlm.h) defines the simulation socket operations:
 
-| Address / operation | Command / payload | Dữ liệu và kết quả |
+| Address / operation | Command / payload | Data and result |
 |---|---|---|
-| `0` / Evaluate | WRITE, 256 byte Y và request extension | Trả decision, token và EEI; chưa commit |
-| `1` / Commit | WRITE, 0 byte và token | Khóa winner để MC tạo predictor |
-| `2` / Peek | READ, 1 byte và token | Trả sample/metadata hiện tại; chưa dịch chuyển cursor |
-| `3` / Accept | WRITE, sample vừa Peek và token/accept_sequence | Xác nhận sample và chuyển cursor; sample cuối đặt done |
+| `0` / Evaluate | WRITE, 256 Y bytes and request extension | Returns decision, token and EEI; does not commit |
+| `1` / Commit | WRITE, 0 bytes and token | Locks the winner for MC predictor generation |
+| `2` / Peek | READ, 1 byte and token | Returns current sample/metadata without advancing the cursor |
+| `3` / Accept | WRITE, previously peeked sample and token/accept_sequence | Acknowledges the sample and advances the cursor; final sample sets done |
 
-Peek có thể lặp lại và trả cùng sample. `output()` giữ data/metadata khi downstream chờ; chỉ Accept mới tiến tới sample tiếp theo. Chroma của partition nhỏ có thể chỉ chứa một phần của transform block 4×4; adapter TQ cần ghép đủ các phần trước khi transform.
+Repeated Peek returns the same sample. `output()` retains data/metadata while downstream stalls; only Accept advances to the next sample. Chroma for small partitions may cover only part of a 4x4 transform block; the TQ adapter must assemble all parts before transforming.
 
-Adapter SW DMA gọi `retag` trước search và `refill` sau khi read thành công. Tag khớp nhưng thiếu vùng reference cần thiết vẫn làm search chờ dữ liệu. Retag trong search hoặc retag reference đang được chọn làm mất hiệu lực của quyết định liên quan. Inter nhận dữ liệu qua adapter; việc phát giao dịch DMA do module SW đảm nhiệm.
+The SW DMA adapter calls `retag` before search and `refill` after successful reads. A matching tag with missing required reference regions still makes search wait for data. Retagging during search, or retagging the selected reference, invalidates the corresponding decision. Inter receives data through the adapter; the SW module issues DMA transactions.
 
-Tạo module/socket trước `sc_start` và gọi `b_transport` từ `SC_THREAD`. Giữ payload, buffer và extension tồn tại đến response. Module xử lý một transport và một mode pending tại một thời điểm; request/source được copy trước incoming-delay wait. `progress()` cho biết stage, candidate và sample đang xử lý.
+Create modules/sockets before `sc_start` and call `b_transport` from `SC_THREAD`. Keep payloads, buffers and extensions alive until the response. The module handles one transport and one pending mode at a time; requests/source data are copied before the incoming-delay wait. `progress()` identifies the active stage, candidate and sample.
 
-### Timing và reset
+### Timing and reset
 
-Các latency trong options là tham số timing VP. `reset_n` active-low hủy công việc; cạnh xuống enable và cạnh lên bắt đầu frame mới vô hiệu hóa cả hai reference lists và mode. Sau reset khi enable đang cao, đưa enable xuống thấp rồi lên cao để bắt đầu lại.
+Option latencies are VP timing parameters. Active-low `reset_n` cancels work; falling enable and the rising edge starting a new frame invalidate both reference lists and the mode. After reset while enable is high, drive enable low and then high to restart.
 
-Có thể gắn `h264::EpochExtension` để dùng shared reset domain. Epoch đã stale tại entry bị từ chối mà vẫn giữ công việc hợp lệ đang có; epoch bị hủy trong một giao dịch đang chạy làm mất hiệu lực của frame đó. Bên gọi giữ domain tồn tại đến response và phối hợp enable/reset để bắt đầu lại, kể cả khi shared reset xảy ra lúc module idle.
+An optional `h264::EpochExtension` connects the shared reset domain. An epoch already stale at entry is rejected without disturbing valid work; cancellation during an active transaction invalidates that frame. The caller keeps the domain alive until the response and coordinates enable/reset to restart, including shared resets while the module is idle.
 
-## Build và test riêng
+## Standalone build and tests
 
-Yêu cầu CMake từ 3.21 và compiler C++17. Các lệnh dưới đây chạy từ thư mục gốc `CDC-VP` trong WSL/Linux.
+Requires CMake 3.21 or later and a C++17 compiler. Run the following commands from the `CDC-VP` root in WSL/Linux.
 
-### Core không dùng SystemC
+### Core without SystemC
 
 ```sh
 cmake -S components/h264/Inter-Prediction -B build/h264-inter-core \
@@ -78,9 +78,9 @@ cmake --build build/h264-inter-core -j 4
 ctest --test-dir build/h264-inter-core --output-on-failure
 ```
 
-### Core, SystemC/TLM và SW DMA tests
+### Core, SystemC/TLM and SW DMA tests
 
-SystemC 2.3.4 phải tương thích compiler và C++ ABI với project. Thay đường dẫn dưới đây bằng vị trí cài đặt trên máy:
+SystemC 2.3.4 must match the project compiler and C++ ABI. Replace the paths below with your installation:
 
 ```sh
 cmake -S components/h264/Inter-Prediction -B build/h264-inter-tlm \
@@ -92,21 +92,21 @@ cmake --build build/h264-inter-tlm -j 4
 ctest --test-dir build/h264-inter-tlm --output-on-failure
 ```
 
-Có thể dùng `CMAKE_PREFIX_PATH` trỏ đến package `SystemCLanguage` 2.3.4 hoặc `SYSTEMC_SOURCE_DIR` thay cho cặp include/library. Tắt `H264_INTER_BUILD_DMA_TESTS` khi chỉ cần core và TLM mà không chạy SW DMA tests.
+You may use `CMAKE_PREFIX_PATH` pointing to the `SystemCLanguage` 2.3.4 package, or `SYSTEMC_SOURCE_DIR`, instead of the include/library pair. Disable `H264_INTER_BUILD_DMA_TESTS` for core and TLM without SW DMA tests.
 
-| Nhóm test | Số test | Phạm vi |
+| Test group | Test count | Coverage |
 |---|---:|---|
-| Core | 3 | SAD, cache, search, MC/EEI, interpolation và geometry/MV limits |
-| SW DMA integration | 3 | Reference Y/U/V, lỗi, retry, retag và overlap trên bus 32/64/128-bit |
-| TLM contract | 12 | Timing thường/zero latency, reset/disable, token, retag, partition và deadline boundaries |
+| Core | 3 | SAD, cache, search, MC/EEI, interpolation and geometry/MV limits |
+| SW DMA integration | 3 | Reference Y/U/V, errors, retry, retag and overlap on 32/64/128-bit buses |
+| TLM contract | 12 | Normal/zero-latency timing, reset/disable, tokens, retag, partitions and deadline boundaries |
 
-Build đầy đủ đăng ký **18 test**; tắt SW DMA tests còn **15 test**; tắt cả TLM và SW DMA tests còn **3 test**. Kết quả kiểm chứng và logs được lưu trong [VALIDATION.md](VALIDATION.md); các kịch bản được mô tả trong [TEST_PLAN.md](docs/TEST_PLAN.md).
+A full build registers **18 tests**; disabling SW DMA tests leaves **15 tests**; disabling both TLM and SW DMA tests leaves **3 tests**. Verification results and logs are in [VALIDATION.md](VALIDATION.md); scenarios are described in [TEST_PLAN.md](docs/TEST_PLAN.md).
 
-## Test tích hợp H.264
+## H.264 integration tests
 
-[Prediction_Test](../tests/Prediction_Test/README.md) nối SW DMA với Inter qua `H264Arb` và `DmaTransport`, sử dụng arbiter/AXI bridge của DMA subsystem. Nhóm `sw_inter` kiểm tra reference, predictor, metadata, Peek và 384 mẫu Y/U/V của một macroblock trên bus 32/64/128-bit. Nhóm control kiểm tra phối hợp Intra/Inter trong workload.
+[Prediction_Test](../tests/Prediction_Test/README.md) connects SW DMA to Inter through `H264Arb` and `DmaTransport`, using the DMA subsystem arbiter/AXI bridge. The `sw_inter` group checks references, predictors, metadata, Peek and 384 Y/U/V samples per macroblock on 32/64/128-bit buses. The control group checks Intra/Inter coordination within a workload.
 
-[Full codec test](../tests/Coding_Reconstruction_Test/FULL_PIPELINE_CODEC_REPORT.md) nối Inter với TQ/ITQ, CAVLC/NAL, reconstruction và reference DMA. Test adapter xử lý ảnh 32×32 YUV420, bốn frame I-P-P-P, một List0 reference và P16×16 với zero MV. Kiểm chứng codec của nhóm này giới hạn trong cấu hình trên.
+The [full codec test](../tests/Coding_Reconstruction_Test/FULL_PIPELINE_CODEC_REPORT.md) connects Inter with TQ/ITQ, CAVLC/NAL, reconstruction and reference DMA. The adapter processes 32x32 YUV420 pictures, four I-P-P-P frames, one List0 reference and P16x16 with zero MV. Codec verification in this group is limited to that configuration.
 
 ```sh
 cmake -S components/h264 -B build/h264-vp \
@@ -119,10 +119,10 @@ ctest --test-dir build/h264-vp -L prediction --output-on-failure
 ctest --test-dir build/h264-vp -R '^full_codec_' --output-on-failure
 ```
 
-Label `prediction` gồm **15 test tích hợp** cho DMA, Intra, Inter và control. Component H.264 import các library prediction với suite riêng bị tắt, nên cần build standalone ở trên để chạy đủ test của Inter. Nhóm **36 test `full_codec_*`** chỉ được đăng ký khi CMake tìm thấy Python3 và FFmpeg; kiểm tra danh sách bằng `ctest --test-dir build/h264-vp -N -R '^full_codec_'`.
+The `prediction` label includes **15 integration tests** for DMA, Intra, Inter and control. The H.264 component imports prediction libraries with their standalone suites disabled, so use the standalone build above for the complete Inter suite. The **36 `full_codec_*` tests** are registered only when CMake finds Python3 and FFmpeg; inspect them with `ctest --test-dir build/h264-vp -N -R '^full_codec_'`.
 
-## Phạm vi sử dụng
+## Usage scope
 
-Bên gọi chọn partition, candidate, rate cost và MVP, đồng thời cung cấp reconstructed reference qua SW DMA. TQ, reconstruction, entropy và deblocking được thực hiện bởi các module khác. Automatic partition/mode selection, skip/direct và bi/weighted prediction chưa được triển khai.
+The caller selects partitions, candidates, rate costs and MVP, and supplies reconstructed references through SW DMA. Other modules perform TQ, reconstruction, entropy and deblocking. Automatic partition/mode selection, skip/direct and bi/weighted prediction are not implemented.
 
-Timing VP chưa được đối chiếu cycle với RTL. Pipeline codec hiện nằm trong test adapter; Inter chưa được đưa vào install/export của package H.264.
+VP timing has not been compared cycle by cycle with RTL. The codec pipeline currently lives in a test adapter; Inter is not yet included in H.264 package install/export.

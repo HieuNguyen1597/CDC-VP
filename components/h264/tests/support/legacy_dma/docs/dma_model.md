@@ -1,7 +1,7 @@
 # DMA transaction model
 
-Bridge nhận byte-range request, kiểm tra command, address 32-bit, data length và byte enables.
-Tại mỗi segment:
+The bridge accepts byte-range requests and validates command, 32-bit address, data length and byte enables.
+For each segment:
 
 ```text
 lane = address % bus_bytes
@@ -10,18 +10,18 @@ beats = ceil((lane + bytes) / bus_bytes)
 external_address = address - lane
 ```
 
-Buffer external có beats*bus_bytes byte; các byte ngoài request bị disable. Với enables
-tuần hoàn, index dùng offset của request gốc nên không lệch pha khi chia segment.
-Đọc chỉ copy lại các byte enabled. Arbiter lock toàn request, kể cả khi bridge chia segment.
+The external buffer contains beats*bus_bytes bytes; bytes outside the request are disabled. Repeating byte-enable
+indices use the original request offset, so splitting a request does not shift their phase.
+Reads copy back enabled bytes only. The arbiter locks the entire request, including bridge segmentation.
 
-DDR trả response sau latency và commit; bridge cũng tiêu thụ annotated delay của target
-thay thế. Lỗi dừng request, giữ các segment đã commit trước đó. Không retry tự động.
+DDR responds after latency and commit; the bridge also consumes the annotated delay of a replacement
+target. Errors stop the request while preserving earlier committed segments. No automatic retry is performed.
 
-Đây là LT lane/burst abstraction; không mô hình AW/W/R từng chu kỳ, legacy beat scheduling
-hay FIFO 16-word. Xem giới hạn chung trước khi đối chiếu throughput/protocol RTL.
+This is an LT lane/burst abstraction; it does not model per-cycle AW/W/R, legacy beat scheduling
+or a 16-word FIFO. Review the general limitations before comparing RTL throughput/protocol behavior.
 
-Arbiter dùng queue priority có aging: rank nhỏ được chọn trước, cùng rank giữ thứ tự đến;
-request bị vượt 8 lần sẽ được ưu tiên. Rank mặc định bằng nhau, adapter release có thể gọi
-set_priority(binding_index,rank). Active transaction không bị preempt, kể cả khi response
-bị trễ. Chính sách aging là lựa chọn VP để bảo đảm tiến triển, không phải bảng priority RTL
-được suy đoán. PDF §5.3 không liệt kê thứ tự ưu tiên cụ thể.
+The arbiter uses a priority queue with aging: lower ranks are selected first, with arrival order within a rank;
+requests bypassed eight times receive priority. Default ranks are equal; a release adapter may call
+set_priority(binding_index,rank). Active transactions are not preempted, even when responses
+are delayed. Aging is a VP policy to ensure progress, not an assumed RTL priority table.
+PDF section 5.3 does not list a specific priority order.
