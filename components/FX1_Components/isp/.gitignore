@@ -14,6 +14,10 @@ build-*/
 __pycache__/
 *.pyc
 
+# Source backups a mutation-check harness leaves next to the file it edits
+# while a mutant is built (removed when it finishes, left behind if stopped).
+*.mutbak
+
 # Sensor dumps and files produced by the RAW converter / ISP runner.
 # Keep the test vectors under tests/data/ (the .bin exception above).
 *.raw
