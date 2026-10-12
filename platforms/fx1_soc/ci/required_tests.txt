@@ -46,6 +46,8 @@ fx1_smoke_isa_misa
 fx1_smoke_isa_misa_q10us
 fx1_smoke_isp_frame_id
 fx1_smoke_isp_frame_id_q10us
+fx1_smoke_isp_mas0710
+fx1_smoke_isp_mas0710_q10us
 fx1_smoke_isp_recovery
 fx1_smoke_isp_recovery_q10us
 fx1_smoke_isp_stream_backlog

@@ -91,6 +91,8 @@ void fx1_isp_tlm::reset_method() {
    if (asserted) {
       impl_->control.external_reset();
       impl_->ctx.reset_engines();  // frame in flight discarded, engines to idle
+   } else if (in_reset_) {
+      impl_->control.release_reset(cycle_at());  // FRAME_COUNTER starts from zero
    }
    in_reset_ = asserted;
    impl_->ctx.in_reset = asserted;
@@ -187,7 +189,7 @@ void fx1_isp_tlm::b_transport(tlm::tlm_generic_payload &trans, sc_time &delay) {
    unsigned char *data = trans.get_data_ptr();
 
    if (cmd == tlm::TLM_READ_COMMAND) {
-      const std::uint32_t value = ctl.csr_read(b.word);
+      const std::uint32_t value = ctl.csr_read(b.word, cycle);  // hardware state at this edge
       for (unsigned i = 0; i < b.length; ++i) {
          if (byte_enabled(trans, i)) {
             data[i] = static_cast<unsigned char>(value >> (8u * (b.first_lane + i)));
@@ -223,7 +225,11 @@ unsigned int fx1_isp_tlm::transport_dbg(tlm::tlm_generic_payload &trans) {
    if (trans.get_command() != tlm::TLM_READ_COMMAND || !decode(trans, b, err)) {
       return 0;
    }
-   const std::uint32_t value = impl_->control.csr_read(b.word);
+   // The settled view, except the time base, which a debugger reads at the
+   // current time.
+   const std::uint32_t value = b.word == FX1_ISP_FRAME_COUNTER_OFFSET
+                                   ? impl_->control.frame_counter(cycle_at())
+                                   : impl_->control.csr_read(b.word);
    unsigned char *data = trans.get_data_ptr();
    for (unsigned i = 0; i < b.length; ++i) {
       data[i] = static_cast<unsigned char>(value >> (8u * (b.first_lane + i)));

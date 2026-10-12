@@ -1,3 +1,35 @@
+# Acceptance CTest record (2026-10-12): CSR/MAS 07/10, milestone U6
+# Configured with -DFX1_ISP_CSR_XLSX=<CSR 07/10 XLSX>; build type RelWithDebInfo, GCC 11.5.0, SystemC 2.3.4
+# Run A: the 23 tests, one ctest invocation, one build job.
+ 1/23 Test  #1: fx1_isp.unit.control .................................   Passed    0.01 sec
+ 2/23 Test  #2: fx1_isp.unit.dma_rules ...............................   Passed    0.00 sec
+ 3/23 Test  #3: fx1_isp.unit.row_stage ...............................   Passed    0.00 sec
+ 4/23 Test  #4: fx1_isp.unit.stats ...................................   Passed    0.02 sec
+ 5/23 Test  #5: fx1_isp.unit.ee_profiles .............................   Passed    0.02 sec
+ 6/23 Test  #6: fx1_isp.unit.pipeline_vectors ........................   Passed    0.21 sec
+ 7/23 Test  #7: fx1_isp.unit.block_vectors ...........................   Passed    0.01 sec
+ 8/23 Test  #8: fx1_isp.integration.dma_tlm ..........................   Passed    0.15 sec
+ 9/23 Test  #9: fx1_isp.integration.e2e_tlm ..........................   Passed    0.23 sec
+10/23 Test #10: fx1_isp.integration.csr_tlm ..........................   Passed    0.00 sec
+11/23 Test #11: fx1_isp.integration.driver_tlm .......................   Passed    0.32 sec
+12/23 Test #12: fx1_isp.integration.driver_tlm_fast_csr ..............   Passed    0.07 sec
+13/23 Test #13: fx1_isp.integration.cont_tlm .........................   Passed    0.49 sec
+14/23 Test #14: fx1_isp.package.consumer .............................   Passed   15.49 sec
+15/23 Test #15: fx1_isp.integration.e2e_4k.full_gbrg_3840x2160_fhd ...   Passed    6.82 sec
+16/23 Test #16: fx1_isp.integration.e2e_4k.full_rggb_3840x2160 .......   Passed    6.89 sec
+17/23 Test #17: fx1_isp.csr.generated_up_to_date .....................   Passed    0.29 sec
+18/23 Test #18: fx1_isp.csr.header_crosscheck ........................   Passed    0.24 sec
+19/23 Test #19: fx1_isp.reference.traceability_up_to_date ............   Passed    2.89 sec
+20/23 Test #20: fx1_isp.reference.vectors_up_to_date .................   Passed    4.34 sec
+21/23 Test #21: fx1_isp.reference.block_vectors_up_to_date ...........   Passed    0.22 sec
+22/23 Test #22: fx1_isp.reference.sequence_up_to_date ................   Passed    2.23 sec
+23/23 Test #23: fx1_isp.reference.4k_vectors_up_to_date ..............   Passed  164.10 sec
+100% tests passed, 0 tests failed out of 23
+# Run B: the same build reconfigured with -DFX1_ISP_RAW_INVENTORY=<ISP_RAW_INVENTORY.json>,
+# against the regenerated raw_regression_baseline.json (decisions log §9.9):
+1/1 Test #24: fx1_isp.regression.raw ...........   Passed  461.95 sec
+# The records below are those of the previous CSR revision (history).
+
 # Acceptance CTest record (2026-10-02)
 # Configured with -DFX1_ISP_CSR_XLSX=<CSR v1.0 XLSX> -DFX1_ISP_RAW_INVENTORY=<ISP_RAW_INVENTORY.json>; RelWithDebInfo, GCC 11.5.0, SystemC 2.3.4
 

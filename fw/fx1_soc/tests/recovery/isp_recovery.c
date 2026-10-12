@@ -25,6 +25,16 @@
  *      stream then restarts from buffer 0 and all 8 frames are correct.
  *   D  fx1_isp_stop in the middle of a frame: the frame is discarded,
  *      nothing completes afterwards; fx1_isp_start again, all 8 correct.
+ *   E  DMA soft reset in the middle of a stream (fx1_isp_dma_reset, MAS
+ *      Table 183): two frames queued back to back, reset at once; at least
+ *      the second is aborted, and nothing completes or progresses after the
+ *      call; the stream stays enabled and continues from buffer 0 without a
+ *      restart; all 8 correct.
+ *
+ * Every frame is queued with a software tag (fx1_isp_queue_frame_meta) and
+ * collected with fx1_isp_next_done_meta: the tag must be the frame's, also
+ * after phase A's output failure has put the input and output rotations out
+ * of step (input k completes in output k - 1; MAS Table 160).
  *
  * Making the fault transient by repairing the address is a test device: a
  * silicon AXI error has its own cause. The driver sequence (recover, lost
@@ -41,7 +51,8 @@
 
 static fx1_isp_dev dev;
 static volatile uint32_t isr_fatal, isr_done_reports, isr_count;
-static uint32_t frame_of_seq[SEQ_SLOTS];
+static uint32_t frame_of_seq[SEQ_SLOTS], tag_of_seq[SEQ_SLOTS], input_of_seq[SEQ_SLOTS];
+static uint32_t tags_issued;
 
 static uint32_t handler(uint32_t mcause, uint32_t mepc, uint32_t mtval)
 {
@@ -69,6 +80,7 @@ static void write_addr64(uint32_t lo_offset, uint64_t addr)
 }
 
 typedef struct {
+    uint32_t index_mismatch; /* completions whose output index differs from the input index */
     uint32_t lost, odma_failed, idma_rearmed;
     unsigned odma_output, idma_input;
     uint32_t fatal_seen;
@@ -127,17 +139,30 @@ static void stream_all(const fx1_isp_buffers* good, int fault_out, int fault_in,
                 isp_fill_input(good->in[(first + k) % FX1_ISP_NUM_BUFFERS], pending[(head + k) & 15u]);
             for (uint32_t k = 0; k < n; ++k) {
                 uint32_t seq = 0;
+                const unsigned input = fx1_isp_next_input(&dev);
+                const uint32_t tag = 0x7A000000u | (++tags_issued << 8) | pending[head & 15u];
                 fx1_check(fx1_isp_input_ready(&dev), code + 4, "input ready");
-                fx1_check(fx1_isp_queue_frame_ex(&dev, &seq) == FX1_ISP_OK, code + 4, "frame queued");
+                fx1_check(fx1_isp_queue_frame_meta(&dev, tag, fx1_isp_frame_counter(&dev), &seq) == FX1_ISP_OK,
+                          code + 4, "frame queued");
                 frame_of_seq[seq % SEQ_SLOTS] = pending[(head++) & 15u];
+                tag_of_seq[seq % SEQ_SLOTS] = tag;
+                input_of_seq[seq % SEQ_SLOTS] = input;
             }
         }
         unsigned index = 0;
         uint32_t seq = 0;
-        const int got = fx1_isp_next_done_ex(&dev, &index, &seq);
+        fx1_isp_frame_meta meta;
+        const int got = fx1_isp_next_done_meta(&dev, &index, &seq, &meta);
         fx1_irq_restore(saved);
         if (got == FX1_ISP_OK) {
             const uint32_t f = frame_of_seq[seq % SEQ_SLOTS];
+            if (meta.tag != tag_of_seq[seq % SEQ_SLOTS]) {
+                fx1_log_hex("frame", f);
+                fx1_log_hex("  ODMA_BUF_TAG got     ", meta.tag);
+                fx1_log_hex("  ODMA_BUF_TAG expected", tag_of_seq[seq % SEQ_SLOTS]);
+                fx1_fail(0xC0u + (code >> 4));
+            }
+            r->index_mismatch += index != input_of_seq[seq % SEQ_SLOTS];
             isp_output_to_cpu(good->y[index], good->uv[index]);
             const uint32_t crc = isp_nv12_crc(good->y[index], good->uv[index]);
             if (crc != isp_fx_crc_basic[f]) {
@@ -259,6 +284,8 @@ int main(void)
     fx1_check(a.fatal_seen == FX1_ISP_DMA_ERR_ERR_ODMA_AXI_BIT, 0x18, "A: exactly ODMA_AXI reported");
     fx1_check(a.odma_failed == 1 && a.odma_output == 2 && a.lost == 1 && a.idma_rearmed == 0, 0x19,
               "A: one output failure on buffer 2, one lost frame resubmitted");
+    fx1_check(a.index_mismatch > 0, 0x1E, "A: frames completed in an output index other than their input's");
+    fx1_log_hex("A: completions with output index != input index (tags matched)", a.index_mismatch);
     expect_idle(0x1A);
     fx1_check(fx1_isp_stop(&dev) == 0, 0x1D, "A: stop with nothing in flight");
     fx1_log("A: ODMA AXI error -> recover, lost frame resubmitted, 8 frames correct");
@@ -318,6 +345,41 @@ int main(void)
     fx1_check(fx1_isp_stop(&dev) == 0, 0x6C, "D: stop");
     fx1_log_hex("D: frames discarded by stop", (uint32_t)discarded);
     fx1_log("D: stop mid-frame, start again, 8 frames correct");
+
+    /* E: DMA soft reset in the middle of a frame, stream kept enabled */
+    phase_result e = {0};
+    isp_outputs_to_device(&good);
+    fx1_check(fx1_isp_start(&dev, &good) == FX1_ISP_OK, 0x70, "E: start");
+    /* Two frames queued back to back, then the reset at once: the second
+     * cannot complete inside the call (it waits for the first one's input),
+     * so at least one frame is aborted whatever the driver's own latency
+     * (it samples ODMA_BUF_DONE before the reset, review U6-R1). From the
+     * counters sampled right after the call, nothing may progress. */
+    for (uint32_t k = 0; k < 2; ++k) isp_fill_input(good.in[k], k);
+    saved = fx1_irq_save();
+    odma_before = isp_hal.read32(isp_hal.ctx, FX1_ISP_ODMA_FRAME_COUNT_OFFSET);
+    idma_before = isp_hal.read32(isp_hal.ctx, FX1_ISP_IDMA_FRAME_COUNT_OFFSET);
+    for (uint32_t k = 0; k < 2; ++k) {
+        uint32_t seq;
+        fx1_check(fx1_isp_input_ready(&dev) && fx1_isp_queue_frame_ex(&dev, &seq) == FX1_ISP_OK, 0x71 + k,
+                  "E: frame queued");
+    }
+    const int dropped = fx1_isp_dma_reset(&dev);
+    const uint32_t idma_e = idma_after_abort();
+    const uint32_t odma_e = isp_hal.read32(isp_hal.ctx, FX1_ISP_ODMA_FRAME_COUNT_OFFSET);
+    fx1_irq_restore(saved);
+    fx1_check(dropped == 2 && dev.in_flight == 0, 0x77, "E: the DMA reset drops the frames in flight");
+    fx1_check(odma_e - odma_before <= 1u && idma_e - idma_before <= 1u, 0x7B,
+              "E: the second frame was aborted (at most the first one finished during the call)");
+    fx1_log_hex("E: outputs completed during the reset call", odma_e - odma_before);
+    expect_no_stale_completion(odma_e, idma_e, 0x78);
+    fx1_check(fx1_isp_next_input(&dev) == 0, 0x7C, "E: rotation restarts at buffer 0");
+    isp_outputs_to_device(&good);
+    stream_all(&good, -1, -1, 0x80, &e); /* no fx1_isp_start: the stream stayed enabled */
+    fx1_check(e.fatal_seen == 0 && e.lost == 0, 0x88, "E: clean stream after the DMA reset");
+    expect_idle(0x89);
+    fx1_check(fx1_isp_stop(&dev) == 0, 0x8C, "E: stop");
+    fx1_log("E: DMA reset mid-frame: no stale completion, stream continues from buffer 0, 8 frames correct");
     fx1_log_hex("ISP interrupts taken", isr_count);
     return 0;
 }

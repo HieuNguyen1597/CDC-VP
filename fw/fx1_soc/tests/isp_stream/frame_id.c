@@ -3,7 +3,7 @@
  * hardware FRAME_ID for the frame they describe.
  *
  * Profile isp_fx_profile_stats = basic + AEC (4x3 zones of 16x16) + AWB
- * (global) + AF, distinct context IDs. Frames are run one at a time (queue,
+ * (one 1x1 zone, read under a lease by the driver) + AF, distinct context IDs. Frames are run one at a time (queue,
  * wait for the ISR-signalled completion, read the publication) so the result
  * registers are stable when read and belong to exactly that frame. For every
  * frame k the driver's read-tag-read accessors must return the reference's
@@ -61,7 +61,7 @@ int main(void)
     fx1_global_irq_enable();
     isp_outputs_to_device(&bufs);
     fx1_check(fx1_isp_start(&dev, &bufs) == FX1_ISP_OK, 0x03, "stream start");
-    fx1_log("ISP statistics: AEC 4x3, AWB global, AF; one frame at a time");
+    fx1_log("ISP statistics: AEC 4x3, AWB 1x1, AF; one frame at a time");
 
     for (uint32_t k = 0; k < ISP_FX_FRAMES; ++k) {
         uint32_t saved = fx1_irq_save();

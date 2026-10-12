@@ -12,10 +12,18 @@ Writes isp_fixture.h next to this script:
   * the CRC-32 (IEEE, as zlib.crc32) of every expected NV12 frame (Y then UV,
     active bytes, strides = width) for both profiles, frames processed in
     order through the reference so temporal state carries over;
-  * a third profile, stats = basic + AEC (4x3 zones of 16x16), AWB (global)
-    and AF, with the publication every frame must produce: AEC/AWB/AF
+  * a third profile, stats = basic + AEC (4x3 zones of 16x16), AWB (one zone
+    over the frame) and AF, with the publication every frame must produce: AEC/AWB/AF
     FRAME_ID and RESULT_CONTEXT_ID, AEC global sums and counts per channel.
     Statistics do not change the image, so its NV12 CRCs equal basic's.
+  * the AWB ownership script (CSR/MAS 07/10, MAS §6.22.4): the stats profile
+    run one frame at a time with REPORT / ACQUIRE / RELEASE / CLEAR_REPORT
+    steps after given frames, so results are dropped when software holds
+    both banks; every step's expected status, identity and global sums;
+  * a resize case (MAS §6.20.4): 648x368 RGGB (raw_sample_rz), its own basic
+    profile, and the CRCs of three frames: scaled to 640x360 from the first
+    frame, then pass-through, then 640x360 again (mode switched between
+    frames while streaming).
 
 The RAW frames are not stored: raw_sample() below is an integer formula that
 the firmware evaluates identically (isp_stream/main.c, raw_sample()).
@@ -45,8 +53,9 @@ WIDTH, HEIGHT, BAYER, FRAMES = 64, 48, "RGGB", 8
 OUT = os.path.join(HERE, "isp_fixture.h")
 GTM_AUTO = [("GTM_KEY", 0xBB), ("GTM_LWHITE", 0x0180), ("GTM_ROI_LOG2", 11), ("GTM_CTRL", 1)]
 # Statistics on, small and legal: AEC 4x3 zones of 16x16 covering the frame,
-# AWB global only, AF; distinct context IDs so the tags are checked too.
-STATS = (make_profile.aec(4, 3, 16, 16) + make_profile.awb(0, 0, 16, 4000) + [("AF_CTRL", 1)] +
+# AWB one 1x1 zone (a 0x0 grid is illegal since CSR/MAS 07/10, MAS §6.22.3.7),
+# AF; distinct context IDs so the tags are checked too.
+STATS = (make_profile.aec(4, 3, 16, 16) + make_profile.awb(1, 1, 16, 4000) + [("AF_CTRL", 1)] +
          [("AEC_CONTEXT_ID", 0xA1), ("AWB_CONTEXT_ID", 0xA2), ("AF_CONTEXT_ID", 0xA3)])
 
 
@@ -67,6 +76,84 @@ def raw_frame(frame):
                     dtype=np.uint16)
 
 
+# Resize case: the smallest frame a Resizer mode fits (640x360 inside 648x368).
+RZ_WIDTH, RZ_HEIGHT, RZ_FRAMES = 648, 368, 3
+RZ_SCALED = 1 | (8 << 3)   # RESIZER_CTRL: en, scale 8 = 640x360
+RZ_MODES = [RZ_SCALED, 0, RZ_SCALED]   # per frame: scaled, pass-through, scaled
+
+
+def raw_sample_rz(frame, x, y):
+    """Cheaper 12-bit sample for the resize frames (no division: the CPU
+    evaluates 238k of them); must match isp_raw_sample_rz() in isp_mas0710.c."""
+    v = 400 + 160 * frame + ((x * 37 + y * 91 + frame * 53) & 511) + ((x ^ y) & 7) * 24
+    if ((x + 2 * frame) & 15) < 3:
+        v += 900
+    return min(v, 4095)
+
+
+def raw_frame_rz(frame):
+    x = np.arange(RZ_WIDTH, dtype=np.int64)[None, :]
+    y = np.arange(RZ_HEIGHT, dtype=np.int64)[:, None]
+    v = 400 + 160 * frame + ((x * 37 + y * 91 + frame * 53) & 511) + ((x ^ y) & 7) * 24
+    v = v + np.where(((x + 2 * frame) & 15) < 3, 900, 0)
+    return np.minimum(v, 4095).astype(np.uint16)
+
+
+def run_resize(profile, raws):
+    regs = regs_mod.Registers()
+    regs.write("COMMON_FRAME_WIDTH", RZ_WIDTH)
+    regs.write("COMMON_FRAME_HEIGHT", RZ_HEIGHT)
+    for name, value in profile:
+        regs.write(name, value)
+    crcs = []
+    for raw, mode in zip(raws, RZ_MODES):
+        regs.write("RESIZER_CTRL", mode)
+        y, uv = blocks.run_frame(raw, regs, {})
+        want = (360, 640) if mode else (RZ_HEIGHT, RZ_WIDTH)
+        assert y.shape == want and uv.shape == (want[0] // 2, want[1]), (y.shape, uv.shape)
+        crcs.append(zlib.crc32(y.astype(np.uint8).tobytes() + uv.astype(np.uint8).tobytes()) & 0xFFFFFFFF)
+    return crcs
+
+
+# AWB ownership script: after frame k, the steps OWN_SCRIPT[k] in order.
+#   R report (ready count, leased, overrun, drop count)   A acquire, expect a result
+#   N acquire, expect none   L release   C clear the report
+OWN_SCRIPT = {0: "R", 1: "R", 2: "R", 3: "RALALNCR", 4: "A", 5: "R", 6: "RLAL", 7: "ALR"}
+OWN_OPS = {"R": 0, "A": 1, "N": 2, "L": 3, "C": 4}
+
+
+def run_ownership(profile, raws):
+    regs = regs_mod.Registers()
+    regs.write("COMMON_FRAME_WIDTH", WIDTH)
+    regs.write("COMMON_FRAME_HEIGHT", HEIGHT)
+    for name, value in profile:
+        regs.write(name, value)
+    st, steps = regs.stats, []
+    for k, raw in enumerate(raws):
+        blocks.run_frame(raw, regs, {})
+        for op in OWN_SCRIPT.get(k, ""):
+            e = {"frame": k, "op": OWN_OPS[op], "ready": 0, "leased": 0, "overrun": 0, "drops": 0,
+                 "fid": 0, "ctx": 0, "sum": [0, 0, 0], "count": 0}
+            if op == "R":
+                e.update(ready=len(st.awb_ready), leased=int(st.awb_leased is not None),
+                         overrun=int(st.awb_overrun), drops=st.awb_drops)
+            elif op in "AN":
+                had = st.awb_leased
+                regs.write("AWB_RESULT_CTRL", 1)
+                assert (st.awb_leased is not None and had is None) == (op == "A"), (k, op)
+                if op == "A":
+                    e.update(fid=st.read(regs, "AWB_FRAME_ID"), ctx=st.read(regs, "AWB_RESULT_CONTEXT_ID"),
+                             count=st.read(regs, "AWB_GLOBAL_COUNT"),
+                             sum=[(st.read(regs, "AWB_GLOBAL_SUM_%s_H" % c) << 32) |
+                                  st.read(regs, "AWB_GLOBAL_SUM_%s_L" % c) for c in "RGB"])
+            elif op == "L":
+                regs.write("AWB_RESULT_CTRL", 2)
+            else:
+                regs.write("AWB_RESULT_CTRL", 4)
+            steps.append(e)
+    return steps
+
+
 def run(profile, raws, stats=None):
     """CRCs of every frame; with `stats` (a list), also each frame's publication."""
     regs = regs_mod.Registers()
@@ -81,11 +168,16 @@ def run(profile, raws, stats=None):
         crcs.append(zlib.crc32(y.astype(np.uint8).tobytes() + uv.astype(np.uint8).tobytes()) & 0xFFFFFFFF)
         if stats is not None:
             st, ro = regs.stats, regs.stats.ro
+            # AWB results are read under a lease, frame by frame, as the
+            # firmware's driver does (MAS §6.22.4).
+            regs.write("AWB_RESULT_CTRL", 1)
+            awb_fid, awb_ctx = st.read(regs, "AWB_FRAME_ID"), st.read(regs, "AWB_RESULT_CONTEXT_ID")
+            regs.write("AWB_RESULT_CTRL", 2)
             stats.append({
                 "aec_frame_id": ro["AEC_FRAME_ID"], "aec_ctx": ro["AEC_RESULT_CONTEXT_ID"],
                 "aec_sum": [v & ((1 << 33) - 1) for v in st.aec["gsum"]],
                 "aec_count": [v & 0x1FFFFF for v in st.aec["gcnt"]],
-                "awb_frame_id": ro["AWB_FRAME_ID"], "awb_ctx": ro["AWB_RESULT_CONTEXT_ID"],
+                "awb_frame_id": awb_fid, "awb_ctx": awb_ctx,
                 "af_frame_id": ro["AF_FRAME_ID"], "af_ctx": ro["AF_RESULT_CONTEXT_ID"]})
     return crcs
 
@@ -116,6 +208,30 @@ def render():
     pubs = []
     assert run(stats_profile, raws, pubs) == crc_basic, "statistics must not change the image"
     assert [p["aec_frame_id"] for p in pubs] == list(range(1, FRAMES + 1)), "FRAME_ID 1..N after reset"
+
+    own = run_ownership(stats_profile, raws)
+    assert sum(1 for e in own if e["op"] == 0 and e["drops"]) >= 2, "the script must drop results"
+    raws_rz = [raw_frame_rz(k) for k in range(RZ_FRAMES)]
+    assert all(int(raws_rz[1][y, x]) == raw_sample_rz(1, x, y) for y, x in ((0, 0), (5, 7), (367, 647)))
+    rz_basic, rz_note = make_profile.profile_writes(raws_rz[0].astype(np.int64).ravel(), RZ_WIDTH, RZ_HEIGHT,
+                                                    BAYER, "basic")
+    rz_basic = [(n, v) for n, v in rz_basic if n != "RESIZER_CTRL"]
+    crc_rz = run_resize(rz_basic, raws_rz)
+
+    def own_steps(name, steps):
+        rows = ["    {%du, %du, %du, %du, %du, %du, %du, 0x%Xu, {%s}, %du}" % (
+            e["frame"], e["op"], e["ready"], e["leased"], e["overrun"], e["drops"], e["fid"], e["ctx"],
+            ", ".join("0x%XULL" % v for v in e["sum"]), e["count"]) for e in steps]
+        return ("typedef struct isp_fx_awb_step {\n"
+                "    uint32_t frame, op;\n"
+                "    uint32_t ready, leased, overrun, drops;  /* op 0 */\n"
+                "    uint32_t fid, ctx;                       /* op 1 */\n"
+                "    uint64_t sum[3];                         /* op 1: R, G, B */\n"
+                "    uint32_t count;                          /* op 1 */\n"
+                "} isp_fx_awb_step;\n"
+                "#define ISP_FX_AWB_STEPS %du\n"
+                "static const isp_fx_awb_step %s[ISP_FX_AWB_STEPS] ISP_FX_UNUSED = {\n%s\n};\n" % (
+                    len(steps), name, ",\n".join(rows)))
 
     def table(name, writes):
         rows = ",\n".join("    {0x%04Xu, 0x%08Xu}" % (o, v) for o, v in offsets(writes))
@@ -165,6 +281,21 @@ def render():
         "/* basic + AEC/AWB/AF; its NV12 CRCs are isp_fx_crc_basic. */",
         table("isp_fx_profile_stats", stats_profile),
         publications("isp_fx_stats_expected", pubs),
+        "/* AWB ownership script on the stats profile (op: 0 report, 1 acquire, 2 acquire",
+        " * expecting none, 3 release, 4 clear report), after frame `frame`. */",
+        own_steps("isp_fx_awb_script", own),
+        "",
+        "#define ISP_FX_RZ_WIDTH  %du" % RZ_WIDTH,
+        "#define ISP_FX_RZ_HEIGHT %du" % RZ_HEIGHT,
+        "#define ISP_FX_RZ_FRAMES %du" % RZ_FRAMES,
+        "#define ISP_FX_RZ_SCALED 0x%02Xu /* RESIZER_CTRL: en, 640x360 */" % RZ_SCALED,
+        "/* basic profile of the resize case: %s */" % rz_note,
+        table("isp_fx_profile_rz", rz_basic),
+        "/* RESIZER_CTRL of each resize frame and its NV12 CRC (640x360 or 648x368). */",
+        "static const uint32_t isp_fx_rz_mode[ISP_FX_RZ_FRAMES] ISP_FX_UNUSED = {%s};" % ", ".join(
+            "0x%02Xu" % m for m in RZ_MODES),
+        "static const uint32_t isp_fx_crc_rz[ISP_FX_RZ_FRAMES] ISP_FX_UNUSED = {%s};" % ", ".join(
+            "0x%08Xu" % c for c in crc_rz),
         "#endif /* ISP_FIXTURE_H */",
         ""])
 

@@ -83,6 +83,19 @@ typedef struct fx1_isp_frame {
 
 /* Driver state: the software view of the buffer rotation (HAS §6.25.10).
  * Zero-initialise before fx1_isp_init; the fields are private to the driver. */
+/* AWB result held by software (MAS §6.22.4): identity and captured grid. */
+typedef struct fx1_isp_awb_lease {
+    uint32_t frame_id, context_id;
+    unsigned nx, ny;      /* zone grid captured with the result */
+    unsigned bank;        /* AWB_RESULT_STATUS.read_bank */
+} fx1_isp_awb_lease;
+
+typedef struct fx1_isp_awb_global {
+    uint64_t sum[3];   /* R, G, B (35-bit) */
+    uint32_t count;
+    uint32_t frame_id, context_id;
+} fx1_isp_awb_global;
+
 typedef struct fx1_isp_dev {
     fx1_isp_hal hal;
     uint32_t magic;       /* set by fx1_isp_init */
@@ -103,6 +116,20 @@ typedef struct fx1_isp_dev {
      * (DEC-30, M3-A7): untrusted until AEC_FRAME_ID moves past stats_mark. */
     int stats_untrusted;
     uint32_t stats_mark;
+    /* AWB ownership (MAS §6.22.4): the lease taken by fx1_isp_awb_acquire,
+     * and the newest result read by fx1_isp_read_awb_global. Both are
+     * dropped by a soft reset. */
+    int awb_leased;
+    fx1_isp_awb_lease awb_lease;
+    int awb_last_valid;
+    fx1_isp_awb_global awb_last;
+    /* EE profiles a frame may use: every profile selected since EE was last
+     * seen idle (bit p = profile p). */
+    unsigned ee_sel, ee_in_use;
+    /* GTM manual load (MAS §9.2): step 1 done, EN to restore, and the
+     * IDMA_FRAME_COUNT that proves a frame queued after it was taken. */
+    int gtm_manual, gtm_en, gtm_wait;
+    uint32_t gtm_target;
 } fx1_isp_dev;
 
 /* Events reported by fx1_isp_irq(). */
@@ -123,6 +150,15 @@ int fx1_isp_stop(fx1_isp_dev *dev);
 /* Soft reset (DEC-14): configuration, LUTs and LSC profiles are kept; buffer
  * ownership, results and interrupt state are cleared; rotation returns to 0. */
 void fx1_isp_soft_reset(fx1_isp_dev *dev);
+/* DMA-only soft reset (DMA_CTRL.soft_reset, MAS Table 183) while streaming:
+ * the frames in flight are discarded (returned: their count), buffer
+ * ownership and both rotations return to 0, DMA_IRQ_STAT/DMA_ERR are cleared.
+ * Configuration, the pipeline state, published statistics, COMMON_IRQ_STATUS
+ * and an AWB lease are kept; the stream stays enabled, so the caller re-queues
+ * its frames from buffer 0. AEC zone/histogram data becomes untrusted only if
+ * a frame in flight had not completed; a pending GTM hand-over then waits for
+ * one frame taken after the reset. FX1_ISP_ESTATE if not streaming. */
+int fx1_isp_dma_reset(fx1_isp_dev *dev);
 /* Input geometry and Bayer order (0 RGGB, 1 GRBG, 2 GBRG, 3 BGGR, DEC-11).
  * Pipeline idle only (HAS §9.4.4). */
 int fx1_isp_set_geometry(fx1_isp_dev *dev, uint32_t width, uint32_t height, uint32_t bayer);
@@ -131,20 +167,54 @@ void fx1_isp_apply(fx1_isp_dev *dev, const fx1_isp_reg_write *writes, size_t n);
 
 /* ---- Tables and gated sets -------------------------------------------------- */
 void fx1_isp_load_gamma(fx1_isp_dev *dev, const uint16_t lut[256]);
-/* bank 0 luma / 1 activity (64 entries), 2 / 3 contrast (32 entries). */
+/* bank 0 luma / 1 activity (64 entries), 2 / 3 contrast (32 entries), into
+ * the profile EE_CTRL.profile_wr_sel names (profile 0 after reset). */
 int fx1_isp_load_ee_table(fx1_isp_dev *dev, unsigned bank, const uint16_t *table, unsigned n);
-/* GTM software table (65 entries); writes are taken only while GTM is
- * disabled or manual (HAS Table 6-49), so this selects manual mode. */
-void fx1_isp_load_gtm_lut(fx1_isp_dev *dev, const uint16_t lut[65]);
+/* GTM software table (65 entries), following MAS §9.2:
+ *   1. fx1_isp_gtm_manual_begin clears EN and sets MANUAL (frames now pass GTM
+ *      through, and no new automatic curve is built);
+ *   2. one frame must then run, so that no automatic curve built before
+ *      step 1 is still waiting for its SOF: fx1_isp_load_gtm_lut returns
+ *      FX1_ISP_EAGAIN until the pipeline has taken a frame queued after
+ *      step 1 (keep streaming, or run one frame; its output may fail). Only
+ *      when no frame has been taken since i_rst_n (IDMA_FRAME_COUNT = 0, kept
+ *      by soft reset and fx1_isp_init) and none is queued can no curve be
+ *      pending, and the load proceeds at once;
+ *   3-5. it writes the 65 points, verifies them through GTM_LUT_RDATA
+ *      (FX1_ISP_EIO on a mismatch) and restores EN; the curve applies from the
+ *      next SOF and stays while MANUAL is set.
+ * fx1_isp_load_gtm_lut performs step 1 itself if it was not done. */
+int fx1_isp_gtm_manual_begin(fx1_isp_dev *dev);
+int fx1_isp_load_gtm_lut(fx1_isp_dev *dev, const uint16_t lut[65]);
+
+/* EE resident profiles (MAS §6.18.4.1, §9.2). Each of the three profiles owns
+ * the scalars and the four tables below. */
+typedef struct fx1_isp_ee_profile {
+    uint32_t alpha, beta, clamp, feature_en;         /* EE_ALPHA .. EE_FEATURE_EN */
+    uint32_t radial_center, r2_th[3], radial_gain_01, radial_gain_23;
+    uint16_t luma[64], activity[64], contrast_pos[32], contrast_neg[32];
+} fx1_isp_ee_profile;
+/* Loads profile 0..2 with full 32-bit writes and verifies its tables through
+ * EE_LUT_RDATA (FX1_ISP_EIO on a mismatch). While EE is busy, every profile
+ * selected since EE was last seen idle may still be used by a frame in
+ * flight, and is refused with FX1_ISP_EBUSY; the selector written last is no
+ * proof of which profile those frames use. */
+int fx1_isp_ee_load_profile(fx1_isp_dev *dev, unsigned profile, const fx1_isp_ee_profile *p);
+/* Selects profile 0..2 and the enable; both take effect at the next SOF. */
+int fx1_isp_ee_select(fx1_isp_dev *dev, unsigned profile, int enable);
 /* Loads 4 * nx * ny UQ3.18 coefficients (R, Gr, Gb, B per node, x then y)
  * into a non-active LSC profile and validates it; returns FX1_ISP_EIO with
  * *lsc_error set if the loader rejected it. */
 int fx1_isp_lsc_load(fx1_isp_dev *dev, unsigned profile, unsigned nx, unsigned ny, const uint32_t *coef,
                      uint32_t *lsc_error);
-/* Selects a valid profile; it becomes active at the next frame start. */
+/* Selects a valid profile; it becomes active at the next frame start if it is
+ * still valid then. A load into it begun before that SOF keeps the previous
+ * profile active and raises LSC_ERROR.PROFILE_SEL_REJECT. */
 int fx1_isp_lsc_select(fx1_isp_dev *dev, unsigned profile);
-/* CCM coefficients (Q3.9, row major) and offsets, committed through
- * CCM_CTRL.updated (DEC-24/26: immediately if idle, else at the next SOF). */
+/* CCM coefficients (Q3.9, row major) and offsets. The block captures them at
+ * every accepted SOF; CCM_CTRL.updated has no effect (CSR/MAS 07/10). The set
+ * is not protected as a whole: call it while no frame starts (idle, or
+ * between frames), or a frame may use a mix of the old and new values. */
 void fx1_isp_ccm_set(fx1_isp_dev *dev, const int16_t m[9], const int16_t ofs[3], int enable);
 
 /* AEC: shadow configuration plus commit (CSR #296); takes effect at the next SOF. */
@@ -170,6 +240,12 @@ int fx1_isp_start(fx1_isp_dev *dev, const fx1_isp_buffers *bufs);
 int fx1_isp_queue_frame(fx1_isp_dev *dev);
 /* As fx1_isp_queue_frame, and returns the frame's sequence number in *seq. */
 int fx1_isp_queue_frame_ex(fx1_isp_dev *dev, uint32_t *seq);
+/* As fx1_isp_queue_frame_ex, and gives the input buffer a software tag and a
+ * capture timestamp in the FRAME_COUNTER time base (IDMA_BUF_TAG/TS, MAS
+ * Table 160). The hardware carries them to the output buffer the frame
+ * completes in; fx1_isp_next_done_meta returns them. The other queue calls
+ * leave the input buffer's tag and timestamp registers untouched. */
+int fx1_isp_queue_frame_meta(fx1_isp_dev *dev, uint32_t tag, uint32_t ts, uint32_t *seq);
 unsigned fx1_isp_next_input(const fx1_isp_dev *dev);
 /* Non-zero when the next input may be filled and queued. Serialise this
  * check, filling and queue_frame against other driver calls. */
@@ -182,6 +258,20 @@ void fx1_isp_irq(fx1_isp_dev *dev, fx1_isp_events *ev);
 int fx1_isp_next_done(fx1_isp_dev *dev, unsigned *index);
 /* As fx1_isp_next_done, and returns the completed frame's sequence number. */
 int fx1_isp_next_done_ex(fx1_isp_dev *dev, unsigned *index, uint32_t *seq);
+/* Metadata published with a completed output buffer (MAS Table 160). All
+ * times are FRAME_COUNTER values (core clocks, modulo 2^32): eof_ts - sof_ts
+ * is the output span of the frame, eof_ts - ts its end-to-end latency. */
+typedef struct fx1_isp_frame_meta {
+    uint32_t tag;     /* the input buffer's IDMA_BUF_TAG when the frame started */
+    uint32_t ts;      /* the input buffer's IDMA_BUF_TS when the frame started */
+    uint32_t sof_ts;  /* output start of frame */
+    uint32_t eof_ts;  /* last line of the frame accepted by the ODMA */
+} fx1_isp_frame_meta;
+/* As fx1_isp_next_done_ex, and returns the buffer's metadata in *meta (NULL
+ * allowed). */
+int fx1_isp_next_done_meta(fx1_isp_dev *dev, unsigned *index, uint32_t *seq, fx1_isp_frame_meta *meta);
+/* FRAME_COUNTER: the free-running 32-bit core-clock time base (0 before init). */
+uint32_t fx1_isp_frame_counter(fx1_isp_dev *dev);
 /* Error recovery (DEC-19). After an IDMA AXI error the input buffer was
  * released and the rotation kept: re-arm the same index. After an ODMA AXI
  * error the output buffer was not completed and is no longer free: free the
@@ -198,10 +288,10 @@ int fx1_isp_recover(fx1_isp_dev *dev, uint32_t dma_err);
  * a later fx1_isp_irq() (the IDMA_DONE interrupt is enabled for this). */
 typedef struct fx1_isp_recovery {
     uint32_t handled;          /* DMA_ERR bits acted on */
-    int idma_rearmed;          /* IDMA_AXI: the frame is retried from the same input */
+    int idma_rearmed;          /* AXI_RD: the frame is retried from the same input */
     unsigned idma_input;
     uint32_t idma_seq;
-    int odma_failed;           /* ODMA_AXI: this frame's output failed */
+    int odma_failed;           /* AXI_WR: this frame's output failed */
     unsigned odma_output;      /* output buffer freed again */
     uint32_t odma_seq;
 } fx1_isp_recovery;
@@ -243,11 +333,44 @@ typedef struct fx1_isp_aec_zone {
 int fx1_isp_read_aec_zones(fx1_isp_dev *dev, unsigned first, unsigned n, fx1_isp_aec_zone *zones,
                            uint32_t hist[64], uint32_t *frame_id);
 
-typedef struct fx1_isp_awb_global {
+/* AWB results live in two banks owned through acquire/release (MAS §6.22.4).
+ * Explicit use:
+ *   fx1_isp_awb_acquire  takes the oldest completed result: FX1_ISP_ENODATA
+ *                        if none is ready, FX1_ISP_EBUSY if one is already held;
+ *   fx1_isp_awb_read_global / fx1_isp_awb_read_zones read the held result
+ *                        (stable until release; zones of the captured grid);
+ *   fx1_isp_awb_release  returns it to the hardware; on return the bank can
+ *                        take the next frame. Release after the last
+ *                        read: while two results are held or ready, enabled
+ *                        frames are skipped and counted in AWB_DROP_COUNT.
+ * A read that finds the lease gone (a soft reset cleared it) drops it, and
+ * the compatibility reader's cached result, and returns FX1_ISP_ENODATA.
+ * Limitation: a reset issued behind the driver while it holds no lease is not
+ * visible to it; whoever resets the ISP must call fx1_isp_soft_reset or
+ * fx1_isp_init so that the driver forgets the results. */
+int fx1_isp_awb_acquire(fx1_isp_dev *dev, fx1_isp_awb_lease *out);
+int fx1_isp_awb_read_global(fx1_isp_dev *dev, fx1_isp_awb_global *out);
+typedef struct fx1_isp_awb_zone {
     uint64_t sum[3];   /* R, G, B (35-bit) */
     uint32_t count;
-    uint32_t frame_id, context_id;
-} fx1_isp_awb_global;
+} fx1_isp_awb_zone;
+/* Zones first..first+n-1 of the captured grid (FX1_ISP_EINVAL beyond it). */
+int fx1_isp_awb_read_zones(fx1_isp_dev *dev, unsigned first, unsigned n, fx1_isp_awb_zone *zones);
+int fx1_isp_awb_release(fx1_isp_dev *dev);
+/* Loss reporting: OVERRUN and DROP_COUNT (enabled measurements skipped for
+ * lack of a free bank or an illegal grid). clear != 0 acknowledges them
+ * (CLEAR_REPORT); data and ownership are not affected. */
+typedef struct fx1_isp_awb_status {
+    unsigned ready_count;
+    int leased, write_busy, overrun;
+    uint32_t drop_count;
+} fx1_isp_awb_status;
+int fx1_isp_awb_report(fx1_isp_dev *dev, fx1_isp_awb_status *out, int clear);
+/* Compatibility reader (API of the previous CSR revision): the newest AWB
+ * global result. It acquires, reads and releases every ready result and keeps
+ * the newest; with none ready it returns the one it read last.
+ * FX1_ISP_ENODATA before any result (or after a soft reset); FX1_ISP_EBUSY
+ * while the caller holds a lease. */
 int fx1_isp_read_awb_global(fx1_isp_dev *dev, fx1_isp_awb_global *out);
 
 typedef struct fx1_isp_af_scores {

@@ -341,10 +341,10 @@ struct test_master : sc_module {
       FX1_CHECK(dut->debug_soft_reset_active());
       FX1_CHECK_EQ(dut->debug_peek(FX1_ISP_IDMA_BUF_VALID_OFFSET), 0);
       FX1_CHECK_EQ(dut->debug_peek(FX1_ISP_COMMON_SCRATCH_OFFSET), 0xA5A5A5A5u);
-      wait(t0 + period * 31 - sc_time_stamp());
+      wait(t0 + period * 14 - sc_time_stamp());
       FX1_CHECK(dut->debug_soft_reset_active());
       wait(period);
-      FX1_CHECK(!dut->debug_soft_reset_active());  // exactly 32 core cycles
+      FX1_CHECK(!dut->debug_soft_reset_active());  // exactly 15 core cycles (MAS §6.5.3)
       FX1_CHECK_EQ(read32(FX1_ISP_DMA_CTRL_OFFSET), 0x3F00);
    }
 

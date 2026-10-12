@@ -114,6 +114,7 @@ def main():
             r.write(n, v)
         w, h = 30, 20
         y = rng.integers(0, 256, size=(h, w)).astype(np.int64)
+        r.ee_sof()                              # sampled at SOF (MAS §6.18.4.1)
         out = blocks.ee(y, r)
         ee.append("%d %d %d\n%s\n%s\n%s\n" % (w, h, len(writes), " ".join("%s %d" % kv for kv in writes),
                                                " ".join(map(str, y.ravel())), " ".join(map(str, out.ravel()))))

@@ -95,6 +95,8 @@ struct line {
    bool abort = false;       // frame abandoned upstream; ends the frame
    std::uint32_t width = 0;  // frame geometry, valid on every line
    std::uint32_t height = 0;
+   std::uint32_t tag = 0;    // input buffer tag and capture timestamp of the frame,
+   std::uint32_t ts = 0;     // valid on every line (MAS Table 160)
    std::vector<std::uint16_t> samples;  // input lines
    std::vector<std::uint8_t> bytes;     // output lines
 };
@@ -139,6 +141,8 @@ private:
    tlm::tlm_initiator_socket<> &socket_;
    line_fifo &out_;
    dma::idma_setup setup_{};
+   std::uint32_t tag_ = 0;  // IDMA_BUF_TAG/TS of the armed buffer, captured with
+   std::uint32_t ts_ = 0;   // the working set (MAS §6.25.4.1.0.3)
    std::uint32_t max_beats_ = 64;
    std::uint64_t frames_ = 0;
 };
@@ -177,6 +181,7 @@ public:
 
 private:
    bool arm(std::uint64_t my_epoch);
+   void set_overflow(bool level);
    void sink_frame(bool y_done, bool uv_done, std::uint64_t my_epoch);
    void end_frame();
    bool write_line(std::uint64_t base, std::uint32_t stride, std::uint32_t row, const line &l,
@@ -189,7 +194,6 @@ private:
    dma::odma_setup setup_{};
    std::uint32_t max_beats_ = 64;
    bool armed_ = false;
-   bool overflow_flagged_ = false;
 };
 
 }  // namespace cdc::components::fx1_isp

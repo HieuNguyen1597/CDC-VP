@@ -102,12 +102,12 @@ void run_vector(const fs::path &dir) {
       p.finish();
       pipe::end_of_frame(cu, cfg, p.stats());
    }
-   // Only DEC-28 warns, once per frame; every block of the vectors is
-   // implemented, so nothing else may be reported (review M3-R4).
-   const bool dyn = name.find("bpc_dynamic_requested") != std::string::npos;
-   FX1_CHECK_EQ_CTX(warnings.size(), dyn ? frames : 0u, name + " warnings");
+   // Every block of the vectors is implemented, so nothing may be reported
+   // (review M3-R4). BPC dynamic detection has no effect (MAS §6.9, DEC-28
+   // superseded) and no longer warns.
+   FX1_CHECK_EQ_CTX(warnings.size(), 0u, name + " warnings");
    for (const std::string &w : warnings) {
-      FX1_CHECK_EQ_CTX(w.find("DEC-28") != std::string::npos ? 1 : 0, 1, name + " unexpected warning: " + w);
+      ::fx1_test::report(false, "no warning", __FILE__, __LINE__, name + " unexpected warning: " + w);
    }
    auto compare = [&](const std::vector<std::uint8_t> &got, const std::vector<std::uint8_t> &want, const char *plane,
                       std::uint32_t width) {

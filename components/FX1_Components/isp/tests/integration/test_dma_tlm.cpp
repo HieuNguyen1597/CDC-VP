@@ -46,7 +46,8 @@ constexpr std::uint32_t irq_odma_done = FX1_ISP_DMA_IRQ_STAT_IRQ_ODMA_DONE_BIT;
 constexpr std::uint32_t irq_odma_overflow = FX1_ISP_DMA_IRQ_STAT_IRQ_ODMA_OVERFLOW_BIT;
 constexpr std::uint32_t irq_axi_error = FX1_ISP_DMA_IRQ_STAT_IRQ_AXI_ERROR_BIT;
 // DMA_ERR bits (CSR row 457).
-constexpr std::uint32_t err_align = FX1_ISP_DMA_ERR_ERR_ALIGN_OR_GEOMETRY_BIT;
+constexpr std::uint32_t err_align = FX1_ISP_DMA_ERR_ERR_ALIGN_BIT;
+constexpr std::uint32_t irq_cfg_error = FX1_ISP_DMA_IRQ_STAT_IRQ_CFG_ERROR_BIT;
 constexpr std::uint32_t err_underrun = FX1_ISP_DMA_ERR_ERR_IDMA_UNDERRUN_BIT;
 constexpr std::uint32_t err_overflow = FX1_ISP_DMA_ERR_ERR_ODMA_OVERFLOW_BIT;
 constexpr std::uint32_t err_idma_axi = FX1_ISP_DMA_ERR_ERR_IDMA_AXI_BIT;
@@ -100,7 +101,8 @@ struct bench : sc_module {
    test_memory *mem = nullptr;
    std::vector<std::pair<sc_time, bool>> irq_edges;
    bool finished = false;
-   bool slow_pipeline = false;  // DUT built with a very long line latency
+   bool slow_pipeline = false;
+   std::uint64_t release_cycle = 0;  // core clock of the last i_rst_n release  // DUT built with a very long line latency
    static int &running() {
       static int n = 0;
       return n;
@@ -163,12 +165,50 @@ struct bench : sc_module {
       return true;
    }
    std::uint32_t peek(std::uint32_t off) { return dut->debug_peek(off); }
+   std::uint64_t cycle(const sc_time &t) const {
+      return static_cast<std::uint64_t>(t / dut->params().core_period);
+   }
+   // FRAME_COUNTER expected at time t: core clocks since the release, mod 2^32.
+   std::uint32_t counter_at(const sc_time &t) const {
+      return static_cast<std::uint32_t>(cycle(t) - release_cycle);
+   }
+   struct meta {
+      std::uint32_t tag, ts, sof, eof;
+   };
+   meta out_meta(unsigned k) {
+      return {read32(FX1_ISP_ODMA_BUF_TAG0_OFFSET + 4u * k), read32(FX1_ISP_ODMA_BUF_TS0_OFFSET + 4u * k),
+              read32(FX1_ISP_ODMA_BUF_SOF_TS0_OFFSET + 4u * k), read32(FX1_ISP_ODMA_BUF_EOF_TS0_OFFSET + 4u * k)};
+   }
+   void set_in_meta(unsigned k, std::uint32_t tag, std::uint32_t ts) {
+      write32(FX1_ISP_IDMA_BUF_TAG0_OFFSET + 4u * k, tag);
+      write32(FX1_ISP_IDMA_BUF_TS0_OFFSET + 4u * k, ts);
+   }
+   bool no_out_meta(unsigned k) {
+      const meta m = out_meta(k);
+      return m.tag == 0 && m.ts == 0 && m.sof == 0 && m.eof == 0;
+   }
+   // First and last ODMA write of the log (start times).
+   std::pair<sc_time, sc_time> odma_write_span() {
+      sc_time first = SC_ZERO_TIME, last = SC_ZERO_TIME;
+      bool any = false;
+      for (const auto &a : mem->log) {
+         if (a.cmd == tlm::TLM_WRITE_COMMAND && !a.from_idma) {
+            first = any ? first : a.start;
+            last = a.start;
+            any = true;
+         }
+      }
+      FX1_CHECK(any);
+      return {first, last};
+   }
 
    // ---- setup --------------------------------------------------------------------
    void hard_reset() {
       rst_n.write(false);
       wait(10, SC_NS);
       rst_n.write(true);
+      wait(SC_ZERO_TIME);  // the release reaches the DUT in the next delta cycle
+      release_cycle = cycle(sc_time_stamp());
       wait(10, SC_NS);
       mem->log.clear();
       mem->faults.clear();
@@ -193,7 +233,11 @@ struct bench : sc_module {
       if (isp_en) {
          write32(FX1_ISP_COMMON_CTRL_OFFSET, FX1_ISP_COMMON_CTRL_ISP_EN_MASK);
       }
+      resizer_settle();
    }
+   // The Resizer publishes a derived set within two derivations of the last
+   // key change (MAS §6.20.4.3); software completes the configuration first.
+   void resizer_settle() { wait(dut->params().core_period * 80.0); }
    void enable_dma(const frame_cfg &c, bool idma = true, bool odma = true) {
       write32(FX1_ISP_DMA_CTRL_OFFSET, (c.max_burst_m1 << FX1_ISP_DMA_CTRL_MAX_BURST_M1_SHIFT) |
                                            (idma ? FX1_ISP_DMA_CTRL_IDMA_EN_MASK : 0u) |
@@ -265,6 +309,7 @@ struct bench : sc_module {
       test_single_frame();
       test_real_geometry_bggr();
       test_resizer_scaling();
+      test_resizer_switch();
       test_rotation_and_recycle();
       test_underrun();
       test_overflow_lossless();
@@ -280,6 +325,12 @@ struct bench : sc_module {
       test_burst_formation();
       test_idma_disable_at_frame_boundary();
       test_odma_disabled_after_arm();
+      // U5: buffer metadata and the time base (MAS Table 160).
+      test_frame_counter();
+      test_metadata_rotation();
+      test_metadata_snapshot_and_points();
+      test_metadata_resets();
+      test_frame_counter_wrap();
       // Audit item 1: a reset while the target holds the engine inside b_transport.
       for (const bool idma_side : {true, false}) {
          for (const bool external : {false, true}) {
@@ -384,7 +435,7 @@ struct bench : sc_module {
       FX1_CHECK_EQ(check_output(0, 1, c), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_IDMA_FRAME_COUNT_OFFSET), 1);
       FX1_CHECK_EQ(peek(FX1_ISP_IDMA_BUF_VALID_OFFSET), 0);
-      FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_FREE_OFFSET), 0);  // SPEC-07: cleared when full
+      FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_FREE_OFFSET), 0);  // taken at frame start (MAS Table 159)
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_DONE_OFFSET), 1);
       FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & (irq_idma_start | irq_idma_done | irq_odma_done),
                    irq_idma_start | irq_idma_done | irq_odma_done);
@@ -456,6 +507,78 @@ struct bench : sc_module {
       enable_dma(c);
       FX1_CHECK(wait_frames(1));
       FX1_CHECK_EQ(check_output(0, 3, c), 0);
+   }
+
+   // Resizer modes while streaming (MAS §6.20.4.4, §9.2; U4): the ODMA takes
+   // each frame's size from the frame, without re-arming; a mode written
+   // during a frame applies from the next one (no mixed size); a frame wider
+   // than the stride checked at arm is refused (U4-A2).
+   void test_resizer_switch() {
+      hard_reset();
+      const std::uint32_t en = 1u, sh = FX1_ISP_RESIZER_CTRL_SCALE_SHIFT;
+      frame_cfg c;
+      c.width = 1280;
+      c.height = 720;
+      c.in_stride = 2560;
+      c.y_stride = c.uv_stride = 1280;  // sized for the largest mode (FullRes)
+      c.resizer_ctrl = en | (FX1_ISP_RESIZER_CTRL_SCALE_RES_640X360 << sh);
+      frame_cfg qhd = c, vga = c;
+      qhd.resizer_ctrl = en | (FX1_ISP_RESIZER_CTRL_SCALE_RES_960X540 << sh);
+      vga.resizer_ctrl = en | (FX1_ISP_RESIZER_CTRL_SCALE_RES_640X480 << sh);
+      for (unsigned k = 0; k < 4; ++k) {
+         fill_input(k, 20 + k, c);
+      }
+      guard_output(0, c);
+      program(c);
+      write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0xF);  // armed once for all modes
+      enable_dma(c);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
+      FX1_CHECK(wait_frames(1));
+      FX1_CHECK_EQ_CTX(check_output(0, 20, c), 0, "640x360");
+      // New mode between frames, no re-arm: the next frame is 960x540.
+      write32(FX1_ISP_RESIZER_CTRL_OFFSET, qhd.resizer_ctrl);
+      resizer_settle();
+      FX1_CHECK_EQ(read32(FX1_ISP_RESIZER_OUT_W_OFFSET), 960);
+      guard_output(1, qhd);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x2);
+      FX1_CHECK(wait_frames(2));
+      FX1_CHECK_EQ_CTX(check_output(1, 21, qhd), 0, "960x540 without re-arm");
+      // A mode written while the frame is in the pipeline: that frame keeps
+      // 960x540, the next one is 640x480.
+      guard_output(2, qhd);
+      guard_output(3, vga);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x4);
+      FX1_CHECK(wait_until([&] { return (peek(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK) != 0; },
+                           sc_time(10, SC_MS), sc_time(10, SC_NS)));
+      write32(FX1_ISP_RESIZER_CTRL_OFFSET, vga.resizer_ctrl);
+      FX1_CHECK(wait_frames(3));
+      FX1_CHECK_EQ_CTX(check_output(2, 22, qhd), 0, "mode written during the frame: kept");
+      resizer_settle();
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x8);
+      FX1_CHECK(wait_frames(4));
+      FX1_CHECK_EQ_CTX(check_output(3, 23, vga), 0, "640x480 from the next frame");
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_align, 0);
+      // A frame wider than the strides checked at arm: refused, nothing written.
+      hard_reset();
+      frame_cfg narrow = c;
+      narrow.y_stride = narrow.uv_stride = 640;  // enough for 640x360 only
+      program(narrow);
+      guard_output(0, narrow);
+      write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);  // armed: 640 <= stride
+      enable_dma(narrow);
+      write32(FX1_ISP_RESIZER_CTRL_OFFSET, en | (FX1_ISP_RESIZER_CTRL_SCALE_RES_960X540 << sh));
+      resizer_settle();
+      fill_input(0, 30, narrow);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
+      FX1_CHECK(wait_until([&] { return (peek(FX1_ISP_DMA_ERR_OFFSET) & err_align) != 0; }, sc_time(10, SC_MS)));
+      settle();
+      FX1_CHECK_EQ(peek(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), 0);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & FX1_ISP_DMA_IRQ_STAT_IRQ_CFG_ERROR_BIT, 0);  // not a start
+      std::size_t written = 0;
+      for (std::uint32_t i = 0; i < 640u * 360u; ++i) {
+         written += *mem->at(out_y(0) + i) != guard;
+      }
+      FX1_CHECK_EQ_CTX(written, 0u, "no byte written by the refused frame");
    }
 
    void test_rotation_and_recycle() {
@@ -535,19 +658,36 @@ struct bench : sc_module {
       // Back-pressure reaches the IDMA: its frame cannot complete.
       FX1_CHECK_EQ(peek(FX1_ISP_IDMA_FRAME_COUNT_OFFSET), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_DMA_STAT_OFFSET) & FX1_ISP_DMA_STAT_IDMA_BUSY_MASK, FX1_ISP_DMA_STAT_IDMA_BUSY_MASK);
-      // Reported once per stall episode.
+      // The status stays set while the stall lasts (MAS Table 161); the
+      // interrupt is raised once per stall episode.
       write32(FX1_ISP_DMA_ERR_OFFSET, err_overflow);
       write32(FX1_ISP_DMA_IRQ_STAT_OFFSET, irq_odma_overflow);
       enable_dma(c);  // make the ODMA re-evaluate while still stalled
       write32(FX1_ISP_ODMA_BUF_DONE_OFFSET, 0x1);
       wait(100, SC_US);
-      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_overflow, 0);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_overflow, err_overflow);
       FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_odma_overflow, 0);
-      // Freeing a buffer resumes the frame without loss (DEC-18).
+      // Disabling the ODMA ends the condition (U5-A5): the bit can be cleared.
+      enable_dma(c, true, false);
+      settle();
+      write32(FX1_ISP_DMA_ERR_OFFSET, err_overflow);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_overflow, 0);
+      // Enabled again, still no buffer: a new stall, a new interrupt.
+      enable_dma(c);
+      settle();
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_overflow, err_overflow);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_odma_overflow, irq_odma_overflow);
+      write32(FX1_ISP_DMA_IRQ_STAT_OFFSET, irq_odma_overflow);
+      // Freeing a buffer resumes the frame without loss (DEC-18) and ends the
+      // stall: the sticky bit can then be cleared.
       write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
       FX1_CHECK(wait_frames(1));
       FX1_CHECK_EQ(check_output(0, 5, c), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_IDMA_FRAME_COUNT_OFFSET), 1);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_overflow, err_overflow);
+      write32(FX1_ISP_DMA_ERR_OFFSET, err_overflow);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_overflow, 0);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_odma_overflow, 0);
    }
 
    void test_alignment_rejection() {
@@ -586,6 +726,8 @@ struct bench : sc_module {
          wait(100, SC_US);
          const std::string ctx = bc.name;
          FX1_CHECK_EQ_CTX(read32(FX1_ISP_DMA_ERR_OFFSET) & err_align, err_align, ctx);
+         // An illegal start configuration also raises IRQ_CFG_ERROR (MAS Table 162).
+         FX1_CHECK_EQ_CTX(read32(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_cfg_error, irq_cfg_error, ctx + ": CFG_ERROR");
          FX1_CHECK_EQ_CTX(read32(FX1_ISP_COMMON_IRQ_STATUS_OFFSET) & FX1_ISP_COMMON_IRQ_STATUS_ERROR_IRQ_MASK,
                           FX1_ISP_COMMON_IRQ_STATUS_ERROR_IRQ_MASK, ctx);
          if (bc.input) {
@@ -608,6 +750,7 @@ struct bench : sc_module {
       enable_dma(c, false, true);
       settle();
       FX1_CHECK_EQ(read32(FX1_ISP_DMA_ERR_OFFSET) & err_align, err_align);
+      FX1_CHECK_EQ(read32(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_cfg_error, irq_cfg_error);  // a start attempt
       // Recovery in the HAS order: ISP_EN, clear the error, re-arm.
       write32(FX1_ISP_COMMON_CTRL_OFFSET, FX1_ISP_COMMON_CTRL_ISP_EN_MASK);
       write32(FX1_ISP_DMA_ERR_OFFSET, err_align);
@@ -627,6 +770,7 @@ struct bench : sc_module {
       program(c);
       const std::uint64_t addr = in_buf(0) + failed_row * c.in_stride;
       mem->faults.push_back({tlm::TLM_READ_COMMAND, addr, addr + 2u * c.width, 1});
+      set_in_meta(0, 0x5500u + failed_row, 0x7700u);
       write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
       write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
       enable_dma(c);
@@ -641,6 +785,7 @@ struct bench : sc_module {
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_FREE_OFFSET), 1);  // the output buffer is still usable
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_DONE_OFFSET), 0);
+      FX1_CHECK(no_out_meta(0));  // an aborted frame publishes no metadata
       FX1_CHECK_EQ(dut->debug_odma_head(), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK, 0);
       FX1_CHECK_EQ(peek(FX1_ISP_DMA_STAT_OFFSET), 0);
@@ -648,10 +793,14 @@ struct bench : sc_module {
       // Software clears the error and re-arms the same buffer.
       write32(FX1_ISP_DMA_ERR_OFFSET, 0x1F);
       write32(FX1_ISP_DMA_IRQ_STAT_OFFSET, 0x7E);
+      set_in_meta(0, 0x5600u + failed_row, 0x7800u);  // the retry is a new frame start
       write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
       FX1_CHECK(wait_frames(1));
       FX1_CHECK_EQ(check_output(0, 7, c), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_DONE_OFFSET), 1);
+      const meta m = out_meta(0);
+      FX1_CHECK_EQ(m.tag, 0x5600u + failed_row);
+      FX1_CHECK_EQ(m.ts, 0x7800u);
    }
 
    void test_axi_write_error(unsigned failed_row, bool chroma) {
@@ -664,6 +813,8 @@ struct bench : sc_module {
       const std::uint64_t addr = (chroma ? out_uv(0) : out_y(0)) +
                                  failed_row * (chroma ? c.uv_stride : c.y_stride);
       mem->faults.push_back({tlm::TLM_WRITE_COMMAND, addr, addr + c.width, 1});
+      set_in_meta(0, 0x8800u, 0x1);
+      set_in_meta(1, 0x8801u, 0x2);
       write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
       write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
       enable_dma(c);
@@ -674,6 +825,7 @@ struct bench : sc_module {
       FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_odma_done, 0);
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_FREE_OFFSET), 0);  // released
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_DONE_OFFSET), 0);  // not marked done
+      FX1_CHECK(no_out_meta(0));                            // nor published
       FX1_CHECK_EQ(dut->debug_odma_head(), 0);              // rotation kept
       FX1_CHECK_EQ(peek(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), 0);
       FX1_CHECK_EQ(peek(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK, 0);
@@ -694,6 +846,8 @@ struct bench : sc_module {
       write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x2);
       FX1_CHECK(wait_frames(1));
       FX1_CHECK_EQ(check_output(0, 9, c), 0);
+      FX1_CHECK_EQ(out_meta(0).tag, 0x8801u);  // input 1's frame in output 0
+      FX1_CHECK_EQ(out_meta(0).ts, 0x2u);
    }
 
    void run_to_mid_frame(const frame_cfg &c, unsigned tag) {
@@ -896,13 +1050,201 @@ struct bench : sc_module {
       wait(100, SC_US);  // the pipeline is inside the 2 ms of line 0
       write32(FX1_ISP_DMA_CTRL_OFFSET, peek(FX1_ISP_DMA_CTRL_OFFSET) | FX1_ISP_DMA_CTRL_SOFT_RESET_MASK);
       FX1_CHECK_EQ(peek(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK, 0);
-      wait(1, SC_US);  // past the 32-cycle window
+      wait(1, SC_US);  // past the 15-cycle pulse
       write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
       write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
       FX1_CHECK(wait_until([&] { return (peek(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK) != 0; },
                            sc_time(100, SC_US)));
       FX1_CHECK_EQ(peek(FX1_ISP_DMA_IRQ_STAT_OFFSET) & irq_idma_start, irq_idma_start);
       FX1_CHECK_EQ(mem->count(tlm::TLM_WRITE_COMMAND, false), 0);  // nothing from the old frame
+   }
+
+   // ---- U5: buffer metadata and time base (MAS Table 160) -------------------------
+
+   // FRAME_COUNTER counts core clocks from the release of i_rst_n, read at
+   // the edge of the access, without any per-clock activity.
+   void test_frame_counter() {
+      hard_reset();
+      for (int i = 0; i < 3; ++i) {
+         const sc_time t = sc_time_stamp();
+         FX1_CHECK_EQ(read32(FX1_ISP_FRAME_COUNTER_OFFSET), counter_at(t));
+         wait(dut->params().core_period * (1000.0 * i + 7));
+      }
+      FX1_CHECK_EQ(peek(FX1_ISP_FRAME_COUNTER_OFFSET), 0u);  // the stored word is not the count
+      // Read-only: a write changes nothing.
+      write32(FX1_ISP_FRAME_COUNTER_OFFSET, 0x12345678u);
+      const sc_time t = sc_time_stamp();
+      FX1_CHECK_EQ(read32(FX1_ISP_FRAME_COUNTER_OFFSET), counter_at(t));
+      // A debugger read sees the current count too.
+      std::uint32_t v = 0;
+      tlm::tlm_generic_payload g;
+      g.set_command(tlm::TLM_READ_COMMAND);
+      g.set_address(FX1_ISP_FRAME_COUNTER_OFFSET);
+      g.set_data_ptr(reinterpret_cast<unsigned char *>(&v));
+      g.set_data_length(4);
+      g.set_streaming_width(4);
+      FX1_CHECK_EQ(socket->transport_dbg(g), 4u);
+      FX1_CHECK_EQ(v, counter_at(sc_time_stamp()));
+      // Held at zero while i_rst_n is asserted.
+      rst_n.write(false);
+      wait(1, SC_US);
+      FX1_CHECK_EQ(socket->transport_dbg(g), 4u);
+      FX1_CHECK_EQ(v, 0u);
+   }
+
+   // Input and output rotations out of step: the tag follows the frame, not
+   // the buffer index. An output failure keeps the ODMA on buffer 0 while the
+   // IDMA moves on, so input k + 1 completes into output k.
+   void test_metadata_rotation() {
+      hard_reset();
+      frame_cfg c;
+      for (unsigned k = 0; k < 4; ++k) {
+         fill_input(k, 20 + k, c);
+         guard_output(k, c);
+      }
+      program(c);
+      for (unsigned k = 0; k < 4; ++k) {
+         set_in_meta(k, 0xC0DE0000u + k, 0x1000u + 0x111u * k);
+      }
+      mem->faults.push_back({tlm::TLM_WRITE_COMMAND, out_y(0) + 3u * c.y_stride, out_y(0) + 3u * c.y_stride + 1u, 1});
+      write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
+      enable_dma(c);
+      FX1_CHECK(wait_until([&] { return peek(FX1_ISP_IDMA_FRAME_COUNT_OFFSET) == 1; }, sc_time(1, SC_MS)));
+      wait(100, SC_US);
+      FX1_CHECK_EQ(peek(FX1_ISP_DMA_ERR_OFFSET) & err_odma_axi, err_odma_axi);
+      for (unsigned k = 0; k < 4; ++k) {
+         FX1_CHECK(no_out_meta(k));
+      }
+      write32(FX1_ISP_DMA_ERR_OFFSET, err_odma_axi);
+      guard_output(0, c);
+      write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x7);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0xE);
+      FX1_CHECK(wait_frames(3));
+      settle();
+      std::uint32_t prev_eof = 0;
+      for (unsigned k = 0; k < 3; ++k) {
+         FX1_CHECK_EQ(check_output(k, 21 + k, c), 0);
+         const meta m = out_meta(k);
+         FX1_CHECK_EQ_CTX(m.tag, 0xC0DE0000u + k + 1, "output " + std::to_string(k));
+         FX1_CHECK_EQ(m.ts, 0x1000u + 0x111u * (k + 1));
+         FX1_CHECK(m.sof < m.eof);
+         FX1_CHECK(m.sof > prev_eof);  // one frame at a time through the ODMA
+         prev_eof = m.eof;
+      }
+      FX1_CHECK(no_out_meta(3));
+      FX1_CHECK(prev_eof < read32(FX1_ISP_FRAME_COUNTER_OFFSET));
+   }
+
+   // The working set captures the input metadata at frame start; SOF_TS is
+   // the output start of frame, EOF_TS the last line accepted, both published
+   // at completion. The ODMA takes its buffer (FREE cleared) at frame start.
+   void test_metadata_snapshot_and_points() {
+      hard_reset();
+      frame_cfg c;
+      fill_input(0, 30, c);
+      guard_output(0, c);
+      program(c);
+      mem->latency = sc_time(30, SC_NS);  // the last line's writes take time
+      set_in_meta(0, 0x11u, 0x22u);
+      write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
+      mem->log.clear();
+      enable_dma(c);
+      FX1_CHECK(wait_until([&] { return (peek(FX1_ISP_DMA_STAT_OFFSET) & FX1_ISP_DMA_STAT_IDMA_BUSY_MASK) != 0; },
+                           sc_time(1, SC_MS), dut->params().core_period));
+      const std::uint32_t started = read32(FX1_ISP_FRAME_COUNTER_OFFSET);
+      set_in_meta(0, 0x99u, 0x98u);  // the buffer is still owned by the IDMA
+      FX1_CHECK(wait_until([&] { return (peek(FX1_ISP_DMA_STAT_OFFSET) & FX1_ISP_DMA_STAT_ODMA_BUSY_MASK) != 0; },
+                           sc_time(1, SC_MS), dut->params().core_period));
+      FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_FREE_OFFSET), 0u);  // taken at frame start (MAS Table 159)
+      FX1_CHECK_EQ(peek(FX1_ISP_ODMA_BUF_DONE_OFFSET), 0u);
+      FX1_CHECK(no_out_meta(0));  // nothing published before completion
+      FX1_CHECK(wait_until([&] { return peek(FX1_ISP_ODMA_BUF_DONE_OFFSET) != 0; }, sc_time(1, SC_MS),
+                           dut->params().core_period));
+      const sc_time done = sc_time_stamp();
+      FX1_CHECK_EQ(check_output(0, 30, c), 0);
+      const meta m = out_meta(0);
+      FX1_CHECK_EQ(m.tag, 0x11u);  // the value at frame start
+      FX1_CHECK_EQ(m.ts, 0x22u);
+      FX1_CHECK_EQ(read32(FX1_ISP_IDMA_BUF_TAG0_OFFSET), 0x99u);
+      const auto span = odma_write_span();
+      FX1_CHECK(m.sof >= started);
+      FX1_CHECK_EQ(m.sof, counter_at(span.first));  // first output write
+      FX1_CHECK_EQ(m.eof, counter_at(span.second));  // last line of the frame
+      FX1_CHECK(counter_at(done) > m.eof);           // published after its writes returned
+      FX1_CHECK(counter_at(done) - m.eof >= cycle(mem->latency));
+   }
+
+   // MAS Table 183 lists no metadata row; the VP treats the IDMA tag and
+   // timestamp as configuration (kept) and the published ODMA metadata as
+   // DMA state (cleared with the buffer ownership by either soft reset);
+   // FRAME_COUNTER is free-running across soft resets (VP decision U5-A1).
+   void test_metadata_resets() {
+      for (const bool common : {false, true}) {
+         hard_reset();
+         frame_cfg c;
+         fill_input(0, 31, c);
+         guard_output(0, c);
+         program(c);
+         set_in_meta(0, 0xAB, 0xCD);
+         write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
+         write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
+         enable_dma(c);
+         FX1_CHECK(wait_frames(1));
+         settle();
+         FX1_CHECK_EQ(out_meta(0).tag, 0xABu);
+         const std::uint32_t before = read32(FX1_ISP_FRAME_COUNTER_OFFSET);
+         if (common) {
+            write32(FX1_ISP_COMMON_CTRL_OFFSET, peek(FX1_ISP_COMMON_CTRL_OFFSET) | FX1_ISP_COMMON_CTRL_SOFT_RST_MASK);
+         } else {
+            write32(FX1_ISP_DMA_CTRL_OFFSET, peek(FX1_ISP_DMA_CTRL_OFFSET) | FX1_ISP_DMA_CTRL_SOFT_RESET_MASK);
+         }
+         settle();
+         FX1_CHECK_EQ_CTX(no_out_meta(0) ? 1 : 0, 1, common ? "common soft reset" : "DMA soft reset");
+         FX1_CHECK_EQ(read32(FX1_ISP_IDMA_BUF_TAG0_OFFSET), 0xABu);
+         FX1_CHECK_EQ(read32(FX1_ISP_IDMA_BUF_TS0_OFFSET), 0xCDu);
+         const sc_time t = sc_time_stamp();
+         const std::uint32_t after = read32(FX1_ISP_FRAME_COUNTER_OFFSET);
+         FX1_CHECK(after > before);
+         FX1_CHECK_EQ(after, counter_at(t));
+      }
+      // i_rst_n: everything to zero, the count restarts from the release.
+      hard_reset();
+      FX1_CHECK_EQ(read32(FX1_ISP_IDMA_BUF_TAG0_OFFSET), 0u);
+      FX1_CHECK_EQ(read32(FX1_ISP_IDMA_BUF_TS0_OFFSET), 0u);
+      FX1_CHECK(no_out_meta(0));
+      const sc_time t = sc_time_stamp();
+      FX1_CHECK_EQ(read32(FX1_ISP_FRAME_COUNTER_OFFSET), counter_at(t));
+      FX1_CHECK(counter_at(t) < 100u);
+   }
+
+   // The count wraps modulo 2^32; a frame across the wrap keeps a correct
+   // span EOF_TS - SOF_TS. Waiting 2^32 clocks costs no simulation activity.
+   void test_frame_counter_wrap() {
+      hard_reset();
+      frame_cfg c;
+      fill_input(0, 32, c);
+      guard_output(0, c);
+      program(c);
+      set_in_meta(0, 0x77, 0);
+      const std::uint32_t now = read32(FX1_ISP_FRAME_COUNTER_OFFSET);
+      wait(dut->params().core_period * static_cast<double>(0xFFFFFFFFull - now - 300));
+      write32(FX1_ISP_ODMA_BUF_FREE_OFFSET, 0x1);
+      mem->log.clear();
+      write32(FX1_ISP_IDMA_BUF_VALID_OFFSET, 0x1);
+      enable_dma(c);
+      FX1_CHECK(wait_frames(1));
+      settle();
+      FX1_CHECK_EQ(check_output(0, 32, c), 0);
+      const meta m = out_meta(0);
+      const auto span = odma_write_span();
+      FX1_CHECK(m.sof > 0xFFFF0000u);  // before the wrap
+      FX1_CHECK(m.eof < 0x10000u);     // after it
+      FX1_CHECK_EQ(m.eof - m.sof, static_cast<std::uint32_t>(cycle(span.second) - cycle(span.first)));
+      FX1_CHECK_EQ(m.sof, counter_at(span.first));
+      const sc_time t = sc_time_stamp();
+      FX1_CHECK_EQ(read32(FX1_ISP_FRAME_COUNTER_OFFSET), counter_at(t));
    }
 
    void settle() { wait(1, SC_US); }

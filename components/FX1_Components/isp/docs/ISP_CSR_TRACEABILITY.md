@@ -9,18 +9,20 @@ and by the independent XLSX cross-check `tools/check_csr_header.py` (1346 values
 
 Classes: **model** = the model reads or drives the register (files listed); **model (indexed)** =
 accessed by base offset plus index; **constant** = read-only identification; **storage** = no
-hardware behind it, readback only, with the reason. *Vector uses* = number of vector directories
+hardware behind it, readback only, with the reason; **deferred** = defined by the pinned CSR revision,
+not modelled yet, with the milestone that implements it. *Vector uses* = number of vector directories
 or G-CONT/4K data files that write or read the register. For indexed groups, *dedicated tests*
 lists tests that address the group by base plus index: coverage at group level, which does not
 show that every member was written with a non-zero value.
 
 | Class | Registers |
 |---|---|
-| model | 149 |
-| model (indexed) | 51 |
+| model | 152 |
+| model (indexed) | 75 |
 | constant | 2 |
-| storage | 24 |
-| total | 226 |
+| storage | 25 |
+| deferred | 0 |
+| total | 254 |
 
 | Offset | Register | Access | Class | Model / reason | Specification, decisions | Dedicated tests | Vector uses |
 |---|---|---|---|---|---|---|---|
@@ -30,8 +32,8 @@ show that every member was written with a non-zero value.
 | 0x000C | `COMMON_STATUS` | RO | model | control_unit.cpp, engines.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm | 0 |
 | 0x0010 | `COMMON_IRQ_STATUS` | W1C | model | control_unit.cpp, control_unit_stats.cpp, engines.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm, test_stats | 0 |
 | 0x0014 | `COMMON_IRQ_EN` | RW | model | control_unit.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_stats | 0 |
-| 0x0018 | `COMMON_FRAME_WIDTH` | RW | model | control_unit.cpp, engines.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | run_raw, test_control_unit, test_dma_tlm, test_driver_tlm, test_stats | 33 |
-| 0x001C | `COMMON_FRAME_HEIGHT` | RW | model | control_unit.cpp, engines.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | run_raw, test_control_unit, test_dma_tlm, test_driver_tlm, test_stats | 33 |
+| 0x0018 | `COMMON_FRAME_WIDTH` | RW | model | control_unit.cpp, engines.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | run_raw, test_control_unit, test_dma_tlm, test_driver_tlm, test_ee_profiles, test_stats | 34 |
+| 0x001C | `COMMON_FRAME_HEIGHT` | RW | model | control_unit.cpp, engines.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | run_raw, test_control_unit, test_dma_tlm, test_driver_tlm, test_ee_profiles, test_stats | 34 |
 | 0x0020 | `COMMON_BAYER` | RW | model | control_unit.cpp, engines.cpp, isp_pipeline.cpp | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | test_control_unit, test_dma_tlm, test_driver_tlm | 18 |
 | 0x0028 | `COMMON_SCRATCH` | RW | storage | software scratch register by definition | HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10 | test_control_unit, test_csr_tlm | 0 |
 | 0x0200 | `BLC_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.7; ALG-BLC | — | 13 |
@@ -63,24 +65,24 @@ show that every member was written with a non-zero value.
 | 0x0400 | `LSC_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 10 |
 | 0x0404 | `LSC_MESH_NODES` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit, test_driver_tlm | 10 |
 | 0x0408 | `LSC_STRENGTH` | RW | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 10 |
-| 0x040C | `LSC_PROFILE_SEL` | RW | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit, test_driver_tlm | 9 |
+| 0x040C | `LSC_PROFILE_SEL` | RW | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit, test_driver_tlm | 10 |
 | 0x0410 | `LSC_LOAD_CTRL` | RW, W1S | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit, test_driver_tlm | 10 |
 | 0x0414 | `LSC_COEF_DATA` | RW | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit, test_driver_tlm | 10 |
 | 0x0418 | `LSC_LOAD_STATUS` | RO | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit | 0 |
 | 0x041C | `LSC_PROFILE_STATUS` | RO | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit | 0 |
 | 0x0420 | `LSC_ERROR` | W1C | model | control_unit.cpp | HAS §6.8; ALG-LSC, DEC-31 | test_control_unit, test_driver_tlm | 0 |
-| 0x0424 | `LSC_STAT_OVF_CNT_R` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 32 |
-| 0x0428 | `LSC_STAT_OVF_CNT_GR` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 32 |
-| 0x042C | `LSC_STAT_OVF_CNT_GB` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 32 |
-| 0x0430 | `LSC_STAT_OVF_CNT_B` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 32 |
-| 0x0600 | `BPC_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.9; ALG-BPC, DEC-28 | — | 11 |
-| 0x0604 | `BPC_MODE` | RW | model | isp_pipeline.cpp | HAS §6.9; ALG-BPC, DEC-28 | — | 10 |
-| 0x0608 | `BPC_TEMPORAL_VAR` | RW | storage | BPC dynamic detection not modelled (DEC-28) | HAS §6.9; ALG-BPC, DEC-28 | — | 0 |
-| 0x060C | `BPC_THRESH` | RW | model | isp_pipeline.cpp | HAS §6.9; ALG-BPC, DEC-28 | — | 9 |
-| 0x0610 | `BPC_PIXEL_AGE` | RW | storage | BPC dynamic detection not modelled (DEC-28) | HAS §6.9; ALG-BPC, DEC-28 | — | 0 |
-| 0x0614 | `BPC_NUM_CANDIDATES` | RO | model | isp_pipeline.cpp | HAS §6.9; ALG-BPC, DEC-28 | — | 8 |
-| 0x0618 | `BPC_NUM_DEFECTIVE` | RO | model | isp_pipeline.cpp | HAS §6.9; ALG-BPC, DEC-28 | — | 8 |
-| 0x061C | `BPC_STATUS` | W1C | model | control_unit.cpp | HAS §6.9; ALG-BPC, DEC-28 | test_control_unit | 0 |
+| 0x0424 | `LSC_STAT_OVF_CNT_R` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 33 |
+| 0x0428 | `LSC_STAT_OVF_CNT_GR` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 33 |
+| 0x042C | `LSC_STAT_OVF_CNT_GB` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 33 |
+| 0x0430 | `LSC_STAT_OVF_CNT_B` | RO | model | isp_pipeline.cpp | HAS §6.8; ALG-LSC, DEC-31 | — | 33 |
+| 0x0600 | `BPC_CTRL` | RW | model | isp_pipeline.cpp | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | test_stats | 11 |
+| 0x0604 | `BPC_MODE` | RW | storage | DYNAMIC_DET_EN has no effect: spatial BPC only (MAS §6.9; DEC-28 superseded) | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | test_stats | 10 |
+| 0x0608 | `BPC_TEMPORAL_VAR` | RW | storage | no effect: spatial BPC only (MAS §6.9; DEC-28 superseded) | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | — | 0 |
+| 0x060C | `BPC_THRESH` | RW | model | isp_pipeline.cpp | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | test_stats | 9 |
+| 0x0610 | `BPC_PIXEL_AGE` | RW | storage | no effect: spatial BPC only (MAS §6.9; DEC-28 superseded) | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | — | 0 |
+| 0x0614 | `BPC_NUM_CANDIDATES` | RO | model | control_unit.cpp, isp_pipeline.cpp | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | test_stats | 33 |
+| 0x0618 | `BPC_NUM_DEFECTIVE` | RO | model | control_unit.cpp, isp_pipeline.cpp | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | test_stats | 33 |
+| 0x061C | `BPC_STATUS` | W1C | model | control_unit.cpp | MAS §6.9; ALG-BPC, DEC-28 superseded (U2) | test_control_unit | 0 |
 | 0x0800 | `WB_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.10; ALG-WB | — | 11 |
 | 0x0804 | `WB_GAIN_R` | RW | model | isp_pipeline.cpp | HAS §6.10; ALG-WB | — | 11 |
 | 0x0808 | `WB_GAIN_G` | RW | model | isp_pipeline.cpp | HAS §6.10; ALG-WB | — | 7 |
@@ -89,9 +91,9 @@ show that every member was written with a non-zero value.
 | 0x0A04 | `DG_GAIN` | RW | model | isp_pipeline.cpp | HAS §6.11; ALG-DG | — | 9 |
 | 0x0C00 | `D_WDR_CTRL` | RW | storage | WDR unsupported (HAS §3.1); enable warns (M5-A1) | HAS §3.1 (unsupported); M5-A1 | test_stats | 0 |
 | 0x0C04 | `D_WDR_STRENGTH` | RW | storage | WDR unsupported (HAS §3.1) (M5-A1) | HAS §3.1 (unsupported); M5-A1 | — | 0 |
-| 0x0E00 | `DEMOSAIC_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.12; ALG-DMS, DEC-38 | test_cont_tlm, test_dma_tlm, test_e2e_tlm, test_stats | 0 |
-| 0x1000 | `CCM_CTRL` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_control_unit, test_driver_tlm | 9 |
-| 0x1004 | `CCM_CRR` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_control_unit, test_driver_tlm | 9 |
+| 0x0E00 | `DEMOSAIC_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.12; ALG-DMS, DEC-38 | test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x1000 | `CCM_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 9 |
+| 0x1004 | `CCM_CRR` | RW | model | isp_pipeline.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_control_unit, test_driver_tlm | 9 |
 | 0x1008 | `CCM_CRG` | RW | model (indexed) | CCM_CRR + 4 * index | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 9 |
 | 0x100C | `CCM_CRB` | RW | model (indexed) | CCM_CRR + 4 * index | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 9 |
 | 0x1010 | `CCM_CGR` | RW | model (indexed) | CCM_CRR + 4 * index | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 9 |
@@ -102,125 +104,128 @@ show that every member was written with a non-zero value.
 | 0x1024 | `CCM_CBB` | RW | model (indexed) | CCM_CRR + 4 * index | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 9 |
 | 0x1028 | `CCM_OFS_R` | RW | model | isp_pipeline.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 2 |
 | 0x102C | `CCM_OFS_G` | RW | model (indexed) | CCM_OFS_R + 4 * index | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 2 |
-| 0x1030 | `CCM_OFS_B` | RW | model | control_unit.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_control_unit, test_driver_tlm | 2 |
-| 0x1034 | `CCM_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_cont_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x1030 | `CCM_OFS_B` | RW | model (indexed) | CCM_OFS_R + 4 * index | HAS §6.13; DEC-24/26, DEC-38 | test_driver_tlm | 2 |
+| 0x1034 | `CCM_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.13; DEC-24/26, DEC-38 | test_cont_tlm, test_control_unit, test_e2e_tlm, test_stats | 0 |
 | 0x1200 | `GAMMA_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.14; DEC-25, CSR-16/21, DEC-38 | — | 10 |
 | 0x1204 | `GAMMA_LUT_ADDR` | RW | model | control_unit.cpp | HAS §6.14; DEC-25, CSR-16/21, DEC-38 | test_control_unit, test_driver_tlm | 10 |
 | 0x1208 | `GAMMA_LUT_DATA` | RW | model | control_unit.cpp | HAS §6.14; DEC-25, CSR-16/21, DEC-38 | test_control_unit, test_driver_tlm | 10 |
 | 0x120C | `GAMMA_LUT_RDATA` | RO | model | control_unit.cpp | HAS §6.14; DEC-25, CSR-16/21, DEC-38 | test_control_unit, test_driver_tlm | 0 |
-| 0x1210 | `GAMMA_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.14; DEC-25, CSR-16/21, DEC-38 | test_cont_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x1210 | `GAMMA_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.14; DEC-25, CSR-16/21, DEC-38 | test_cont_tlm, test_control_unit, test_e2e_tlm, test_stats | 0 |
 | 0x1400 | `CSC_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.15; SPEC-03 | run_raw | 8 |
-| 0x1600 | `GTM_CTRL` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.16; ALG-GTM, DEC-38 | test_driver_tlm | 11 |
-| 0x1604 | `GTM_LUT_ADDR` | RW | model | control_unit.cpp | HAS §6.16; ALG-GTM, DEC-38 | test_control_unit, test_driver_tlm | 2 |
-| 0x1608 | `GTM_LUT_DATA` | RW | model | control_unit.cpp | HAS §6.16; ALG-GTM, DEC-38 | test_driver_tlm | 2 |
-| 0x160C | `GTM_KEY` | RW | model | control_unit.cpp | HAS §6.16; ALG-GTM, DEC-38 | — | 10 |
-| 0x1610 | `GTM_LWHITE` | RW | model | control_unit.cpp | HAS §6.16; ALG-GTM, DEC-38 | — | 8 |
-| 0x1614 | `GTM_ROI_LOG2` | RW | model | isp_pipeline.cpp | HAS §6.16; ALG-GTM, DEC-38 | — | 9 |
-| 0x1618 | `GTM_LUT_RDATA` | RO | model | control_unit.cpp | HAS §6.16; ALG-GTM, DEC-38 | test_control_unit | 0 |
-| 0x161C | `GTM_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.16; ALG-GTM, DEC-38 | test_cont_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x1600 | `GTM_CTRL` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | test_control_unit, test_driver_tlm | 11 |
+| 0x1604 | `GTM_LUT_ADDR` | RW | model | control_unit.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | test_control_unit, test_driver_tlm | 2 |
+| 0x1608 | `GTM_LUT_DATA` | RW | model | control_unit.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | test_control_unit, test_driver_tlm | 2 |
+| 0x160C | `GTM_KEY` | RW | model | control_unit.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | — | 10 |
+| 0x1610 | `GTM_LWHITE` | RW | model | control_unit.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | — | 8 |
+| 0x1614 | `GTM_ROI_LOG2` | RW | model | isp_pipeline.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | — | 9 |
+| 0x1618 | `GTM_LUT_RDATA` | RO | model | control_unit.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | test_control_unit, test_driver_tlm | 0 |
+| 0x161C | `GTM_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38 | test_cont_tlm, test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 0 |
 | 0x1800 | `NR_2D_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.17; ALG-2DNR, DEC-38 | — | 10 |
 | 0x1804 | `NR_2D_EST_VAR` | RO | model | control_unit.cpp | HAS §6.17; ALG-2DNR, DEC-38 | — | 7 |
-| 0x1808 | `NR_2D_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.17; ALG-2DNR, DEC-38 | test_cont_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x1808 | `NR_2D_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.17; ALG-2DNR, DEC-38 | test_cont_tlm, test_control_unit, test_e2e_tlm, test_stats | 0 |
 | 0x1A00 | `TNR_3D_CTRL` | RW | storage | 3DNR unsupported (HAS §3.1); enable warns (M5-A1) | HAS §3.1 (unsupported); M5-A1 | test_stats | 0 |
 | 0x1A04 | `TNR_3D_MTF_SEL` | RW | storage | 3DNR unsupported (HAS §3.1) (M5-A1) | HAS §3.1 (unsupported); M5-A1 | — | 0 |
 | 0x1A08 | `TNR_3D_HIST_BASE` | RW | storage | 3DNR unsupported (HAS §3.1) (M5-A1) | HAS §3.1 (unsupported); M5-A1 | — | 0 |
-| 0x1C00 | `EE_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 9 |
-| 0x1C04 | `EE_ALPHA` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 8 |
-| 0x1C08 | `EE_BETA` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 8 |
-| 0x1C0C | `EE_CLAMP` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 8 |
-| 0x1C10 | `EE_FEATURE_EN` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C14 | `EE_RADIAL_CENTER` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C18 | `EE_RADIAL_R2_TH0` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C1C | `EE_RADIAL_R2_TH1` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C20 | `EE_RADIAL_R2_TH2` | RW | model | isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C24 | `EE_RADIAL_GAIN_01` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C28 | `EE_RADIAL_GAIN_23` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | — | 1 |
-| 0x1C2C | `EE_LUT_CTRL` | RW | model | control_unit.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | test_control_unit, test_driver_tlm | 1 |
-| 0x1C30 | `EE_LUT_ADDR` | RW | model | control_unit.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | test_control_unit, test_driver_tlm | 1 |
-| 0x1C34 | `EE_LUT_WDATA` | RW | model | control_unit.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | test_control_unit, test_driver_tlm | 1 |
-| 0x1C38 | `EE_STATUS` | RO, W1C | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | test_cont_tlm, test_control_unit, test_e2e_tlm, test_stats | 0 |
-| 0x1C3C | `EE_LUT_RDATA` | RO | model | control_unit.cpp | HAS §6.18; DEC-25, M3-A2, DEC-38 | test_control_unit | 0 |
-| 0x1E00 | `CNF_CTRL` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | test_control_unit | 9 |
-| 0x1E04 | `CNF_CHROMA_TH` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | — | 9 |
-| 0x1E08 | `CNF_LUMA_TH` | RW | model | control_unit.cpp, isp_pipeline.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | test_control_unit | 9 |
+| 0x1C00 | `EE_CTRL` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_driver_tlm, test_ee_profiles | 10 |
+| 0x1C04 | `EE_ALPHA` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_driver_tlm, test_ee_profiles | 9 |
+| 0x1C08 | `EE_BETA` | RW | model (indexed) | EE profile scalar k at EE_ALPHA + 4 * k, banked per profile (MAS §6.18.4.1) | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_ee_profiles | 9 |
+| 0x1C0C | `EE_CLAMP` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_ee_profiles | 9 |
+| 0x1C10 | `EE_FEATURE_EN` | RW | model | control_unit.cpp, isp_pipeline.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_ee_profiles | 2 |
+| 0x1C14 | `EE_RADIAL_CENTER` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | — | 2 |
+| 0x1C18 | `EE_RADIAL_R2_TH0` | RW | model (indexed) | EE profile scalar k at EE_ALPHA + 4 * k, banked per profile (MAS §6.18.4.1) | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | — | 2 |
+| 0x1C1C | `EE_RADIAL_R2_TH1` | RW | model (indexed) | EE profile scalar k at EE_ALPHA + 4 * k, banked per profile (MAS §6.18.4.1) | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | — | 2 |
+| 0x1C20 | `EE_RADIAL_R2_TH2` | RW | model (indexed) | EE profile scalar k at EE_ALPHA + 4 * k, banked per profile (MAS §6.18.4.1) | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | — | 2 |
+| 0x1C24 | `EE_RADIAL_GAIN_01` | RW | model (indexed) | EE profile scalar k at EE_ALPHA + 4 * k, banked per profile (MAS §6.18.4.1) | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit | 2 |
+| 0x1C28 | `EE_RADIAL_GAIN_23` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_driver_tlm | 2 |
+| 0x1C2C | `EE_LUT_CTRL` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_driver_tlm, test_ee_profiles | 10 |
+| 0x1C30 | `EE_LUT_ADDR` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_driver_tlm, test_ee_profiles | 10 |
+| 0x1C34 | `EE_LUT_WDATA` | RW | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit, test_driver_tlm, test_ee_profiles | 10 |
+| 0x1C38 | `EE_STATUS` | RO, W1C | model | control_unit.cpp, control_unit_stats.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_cont_tlm, test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x1C3C | `EE_LUT_RDATA` | RO | model | control_unit.cpp | MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38 | test_control_unit | 0 |
+| 0x1E00 | `CNF_CTRL` | RW | model | isp_pipeline.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | — | 9 |
+| 0x1E04 | `CNF_CHROMA_TH` | RW | model | isp_pipeline.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | — | 9 |
+| 0x1E08 | `CNF_LUMA_TH` | RW | model | isp_pipeline.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | test_control_unit | 9 |
 | 0x1E0C | `CNF_STRENGTH` | RW | storage | no hardware behind it (CSR) | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | — | 0 |
-| 0x1E10 | `CNF_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | test_cont_tlm, test_e2e_tlm, test_stats | 0 |
-| 0x2000 | `RESIZER_CTRL` | RW | model | control_unit.cpp, engines.cpp, isp_pipeline.cpp | HAS §6.20; DEC-23/24/26, CSR-09, DEC-38 | test_control_unit, test_dma_tlm | 10 |
+| 0x1E10 | `CNF_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.19; DEC-27, ALG-CNF, DEC-38 | test_cont_tlm, test_control_unit, test_e2e_tlm, test_stats | 0 |
+| 0x2000 | `RESIZER_CTRL` | RW | model | control_unit.cpp | HAS §6.20; DEC-23/24/26, CSR-09, DEC-38 | test_control_unit, test_dma_tlm, test_driver_tlm | 10 |
 | 0x2014 | `RESIZER_OUT_W` | RO | model | control_unit.cpp | HAS §6.20; DEC-23/24/26, CSR-09, DEC-38 | main, run_raw, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
 | 0x2018 | `RESIZER_OUT_H` | RO | model | control_unit.cpp | HAS §6.20; DEC-23/24/26, CSR-09, DEC-38 | main, run_raw, test_control_unit, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x201C | `RESIZER_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.20; DEC-23/24/26, CSR-09, DEC-38 | test_cont_tlm, test_e2e_tlm, test_stats | 0 |
-| 0x2200 | `AEC_CTRL` | RW, W1S | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_csr_tlm, test_driver_tlm, test_stats | 13 |
-| 0x2204 | `AEC_CONTEXT_ID` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_stats | 11 |
-| 0x2208 | `AEC_ZONE_CFG` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_stats | 12 |
-| 0x220C | `AEC_ZONE_SIZE` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_stats | 12 |
-| 0x2210 | `AEC_SAMPLE_CLIP` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm | 12 |
-| 0x2214 | `AEC_THRESH` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm | 12 |
-| 0x2218 | `AEC_STATUS` | RO, W1C | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x221C | `AEC_FRAME_ID` | RO | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | run_raw, test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x2220 | `AEC_RESULT_CONTEXT_ID` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_stats | 13 |
-| 0x2224 | `AEC_CHANNEL_SEL` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x2228 | `AEC_GLOBAL_SUM_LO` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_control_unit, test_stats | 13 |
-| 0x222C | `AEC_GLOBAL_SUM_HI` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_stats | 13 |
-| 0x2230 | `AEC_GLOBAL_COUNT` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_e2e_tlm, test_stats | 13 |
-| 0x2234 | `AEC_ZONE_ADDR` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x2238 | `AEC_ZONE_SUM` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x223C | `AEC_ZONE_COUNT` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_stats | 13 |
-| 0x2240 | `AEC_ZONE_GREEN_OE_UE` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_stats | 13 |
-| 0x2244 | `AEC_ZONE_GREEN_MIN_MAX` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x2248 | `AEC_HIST_ADDR` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x224C | `AEC_HIST_DATA` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32 | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
-| 0x2400 | `AWB_CTRL` | RW | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x2404 | `AWB_X_BOUND_ADDR` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 0 |
-| 0x2408 | `AWB_Y_BOUND_ADDR` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 0 |
-| 0x240C | `AWB_X_BOUND_DATA` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 0 |
-| 0x2410 | `AWB_Y_BOUND_DATA` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 0 |
-| 0x2414 | `AWB_GLOBAL_SUM_R_H` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x2418 | `AWB_GLOBAL_SUM_R_L` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x241C | `AWB_GLOBAL_SUM_G_H` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x2420 | `AWB_GLOBAL_SUM_G_L` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x2424 | `AWB_GLOBAL_SUM_B_H` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x2428 | `AWB_GLOBAL_SUM_B_L` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x242C | `AWB_GLOBAL_COUNT` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_driver_tlm, test_stats | 13 |
-| 0x2430 | `AWB_ZONE_ADDR` | RW | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x2434 | `AWB_ZONE_SUM_R_H` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x2438 | `AWB_ZONE_SUM_R_L` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x243C | `AWB_ZONE_SUM_G_H` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x2440 | `AWB_ZONE_SUM_G_L` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x2444 | `AWB_ZONE_SUM_B_H` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x2448 | `AWB_ZONE_SUM_B_L` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | — | 13 |
-| 0x244C | `AWB_ZONE_COUNT` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 13 |
-| 0x2450 | `AWB_STATUS` | W1C | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_control_unit, test_stats | 13 |
-| 0x2454 | `AWB_UNDEREXPOSED_LIMIT` | RW | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 12 |
-| 0x2458 | `AWB_SATURATION_LIMIT` | RW | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 12 |
-| 0x245C | `AWB_CONTEXT_ID` | RW | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_stats | 11 |
-| 0x2460 | `AWB_RESULT_CONTEXT_ID` | RO | model | control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | test_driver_tlm, test_stats | 13 |
-| 0x2464 | `AWB_FRAME_ID` | RO | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.22, §9.5; ALG-AWB, DEC-29/30 | run_raw, test_driver_tlm, test_stats | 13 |
-| 0x2600 | `AF_CTRL` | RW, W1S | model | control_unit_stats.cpp, isp_pipeline.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | test_control_unit, test_stats | 11 |
-| 0x2604 | `AF_ZONE_EN` | RW | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x2608 | `AF_METRIC_CFG` | RW | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x260C | `AF_STAT_ADDR` | RW | model | control_unit_stats.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | test_driver_tlm, test_stats | 13 |
-| 0x2610 | `AF_STAT_DATA` | RO | model | control_unit_stats.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | test_driver_tlm, test_stats | 13 |
-| 0x2614 | `AF_LUT_ADDR` | RW | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x2618 | `AF_LUT_DATA` | RW | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x261C | `AF_VCM_CUR_POS` | RW | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x2620 | `AF_VCM_BEST_POS` | RO | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x2624 | `AF_PEAK_SCORE` | RO | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x2628 | `AF_FOCUS_RANGE` | RW | storage | no hardware (CSR, ALG-F §3.2) | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | — | 0 |
-| 0x262C | `AF_STATUS` | RO, W1C | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | test_control_unit, test_driver_tlm, test_stats | 13 |
-| 0x2630 | `AF_CONTEXT_ID` | RW | model | control_unit_stats.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | test_stats | 11 |
-| 0x2634 | `AF_RESULT_CONTEXT_ID` | RO | model | control_unit_stats.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | test_driver_tlm, test_stats | 13 |
-| 0x2638 | `AF_FRAME_ID` | RO | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.23, §9.5; ALG-AF, CSR-07/15 | run_raw, test_driver_tlm, test_stats | 13 |
+| 0x201C | `RESIZER_STATUS` | RO | model | control_unit_stats.cpp | HAS §6.20; DEC-23/24/26, CSR-09, DEC-38 | test_cont_tlm, test_control_unit, test_e2e_tlm, test_stats | 0 |
+| 0x2200 | `AEC_CTRL` | RW, W1S | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_control_unit, test_csr_tlm, test_driver_tlm, test_stats | 13 |
+| 0x2204 | `AEC_CONTEXT_ID` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_stats | 11 |
+| 0x2208 | `AEC_ZONE_CFG` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_control_unit, test_driver_tlm, test_stats | 12 |
+| 0x220C | `AEC_ZONE_SIZE` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_stats | 12 |
+| 0x2210 | `AEC_SAMPLE_CLIP` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm | 12 |
+| 0x2214 | `AEC_THRESH` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm | 12 |
+| 0x2218 | `AEC_STATUS` | RO, W1C | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_cont_tlm, test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x221C | `AEC_FRAME_ID` | RO | model | control_unit.cpp, control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | run_raw, test_cont_tlm, test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x2220 | `AEC_RESULT_CONTEXT_ID` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_stats | 13 |
+| 0x2224 | `AEC_CHANNEL_SEL` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x2228 | `AEC_GLOBAL_SUM_LO` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_control_unit, test_stats | 13 |
+| 0x222C | `AEC_GLOBAL_SUM_HI` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_stats | 13 |
+| 0x2230 | `AEC_GLOBAL_COUNT` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_e2e_tlm, test_stats | 13 |
+| 0x2234 | `AEC_ZONE_ADDR` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x2238 | `AEC_ZONE_SUM` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x223C | `AEC_ZONE_COUNT` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_stats | 13 |
+| 0x2240 | `AEC_ZONE_GREEN_OE_UE` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_stats | 13 |
+| 0x2244 | `AEC_ZONE_GREEN_MIN_MAX` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_control_unit, test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x2248 | `AEC_HIST_ADDR` | RW | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x224C | `AEC_HIST_DATA` | RO | model | control_unit_stats.cpp | HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded | test_driver_tlm, test_e2e_tlm, test_stats | 13 |
+| 0x2400 | `AWB_CTRL` | RW | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 13 |
+| 0x2404 | `AWB_X_BOUND_ADDR` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 0 |
+| 0x2408 | `AWB_Y_BOUND_ADDR` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 0 |
+| 0x240C | `AWB_X_BOUND_DATA` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 0 |
+| 0x2410 | `AWB_Y_BOUND_DATA` | RW | storage | no hardware: equal zones only (CSR, ALG-AWB-05) | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 0 |
+| 0x2414 | `AWB_GLOBAL_SUM_R_H` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 7 |
+| 0x2418 | `AWB_GLOBAL_SUM_R_L` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 7 |
+| 0x241C | `AWB_GLOBAL_SUM_G_H` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x2420 | `AWB_GLOBAL_SUM_G_L` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x2424 | `AWB_GLOBAL_SUM_B_H` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x2428 | `AWB_GLOBAL_SUM_B_L` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x242C | `AWB_GLOBAL_COUNT` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_driver_tlm, test_stats | 13 |
+| 0x2430 | `AWB_ZONE_ADDR` | RW | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_driver_tlm, test_stats | 7 |
+| 0x2434 | `AWB_ZONE_SUM_R_H` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 7 |
+| 0x2438 | `AWB_ZONE_SUM_R_L` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 7 |
+| 0x243C | `AWB_ZONE_SUM_G_H` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x2440 | `AWB_ZONE_SUM_G_L` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 7 |
+| 0x2444 | `AWB_ZONE_SUM_B_H` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x2448 | `AWB_ZONE_SUM_B_L` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | — | 7 |
+| 0x244C | `AWB_ZONE_COUNT` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 7 |
+| 0x2450 | `AWB_STATUS` | W1C | model | control_unit.cpp, control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_control_unit, test_driver_tlm, test_stats | 13 |
+| 0x2454 | `AWB_UNDEREXPOSED_LIMIT` | RW | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 12 |
+| 0x2458 | `AWB_SATURATION_LIMIT` | RW | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 12 |
+| 0x245C | `AWB_CONTEXT_ID` | RW | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_stats | 11 |
+| 0x2460 | `AWB_RESULT_CONTEXT_ID` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_driver_tlm, test_stats | 7 |
+| 0x2464 | `AWB_FRAME_ID` | RO | model | control_unit.cpp, control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_driver_tlm, test_stats | 13 |
+| 0x2468 | `AWB_RESULT_CTRL` | W1S | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_control_unit, test_driver_tlm, test_stats | 7 |
+| 0x246C | `AWB_RESULT_STATUS` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | run_raw, test_driver_tlm, test_stats | 13 |
+| 0x2470 | `AWB_DROP_COUNT` | RO | model | control_unit_stats.cpp | MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB | test_driver_tlm, test_stats | 13 |
+| 0x2600 | `AF_CTRL` | RW, W1S | model | control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | test_control_unit, test_stats | 11 |
+| 0x2604 | `AF_ZONE_EN` | RW | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x2608 | `AF_METRIC_CFG` | RW | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x260C | `AF_STAT_ADDR` | RW | model | control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | test_driver_tlm, test_stats | 13 |
+| 0x2610 | `AF_STAT_DATA` | RO | model | control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | test_driver_tlm, test_stats | 13 |
+| 0x2614 | `AF_LUT_ADDR` | RW | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x2618 | `AF_LUT_DATA` | RW | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x261C | `AF_VCM_CUR_POS` | RW | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x2620 | `AF_VCM_BEST_POS` | RO | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x2624 | `AF_PEAK_SCORE` | RO | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x2628 | `AF_FOCUS_RANGE` | RW | storage | no hardware (CSR, ALG-F §3.2) | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | — | 0 |
+| 0x262C | `AF_STATUS` | RO, W1C | model | control_unit.cpp, control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | test_cont_tlm, test_control_unit, test_driver_tlm, test_stats | 13 |
+| 0x2630 | `AF_CONTEXT_ID` | RW | model | control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | test_stats | 11 |
+| 0x2634 | `AF_RESULT_CONTEXT_ID` | RO | model | control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | test_driver_tlm, test_stats | 13 |
+| 0x2638 | `AF_FRAME_ID` | RO | model | control_unit.cpp, control_unit_stats.cpp | MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15 | run_raw, test_driver_tlm, test_stats | 13 |
 | 0x2800 | `OFMT_CTRL` | RW | storage | stride padding not modelled; stride_en warns (DEC-39, owner query B14) | HAS §6.24; DEC-39, owner query B14 | test_stats | 0 |
 | 0x2804 | `OFMT_Y_STRIDE` | RW | storage | stride padding not modelled (DEC-39) | HAS §6.24; DEC-39, owner query B14 | — | 0 |
 | 0x2808 | `OFMT_UV_STRIDE` | RW | storage | stride padding not modelled (DEC-39) | HAS §6.24; DEC-39, owner query B14 | — | 0 |
-| 0x3000 | `DMA_CTRL` | RW, W1SC | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | HAS §6.25; DEC-14/15/18/19, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
-| 0x3004 | `DMA_STAT` | RO | model | engines.cpp | HAS §6.25; DEC-14/15/18/19, CSR-06 | test_dma_tlm | 0 |
-| 0x3008 | `DMA_ERR` | W1C | model | control_unit.cpp, engines.cpp | HAS §6.25; DEC-14/15/18/19, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
-| 0x300C | `DMA_IRQ_EN` | RW | model | control_unit.cpp | HAS §6.25; DEC-14/15/18/19, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm | 0 |
-| 0x3010 | `DMA_IRQ_STAT` | W1C | model | control_unit.cpp, engines.cpp | HAS §6.25; DEC-14/15/18/19, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm | 0 |
+| 0x3000 | `DMA_CTRL` | RW, W1SC | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | HAS §6.25, MAS Table 161 (ODMA_OVERFLOW held while stalled, U5); DEC-14/15/19, DEC-18 status superseded, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm, test_e2e_tlm, test_stats | 0 |
+| 0x3004 | `DMA_STAT` | RO | model | engines.cpp | HAS §6.25, MAS Table 161 (ODMA_OVERFLOW held while stalled, U5); DEC-14/15/19, DEC-18 status superseded, CSR-06 | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3008 | `DMA_ERR` | W1C | model | control_unit.cpp, engines.cpp | HAS §6.25, MAS Table 161 (ODMA_OVERFLOW held while stalled, U5); DEC-14/15/19, DEC-18 status superseded, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
+| 0x300C | `DMA_IRQ_EN` | RW | model | control_unit.cpp | HAS §6.25, MAS Table 161 (ODMA_OVERFLOW held while stalled, U5); DEC-14/15/19, DEC-18 status superseded, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm | 0 |
+| 0x3010 | `DMA_IRQ_STAT` | W1C | model | control_unit.cpp, engines.cpp | HAS §6.25, MAS Table 161 (ODMA_OVERFLOW held while stalled, U5); DEC-14/15/19, DEC-18 status superseded, CSR-06 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm | 0 |
 | 0x3020 | `IDMA_STRIDE` | RW | model | engines.cpp | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
 | 0x3024 | `IDMA_BUF_VALID` | W1S | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_control_unit, test_csr_tlm, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
-| 0x3028 | `IDMA_FRAME_COUNT` | RO | model | control_unit.cpp, engines.cpp | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | test_cont_tlm, test_control_unit, test_dma_tlm | 0 |
+| 0x3028 | `IDMA_FRAME_COUNT` | RO | model | control_unit.cpp, engines.cpp | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm | 0 |
 | 0x3040 | `IDMA_BUF_ADDR_L0` | RW | model | engines.cpp | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
 | 0x3044 | `IDMA_BUF_ADDR_H0` | RW | model (indexed) | 64-bit buffer address, IDMA_BUF_ADDR_L0 + 8 * k | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
 | 0x3048 | `IDMA_BUF_ADDR_L1` | RW | model (indexed) | 64-bit buffer address, IDMA_BUF_ADDR_L0 + 8 * k | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
@@ -229,24 +234,49 @@ show that every member was written with a non-zero value.
 | 0x3054 | `IDMA_BUF_ADDR_H2` | RW | model (indexed) | 64-bit buffer address, IDMA_BUF_ADDR_L0 + 8 * k | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
 | 0x3058 | `IDMA_BUF_ADDR_L3` | RW | model (indexed) | 64-bit buffer address, IDMA_BUF_ADDR_L0 + 8 * k | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
 | 0x305C | `IDMA_BUF_ADDR_H3` | RW | model (indexed) | 64-bit buffer address, IDMA_BUF_ADDR_L0 + 8 * k | HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x3080 | `ODMA_Y_STRIDE` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x3084 | `ODMA_UV_STRIDE` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x3088 | `ODMA_BUF_FREE` | W1S | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
-| 0x308C | `ODMA_BUF_DONE` | W1C | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
-| 0x3090 | `ODMA_FRAME_COUNT` | RO | model | control_unit.cpp, engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
-| 0x30A0 | `ODMA_Y_ADDR_L0` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30A4 | `ODMA_Y_ADDR_H0` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30A8 | `ODMA_UV_ADDR_L0` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30AC | `ODMA_UV_ADDR_H0` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30B0 | `ODMA_Y_ADDR_L1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30B4 | `ODMA_Y_ADDR_H1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30B8 | `ODMA_UV_ADDR_L1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30BC | `ODMA_UV_ADDR_H1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30C0 | `ODMA_Y_ADDR_L2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30C4 | `ODMA_Y_ADDR_H2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30C8 | `ODMA_UV_ADDR_L2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30CC | `ODMA_UV_ADDR_H2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30D0 | `ODMA_Y_ADDR_L3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30D4 | `ODMA_Y_ADDR_H3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30D8 | `ODMA_UV_ADDR_L3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
-| 0x30DC | `ODMA_UV_ADDR_H3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x3080 | `ODMA_Y_STRIDE` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x3084 | `ODMA_UV_STRIDE` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x3088 | `ODMA_BUF_FREE` | W1S | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | MAS Table 156/159 (cleared at frame start, U5); SPEC-07 superseded | run_raw, test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
+| 0x308C | `ODMA_BUF_DONE` | W1C | model | control_unit.cpp, engines.cpp, fx1_isp_tlm.cpp | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
+| 0x3090 | `ODMA_FRAME_COUNT` | RO | model | control_unit.cpp, engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_control_unit, test_dma_tlm, test_driver_tlm, test_e2e_tlm | 0 |
+| 0x30A0 | `ODMA_Y_ADDR_L0` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30A4 | `ODMA_Y_ADDR_H0` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30A8 | `ODMA_UV_ADDR_L0` | RW | model | engines.cpp | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30AC | `ODMA_UV_ADDR_H0` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30B0 | `ODMA_Y_ADDR_L1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30B4 | `ODMA_Y_ADDR_H1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30B8 | `ODMA_UV_ADDR_L1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30BC | `ODMA_UV_ADDR_H1` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30C0 | `ODMA_Y_ADDR_L2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30C4 | `ODMA_Y_ADDR_H2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30C8 | `ODMA_UV_ADDR_L2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30CC | `ODMA_UV_ADDR_H2` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30D0 | `ODMA_Y_ADDR_L3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30D4 | `ODMA_Y_ADDR_H3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30D8 | `ODMA_UV_ADDR_L3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x30DC | `ODMA_UV_ADDR_H3` | RW | model (indexed) | 64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k | HAS §6.25.9-6.25.10; DEC-18/19 | run_raw, test_cont_tlm, test_dma_tlm, test_e2e_tlm | 0 |
+| 0x3100 | `IDMA_BUF_TAG0` | RW | model | engines.cpp | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3104 | `IDMA_BUF_TAG1` | RW | model (indexed) | input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3108 | `IDMA_BUF_TAG2` | RW | model (indexed) | input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x310C | `IDMA_BUF_TAG3` | RW | model (indexed) | input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3110 | `IDMA_BUF_TS0` | RW | model | engines.cpp | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3114 | `IDMA_BUF_TS1` | RW | model (indexed) | input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3118 | `IDMA_BUF_TS2` | RW | model (indexed) | input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x311C | `IDMA_BUF_TS3` | RW | model (indexed) | input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm, test_driver_tlm | 0 |
+| 0x3120 | `ODMA_BUF_TAG0` | RO | model | engines.cpp | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3124 | `ODMA_BUF_TAG1` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3128 | `ODMA_BUF_TAG2` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x312C | `ODMA_BUF_TAG3` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3130 | `ODMA_BUF_TS0` | RO | model | engines.cpp | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3134 | `ODMA_BUF_TS1` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3138 | `ODMA_BUF_TS2` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x313C | `ODMA_BUF_TS3` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3140 | `ODMA_BUF_SOF_TS0` | RO | model | engines.cpp | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3144 | `ODMA_BUF_SOF_TS1` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3148 | `ODMA_BUF_SOF_TS2` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x314C | `ODMA_BUF_SOF_TS3` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3150 | `ODMA_BUF_EOF_TS0` | RO | model | engines.cpp | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3154 | `ODMA_BUF_EOF_TS1` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3158 | `ODMA_BUF_EOF_TS2` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x315C | `ODMA_BUF_EOF_TS3` | RO | model (indexed) | output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5) | MAS §6.25.4.1.0.3 Table 160 (U5) | test_dma_tlm | 0 |
+| 0x3160 | `FRAME_COUNTER` | RO | model | control_unit.cpp, fx1_isp_tlm.cpp | MAS §6.25.4.1.0.3 Table 160 (core-clock time base, U5-A1) | test_control_unit, test_dma_tlm | 0 |

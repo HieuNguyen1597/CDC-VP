@@ -22,6 +22,13 @@ target_link_libraries(fx1_isp_test_stats PRIVATE fx1_isp_core)
 target_compile_options(fx1_isp_test_stats PRIVATE ${FX1_ISP_WARNINGS})
 add_test(NAME fx1_isp.unit.stats COMMAND fx1_isp_test_stats)
 
+# EE resident profiles through the control unit and the pipeline (MAS §6.18.4.1, U3).
+add_executable(fx1_isp_test_ee_profiles unit/test_ee_profiles.cpp)
+target_include_directories(fx1_isp_test_ee_profiles PRIVATE common)
+target_link_libraries(fx1_isp_test_ee_profiles PRIVATE fx1_isp_core)
+target_compile_options(fx1_isp_test_ee_profiles PRIVATE ${FX1_ISP_WARNINGS})
+add_test(NAME fx1_isp.unit.ee_profiles COMMAND fx1_isp_test_ee_profiles)
+
 add_executable(fx1_isp_test_pipeline_vectors unit/test_pipeline_vectors.cpp)
 target_include_directories(fx1_isp_test_pipeline_vectors PRIVATE common)
 target_link_libraries(fx1_isp_test_pipeline_vectors PRIVATE fx1_isp_core)
@@ -56,6 +63,9 @@ target_link_libraries(fx1_isp_test_driver_tlm PRIVATE fx1_isp_drv fx1_isp_tlm Sy
 target_compile_options(fx1_isp_test_driver_tlm PRIVATE ${FX1_ISP_WARNINGS})
 add_test(NAME fx1_isp.integration.driver_tlm
          COMMAND fx1_isp_test_driver_tlm ${CMAKE_CURRENT_SOURCE_DIR}/data/vectors)
+# The driver with CSR accesses shorter than a core clock (review U2-R2).
+add_test(NAME fx1_isp.integration.driver_tlm_fast_csr
+         COMMAND fx1_isp_test_driver_tlm ${CMAKE_CURRENT_SOURCE_DIR}/data/vectors --fast-csr)
 
 add_executable(fx1_isp_test_cont_tlm integration/test_cont_tlm.cpp)
 target_include_directories(fx1_isp_test_cont_tlm PRIVATE common)

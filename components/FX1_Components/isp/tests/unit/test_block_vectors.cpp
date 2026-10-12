@@ -124,6 +124,7 @@ void test_ee(const fs::path &file) {
       }
       const auto in = read_values<std::uint16_t>(f, std::size_t{w} * h);
       const auto want = read_values<std::uint16_t>(f, std::size_t{w} * h);
+      cu.accepted_sof(nwrites + 1);  // enable, profile and scalars are sampled at SOF (MAS §6.18.4.1)
       const auto out = pipe::run_ee(in, w, h, cu);
       std::size_t bad = 0;
       for (std::size_t i = 0; i < out.size(); ++i) {

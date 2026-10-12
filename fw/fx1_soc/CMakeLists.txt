@@ -150,6 +150,12 @@ if(CDC_BUILD_TESTS)
     fx1_smoke_test(isp_frame_id TIMEOUT_MS 1000
         SOURCE ${_isp_dir}/frame_id.c EXTRA_SOURCES ${_isp_sources}
         INCLUDES ${_isp_includes} DEPENDS ${_isp_depends})
+    # CSR/MAS 07/10 (ISP update U6): frame metadata, AWB result ownership with
+    # drops, an AWB lease across a DMA soft reset, Resizer from the first
+    # frame and a mode switch while streaming (648x368 frames: longer run).
+    fx1_smoke_test(isp_mas0710 TIMEOUT_MS 5000
+        SOURCE ${_isp_dir}/isp_mas0710.c EXTRA_SOURCES ${_isp_sources}
+        INCLUDES ${_isp_includes} DEPENDS ${_isp_depends})
 
     # Plan C7: LR/SC reservations and AMO exclusion against the other hart,
     # SYS_DMA and ISP ODMA (platform exclusive monitor).

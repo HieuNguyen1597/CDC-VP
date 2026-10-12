@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "control/ee_types.h"
 #include "control/stats_types.h"
 #include "pipeline/gtm_curve.h"
 #include "pipeline/row_stage.h"
@@ -38,9 +39,8 @@ struct pipeline_config {
    std::uint32_t lsc_nx = 0, lsc_ny = 0;
    std::uint32_t lsc_strength = 0;  // UQ1.16, raw 17-bit code (ALG-LSC-02)
    std::vector<std::uint32_t> lsc_mesh;
-   // BPC (HAS §6.9), static detection only (DEC-28).
+   // BPC (MAS §6.9): spatial detection; DYNAMIC_DET_EN has no effect.
    bool bpc_en = false;
-   bool bpc_dynamic_requested = false;
    std::uint32_t bpc_floor = 0;
    std::uint32_t bpc_k = 0;  // UQ8.8
    // WB / DG (HAS §6.10-6.11), UQ4.8.
@@ -65,22 +65,32 @@ struct pipeline_config {
    // 2DNR (HAS §6.17): enable and the previous frame's noise variance.
    bool nr_en = false;
    std::uint32_t nr_var = 0;
-   // EE (HAS §6.18): parameters and tables are read live (DEC-25).
+   // EE (MAS §6.18.4.1): enable, profile and scalars sampled at SOF; the
+   // profile's tables are read live through the control unit (DEC-25
+   // superseded for the scalars).
+   ee_frame_set ee;
    const control_unit *live = nullptr;
    // CNF (HAS §6.19): committed thresholds (DEC-27).
    bool cnf_en = false;
    std::uint32_t cnf_chroma_th = 0;
    std::uint32_t cnf_luma_th = 0;
-   // Resizer (HAS §6.20): enable sampled at SOF, scale committed (DEC-24).
+   // Resizer (MAS §6.20.4.3): the set published before the frame's accepted
+   // SOF, with the active size it was derived for. A frame whose raster does
+   // not match that size (started before the derivation completed) is not
+   // scaled (MAS Table 124; assumption U4-A1).
    bool resizer_en = false;
    std::uint32_t resizer_scale = 0;
-   // Statistics (HAS §6.21-6.23): AEC active set (after commit), AWB and AF
-   // enable sampled at SOF; AF EN is also read live per row (ALG-AF-01).
+   bool resizer_key_valid = true;
+   std::uint32_t resizer_key_w = 0, resizer_key_h = 0;  // 0 x 0: any raster (block tests)
+   // Statistics (HAS §6.21-6.23): AEC active set (after commit); the AWB set
+   // admitted at SOF (en clear when the measurement was skipped, MAS
+   // §6.22.5.5); AF enable sampled at SOF (MAS §6.23.2).
    aec_config aec;
    awb_config awb;
    bool af_en = false;
-   // The control unit's single zone/histogram memories (DEC-30), updated row
-   // by row; null in block tests (the stages then use their own).
+   // The control unit's AEC zone/histogram memory (DEC-30) and the AWB bank
+   // being written, updated row by row; null in block tests (the stages then
+   // use their own).
    aec_memory *aec_mem = nullptr;
    awb_memory *awb_mem = nullptr;
    // Requested but not modelled: reported once per frame (DEC-39, M5-A1).
@@ -113,7 +123,6 @@ struct frame_stats {
    aec_result aec;                               // global results, valid when cfg.aec.en
    awb_result awb;                               // global results, valid when cfg.awb.en
    af_result af;                                 // rows accumulated while AF EN was set
-   bool af_full = false;                         // EN set from SOF through the last row (ALG-AF-02)
 };
 
 // End-of-frame publication shared by the engine and the tests: block

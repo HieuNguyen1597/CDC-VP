@@ -11,3 +11,9 @@ python: 3.9.25, numpy 1.23.5, openpyxl 3.1.5, PIL 11.3.0
 build type: RelWithDebInfo (-O2 -g)
 git: e611ed228e12fa1c6e68b22374f84da499652db1 + uncommitted working tree (the user commits)
 CSR XLSX SHA-256: 0980b61ded06a386f0cc64e0445f93fd85b0b1f967d37f0cd41869c0753cd6bf (not in the repository)
+
+# Regeneration for CSR/MAS 07/10 (2026-10-12, milestone U6)
+os kernel: 5.14.0-687.53.1.el9_8.x86_64; gcc/g++ 11.5.0, cmake 3.31.8, SystemC 2.3.4, python 3.9.25, numpy 1.23.5, openpyxl 3.1.5
+git: e51b32550156cd7abff8a8032d8170362abd8281 + uncommitted working tree (the user commits)
+CSR XLSX SHA-256: bda077b63d5ffe92c99e856170f4770509934ff900a270e954601b6124750db4 (revision of 2026-10-07, not in the repository)
+MAS PDF SHA-256: 7627f38dda45004f3dce327ff4ff5b9e7d1329a6b1f684922b0fd878c1a76bf5 (not in the repository)

@@ -9,6 +9,9 @@ For each of the registers of the generated schema
                  indexed register group whose base is referenced)
       constant   read-only identification value
       storage    no hardware behind it, with the reason (CSR text, DEC/M5 id)
+      deferred   defined by the pinned CSR revision but not modelled yet: the
+                 register file stores it (RO words read their reset value) and
+                 the entry names the milestone that implements it
   - the specification sections and decisions that define its behaviour;
   - the dedicated tests that name it (tests/**/*.cpp, tools/run_raw.cpp) and
     the vector data that writes or reads it (profiles, between-frame writes,
@@ -16,8 +19,9 @@ For each of the registers of the generated schema
 Every register is also covered by the generic access sweep (unit test
 test_access_sweep) and by the XLSX cross-check (tools/check_csr_header.py).
 
-The generator fails if a register falls in no class, or if a `model`
-register has no dedicated test and no vector use: a new register or a lost
+The generator fails if a register falls in no class, if a `model` register
+has no dedicated test and no vector use, or if a `deferred` register gains a
+model reference (move it to `model` with its tests): a new register or a lost
 reference cannot pass unnoticed. --check verifies the committed report.
 """
 
@@ -40,15 +44,23 @@ INDEXED = [
     (r"BLC_SCALE_G[0-3]$", "BLC_SCALE_G0 + 4 * g", ()),
     (r"CCM_C[RGB][RGB]$", "CCM_CRR + 4 * index", ("CCM_CRR",)),
     (r"CCM_OFS_[RGB]$", "CCM_OFS_R + 4 * index", ("CCM_OFS_R",)),
+    (r"EE_(ALPHA|BETA|CLAMP|FEATURE_EN|RADIAL_CENTER|RADIAL_R2_TH[0-2]|RADIAL_GAIN_01|RADIAL_GAIN_23)$",
+     "EE profile scalar k at EE_ALPHA + 4 * k, banked per profile (MAS §6.18.4.1)", ("EE_ALPHA",)),
     (r"IDMA_BUF_ADDR_[LH][0-3]$", "64-bit buffer address, IDMA_BUF_ADDR_L0 + 8 * k", ("IDMA_BUF_ADDR_L0",)),
     (r"ODMA_(Y|UV)_ADDR_[LH][0-3]$", "64-bit buffer address, ODMA_Y_ADDR_L0 + 16 * k",
      ("ODMA_Y_ADDR_L0", "ODMA_UV_ADDR_L0")),
+    (r"IDMA_BUF_(TAG|TS)[0-3]$", "input buffer metadata, IDMA_BUF_TAG0/TS0 + 4 * k, captured at frame start (U5)",
+     ("IDMA_BUF_TAG0", "IDMA_BUF_TS0")),
+    (r"ODMA_BUF_(TAG|TS|SOF_TS|EOF_TS)[0-3]$",
+     "output buffer metadata, ODMA_BUF_TAG0/TS0/SOF_TS0/EOF_TS0 + 4 * k, published at completion (U5)",
+     ("ODMA_BUF_TAG0", "ODMA_BUF_TS0", "ODMA_BUF_SOF_TS0", "ODMA_BUF_EOF_TS0")),
 ]
 CONSTANT = {"COMMON_VER_DATE", "COMMON_VER_ID"}
 STORAGE = {
     "COMMON_SCRATCH": "software scratch register by definition",
-    "BPC_TEMPORAL_VAR": "BPC dynamic detection not modelled (DEC-28)",
-    "BPC_PIXEL_AGE": "BPC dynamic detection not modelled (DEC-28)",
+    "BPC_MODE": "DYNAMIC_DET_EN has no effect: spatial BPC only (MAS §6.9; DEC-28 superseded)",
+    "BPC_TEMPORAL_VAR": "no effect: spatial BPC only (MAS §6.9; DEC-28 superseded)",
+    "BPC_PIXEL_AGE": "no effect: spatial BPC only (MAS §6.9; DEC-28 superseded)",
     "D_WDR_CTRL": "WDR unsupported (HAS §3.1); enable warns (M5-A1)",
     "D_WDR_STRENGTH": "WDR unsupported (HAS §3.1) (M5-A1)",
     "TNR_3D_CTRL": "3DNR unsupported (HAS §3.1); enable warns (M5-A1)",
@@ -71,12 +83,18 @@ STORAGE = {
     "OFMT_Y_STRIDE": "stride padding not modelled (DEC-39)",
     "OFMT_UV_STRIDE": "stride padding not modelled (DEC-39)",
 }
+# Registers of the CSR revision of 2026-10-07 that the model does not implement
+# yet (plan ISP_CSR_MAS_UPDATE_PLAN_2026-10-09, milestones U2 and U5). Regex ->
+# reason. An entry must disappear in the milestone that models the register.
+DEFERRED = [
+    # Empty since U5 (DMA buffer metadata and FRAME_COUNTER are modelled).
+]
 # Block prefix -> specification and decisions (first match wins).
 BLOCKS = [
     ("COMMON_", "HAS §9.1-9.2, §6.5-6.6; DEC-14..17, DEC-20, DEC-38, CSR-01..10"),
     ("BLC_", "HAS §6.7; ALG-BLC"),
     ("LSC_", "HAS §6.8; ALG-LSC, DEC-31"),
-    ("BPC_", "HAS §6.9; ALG-BPC, DEC-28"),
+    ("BPC_", "MAS §6.9; ALG-BPC, DEC-28 superseded (U2)"),
     ("WB_", "HAS §6.10; ALG-WB"),
     ("DG_", "HAS §6.11; ALG-DG"),
     ("DEMOSAIC_", "HAS §6.12; ALG-DMS, DEC-38"),
@@ -84,19 +102,27 @@ BLOCKS = [
     ("CCM_", "HAS §6.13; DEC-24/26, DEC-38"),
     ("GAMMA_", "HAS §6.14; DEC-25, CSR-16/21, DEC-38"),
     ("CSC_", "HAS §6.15; SPEC-03"),
-    ("GTM_", "HAS §6.16; ALG-GTM, DEC-38"),
+    ("GTM_", "HAS §6.16, MAS p146 (LUT writes only while EN = 0, U3); ALG-GTM, DEC-38"),
     ("NR_2D_", "HAS §6.17; ALG-2DNR, DEC-38"),
     ("TNR_3D_", "HAS §3.1 (unsupported); M5-A1"),
-    ("EE_", "HAS §6.18; DEC-25, M3-A2, DEC-38"),
+    ("EE_", "MAS §6.18.4.1 (three resident profiles, U3); DEC-25 superseded, M3-A2, DEC-38"),
     ("CNF_", "HAS §6.19; DEC-27, ALG-CNF, DEC-38"),
     ("RESIZER_", "HAS §6.20; DEC-23/24/26, CSR-09, DEC-38"),
-    ("AEC_", "HAS §6.21, §9.5; ALG-AEC, DEC-29/30/32"),
-    ("AWB_", "HAS §6.22, §9.5; ALG-AWB, DEC-29/30"),
-    ("AF_", "HAS §6.23, §9.5; ALG-AF, CSR-07/15"),
+    ("AEC_", "HAS §6.21, §9.5, MAS §6.21.4; ALG-AEC, DEC-29/30, DEC-32 superseded"),
+    ("AWB_", "MAS §6.22.4-6.22.5 (result banks, U2); ALG-AWB, DEC-29, DEC-30 superseded for AWB"),
+    ("AF_", "MAS §6.23 (EN sampled at SOF, U2); ALG-AF-01/02 superseded, CSR-07/15"),
     ("OFMT_", "HAS §6.24; DEC-39, owner query B14"),
-    ("DMA_", "HAS §6.25; DEC-14/15/18/19, CSR-06"),
+    ("DMA_", "HAS §6.25, MAS Table 161 (ODMA_OVERFLOW held while stalled, U5); DEC-14/15/19, DEC-18 status superseded, CSR-06"),
+    ("IDMA_BUF_TAG", "MAS §6.25.4.1.0.3 Table 160 (U5)"),
+    ("IDMA_BUF_TS", "MAS §6.25.4.1.0.3 Table 160 (U5)"),
+    ("ODMA_BUF_TAG", "MAS §6.25.4.1.0.3 Table 160 (U5)"),
+    ("ODMA_BUF_TS", "MAS §6.25.4.1.0.3 Table 160 (U5)"),
+    ("ODMA_BUF_SOF_TS", "MAS §6.25.4.1.0.3 Table 160 (U5)"),
+    ("ODMA_BUF_EOF_TS", "MAS §6.25.4.1.0.3 Table 160 (U5)"),
+    ("ODMA_BUF_FREE", "MAS Table 156/159 (cleared at frame start, U5); SPEC-07 superseded"),
     ("IDMA_", "HAS §6.25.8, §6.25.10; DEC-19, M2-A1..A3"),
-    ("ODMA_", "HAS §6.25.9-6.25.10; DEC-18/19, SPEC-07"),
+    ("ODMA_", "HAS §6.25.9-6.25.10; DEC-18/19"),
+    ("FRAME_COUNTER", "MAS §6.25.4.1.0.3 Table 160 (core-clock time base, U5-A1)"),
 ]
 
 
@@ -127,7 +153,7 @@ def build():
                      "tests/data/sequences/*/stats_*.txt", "tests/data/4k/*/profile.csrw",
                      "tests/data/4k/*/expected_stats.txt"])
     rows, errors = [], []
-    counts = {"model": 0, "model (indexed)": 0, "constant": 0, "storage": 0}
+    counts = {"model": 0, "model (indexed)": 0, "constant": 0, "storage": 0, "deferred": 0}
     for r in regs:
         name = r["name"]
         macro = re.compile(r"\bFX1_ISP_%s_[A-Z0-9_]*(OFFSET|MASK|SHIFT|BIT)\b" % re.escape(name))
@@ -144,8 +170,14 @@ def build():
                 arith = re.compile(r"\bFX1_ISP_%s_OFFSET\s*\+" % base)
                 test_files = sorted(set(test_files) | {os.path.splitext(os.path.basename(f))[0]
                                                        for f, t in tests.items() if arith.search(t)})
+        deferred = next((why for pat, why in DEFERRED if re.match(pat, name)), None)
+        if deferred and model_files:
+            errors.append("%s: listed as deferred but the model references it (%s) -- classify it as model"
+                          % (name, ", ".join(model_files)))
         if name in CONSTANT:
             cls, note = "constant", "read-only identification value"
+        elif deferred:
+            cls, note = "deferred", deferred
         elif name in STORAGE:
             cls, note = "storage", STORAGE[name]
         elif model_files:
@@ -180,7 +212,8 @@ def render(regs, rows, counts):
         "",
         "Classes: **model** = the model reads or drives the register (files listed); **model (indexed)** =",
         "accessed by base offset plus index; **constant** = read-only identification; **storage** = no",
-        "hardware behind it, readback only, with the reason. *Vector uses* = number of vector directories",
+        "hardware behind it, readback only, with the reason; **deferred** = defined by the pinned CSR revision,",
+        "not modelled yet, with the milestone that implements it. *Vector uses* = number of vector directories",
         "or G-CONT/4K data files that write or read the register. For indexed groups, *dedicated tests*",
         "lists tests that address the group by base plus index: coverage at group level, which does not",
         "show that every member was written with a non-zero value.",
@@ -188,7 +221,7 @@ def render(regs, rows, counts):
         "| Class | Registers |",
         "|---|---|",
     ]
-    for k in ("model", "model (indexed)", "constant", "storage"):
+    for k in ("model", "model (indexed)", "constant", "storage", "deferred"):
         lines.append("| %s | %d |" % (k, counts[k]))
     lines.append("| total | %d |" % len(regs))
     lines += ["", "| Offset | Register | Access | Class | Model / reason | Specification, decisions | Dedicated tests | Vector uses |",

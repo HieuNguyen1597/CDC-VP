@@ -4,8 +4,10 @@
 Deliberately shares no code with gen_csr.py: it re-reads the spreadsheet with
 a minimal parser and compares every register offset, register reset value and
 field mask/shift/reset with the macros in the generated header. The only
-knowledge it duplicates is the list of reserved tied-zero bits (SPEC-05,
-CSR-DMA-ERR-5), restated here on purpose.
+knowledge it duplicates is the list of reserved tied-zero bits (CSR-DMA-ERR-5)
+and the register count of the pinned revision, restated here on purpose.
+Since the CSR revision of 2026-10-07, DMA_IRQ bit 0 is CFG_ERROR, so SPEC-05
+(bit 0 tied to zero) no longer applies.
 """
 
 import argparse
@@ -14,7 +16,8 @@ import sys
 
 import openpyxl
 
-TIED_ZERO = {"DMA_IRQ_EN": 0x1, "DMA_IRQ_STAT": 0x1, "DMA_ERR": 0x20}
+TIED_ZERO = {"DMA_ERR": 0x20}
+NUM_REGISTERS = 254  # CSR revision of 2026-10-07
 
 
 def parse_xlsx(path):
@@ -69,8 +72,8 @@ def main():
             expect(f + "_RESET", rst)
             reset |= (rst << lo) & mask
         expect(p + "_RESET", reset)
-    if len(regs) != 226:
-        errors.append("expected 226 registers, found %d" % len(regs))
+    if len(regs) != NUM_REGISTERS:
+        errors.append("expected %d registers, found %d" % (NUM_REGISTERS, len(regs)))
     for e in errors:
         print("MISMATCH", e)
     print("check_csr_header: %d registers, %d values compared, %d mismatches"

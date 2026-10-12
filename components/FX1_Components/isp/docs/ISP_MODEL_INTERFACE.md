@@ -28,7 +28,7 @@ and are unknown to the model.
 |---|---|---|
 | `core_period` | 2 ns | HAS Table 6-8, ASIC nominal 500 MHz |
 | `csr_latency` | 10 ns | VP parameter, not a silicon figure |
-| `soft_reset_cycles` | 32 | CSR row 451, DEC-14 |
+| `soft_reset_cycles` | 15 | MAS Table 183 (07/10), DEC-14 → §9 |
 | `axi_data_bytes` | 16 | `PARA_AXI_DATA_WIDTH` = 128 (HAS Table 5-1): beat size `B` for alignment checks and bursts; 8, 16 or 32 |
 | `axi_addr_bits` | 40 | `PARA_AXI_ADDR_WIDTH` (HAS Table 5-1): higher address bits are dropped (M2-A3) |
 | `pipeline_line_overhead_cycles` | 0 | VP parameter: extra core cycles per line on top of 1 pixel per clock |
@@ -61,20 +61,27 @@ the pipeline and then the IDMA without losing data (DEC-18).
 
 | Step | Event | Register effects |
 |---|---|---|
-| 1 | IDMA arm: `IDMA_EN` and head `IDMA_BUF_VALID` | Working set captured (base, stride, `COMMON_FRAME_*`, burst length); illegal → `ALIGN_OR_GEOMETRY`, no start. `idma_busy`, `IRQ_IDMA_START` |
+| 1 | IDMA arm: `IDMA_EN` and head `IDMA_BUF_VALID` | Working set captured (base, stride, `COMMON_FRAME_*`, burst length, `IDMA_BUF_TAG/TS` of the buffer, carried with every line of the frame); illegal → `ALIGN_OR_GEOMETRY`, no start. `idma_busy`, `IRQ_IDMA_START` |
 | 2 | IDMA reads line by line, one TLM read per burst (HAS Table 6-92) | — |
-| 3 | Accepted SOF: the pipeline takes line 0 (waits for `ISP_EN`) | Pending commits (DEC-26), GTM bank swap, frame counter / FRAME_ID, AEC commit, AWB/AF sampling, LSC profile selection; then the configuration snapshot (HAS §9.4.3); `frame_start` and `frame_done` cleared; `COMMON_STATUS.busy`, AEC/AF busy |
-| 4 | ODMA arm: `ODMA_EN` and head `ODMA_BUF_FREE` (may precede step 1) | Bases, strides, output geometry (`RESIZER_OUT_*`, or 0×0 while `ISP_EN` = 0, DEC-20), burst length captured; illegal → `ALIGN_OR_GEOMETRY` |
+| 3 | Accepted SOF: the pipeline takes line 0 (waits for `ISP_EN`) | Pending commits (DEC-26), GTM bank swap, frame counter / FRAME_ID, AEC commit, AWB/AF sampling and AWB bank admission, BPC counters cleared, LSC profile selection, EE enable/profile/scalars; then the configuration snapshot (HAS §9.4.3); `frame_start` and `frame_done` cleared; `COMMON_STATUS.busy`, AEC/AF busy |
+| 4 | ODMA arm: `ODMA_EN` and head `ODMA_BUF_FREE` (may precede step 1) | Bases, strides and burst length captured; strides checked against the published Resizer set (or 0×0 while `ISP_EN` = 0, DEC-20); illegal → `ALIGN` + `IRQ_CFG_ERROR`. Each frame is then written with its own size (no re-arm on a mode change); a frame wider than a stride → `ALIGN`, discarded (U4-A2). At the frame's first line: `ODMA_BUF_FREE` bit cleared, `SOF_TS` latched; at its last line: `EOF_TS` latched (U5-A4). Stalled on a buffer that is not free: `ODMA_OVERFLOW` held (U5-A5) |
 | 5 | IDMA retire: the pipeline has accepted the last line | `IDMA_BUF_VALID` bit cleared, rotation +1, `IDMA_FRAME_COUNT`+1, `IRQ_IDMA_DONE` |
-| 6 | ODMA complete: the last write response of both planes has returned | `ODMA_BUF_FREE` bit cleared, `ODMA_BUF_DONE` bit set, rotation +1, `ODMA_FRAME_COUNT`+1, `IRQ_ODMA_DONE`, `frame_done_irq`, `COMMON_STATUS.frame_done`; ODMA busy cleared; common busy cleared only when no accepted frame remains |
+| 6 | ODMA complete: the last write response of both planes has returned | `ODMA_BUF_TAG/TS/SOF_TS/EOF_TS` of the buffer published, `ODMA_BUF_DONE` bit set, rotation +1, `ODMA_FRAME_COUNT`+1, `IRQ_ODMA_DONE`, `frame_done_irq`, `COMMON_STATUS.frame_done`; ODMA busy cleared; common busy cleared only when no accepted frame remains |
 
-During the frame, the AEC and AWB stages update the control unit's single
-zone/histogram memories row by row, so a CSR read in the middle of a frame
-returns partial sums (DEC-30). At the end of a frame, the pipeline thread publishes the block counters (LSC,
+During the frame, the AEC stage updates the control unit's single
+zone/histogram memory row by row, so a CSR read in the middle of a frame
+returns partial sums (DEC-30); the AWB stage writes the bank admitted at SOF,
+which software cannot read until it is published and acquired (MAS §6.22.4).
+CSR reads carry the access cycle: the AWB lease is readable from the edge
+after ACQUIRE. At the end of a frame, the pipeline thread publishes the block counters (LSC,
 BPC), builds the next GTM curve, hands the 2DNR variance over and publishes
 the statistics (AEC → AWB → AF, each followed by `stats_ready_irq`). This
 happens after the last output line is queued to the ODMA, so it can precede
 `frame_done_irq`.
+
+`FRAME_COUNTER` is computed at the read: core clocks since the release of
+`i_rst_n`, modulo 2^32 (no clock event is simulated). The timed CSR port
+and the debug transport both read it at the access time.
 
 No completion is reported inside the CSR write that starts a frame; a frame
 takes at least `H × (W + overhead)` core cycles plus memory latency.
@@ -104,7 +111,6 @@ their expected memory images simple. It produces no statistics.
 The pipeline reports with `SC_REPORT_WARNING` (message type
 `fx1_isp/pipeline`) only for a configuration it does not model, once per
 frame:
-- BPC dynamic detection (DEC-28);
 - OFMT stride padding (DEC-39);
 - D_WDR and TNR_3D enables (M5-A1). It also warns when it drops a frame it
 cannot process (for example a geometry rejected by a block). The ODMA receives an abort

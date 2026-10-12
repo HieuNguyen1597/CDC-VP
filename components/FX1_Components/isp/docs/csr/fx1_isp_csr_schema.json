@@ -1,65 +1,99 @@
 {
   "generator": "tools/gen_csr.py",
-  "generator_version": "1.0",
+  "generator_version": "1.1",
   "source": {
     "file": "FTEL_IP_ISP_CSR_v1.0.xlsx",
-    "sha256": "0980b61ded06a386f0cc64e0445f93fd85b0b1f967d37f0cd41869c0753cd6bf",
+    "sha256": "bda077b63d5ffe92c99e856170f4770509934ff900a270e954601b6124750db4",
     "sheet": "Registers",
-    "generated_at": "2026-09-23T02:11:27.964Z",
+    "generated_at": "2026-10-07 05:38:22.492000",
     "module": "ftel_isp_csr"
   },
   "counts": {
-    "RW": 192,
-    "RO": 75,
+    "RW": 201,
+    "RO": 101,
     "W1C": 20,
-    "W1S": 9,
+    "W1S": 12,
     "W1SC": 2,
-    "registers": 226,
-    "fields": 298
+    "registers": 254,
+    "fields": 336
   },
   "overrides": [
     {
       "id": "DEC-11",
       "register": "COMMON_BAYER",
       "field": "pattern",
-      "kind": "enum",
-      "reason": "Field description defines [V,H] encoding 0=RGGB 1=GRBG 2=GBRG 3=BGGR and states the trailing enum list is the obsolete order. User decision DEC-11 adopts the description.",
-      "enum": {
-        "0": "RGGB",
-        "1": "GRBG",
-        "2": "GBRG",
-        "3": "BGGR"
-      }
-    },
-    {
-      "id": "SPEC-05",
-      "register": "DMA_IRQ_EN",
-      "field": "irq_en",
-      "kind": "tied_zero",
-      "reason": "Bit 0 is reserved and tied to zero (no IRQ_CFG_ERROR, SPEC-05).",
-      "bits": [
-        0
-      ]
-    },
-    {
-      "id": "SPEC-05",
-      "register": "DMA_IRQ_STAT",
-      "field": "irq",
-      "kind": "tied_zero",
-      "reason": "Bit 0 is reserved and tied to zero (no IRQ_CFG_ERROR, SPEC-05).",
-      "bits": [
-        0
-      ]
+      "kind": "assert_enum",
+      "reason": "The [V,H] encoding 0=RGGB 1=GRBG 2=GBRG 3=BGGR adopted by DEC-11 is the spreadsheet's own enum since the 07/10 revision; asserted so it cannot regress."
     },
     {
       "id": "CSR-DMA-ERR-5",
       "register": "DMA_ERR",
       "field": "err",
       "kind": "tied_zero",
-      "reason": "Cause list marks bit 5 as reserved, tied to zero.",
+      "reason": "Cause list marks bit 5 as reserved, reads zero.",
       "bits": [
         5
       ]
+    },
+    {
+      "id": "VP-NAMES-CSC",
+      "register": "CSC_CTRL",
+      "field": "std",
+      "kind": "enum_names",
+      "reason": "The values are given in prose; keep the header names BT601/BT709.",
+      "enum": {
+        "0": "BT601",
+        "1": "BT709"
+      }
+    },
+    {
+      "id": "VP-NAMES-ODMA-BUF",
+      "register": "ODMA_BUF_FREE",
+      "field": "odma_buf_free",
+      "kind": "bit_names",
+      "reason": "Bits 3:0 identify the four buffers without names; keep BUFFER_0..3.",
+      "bits": {
+        "0": "BUFFER_0",
+        "1": "BUFFER_1",
+        "2": "BUFFER_2",
+        "3": "BUFFER_3"
+      }
+    },
+    {
+      "id": "VP-NAMES-ODMA-BUF",
+      "register": "ODMA_BUF_DONE",
+      "field": "odma_buf_done",
+      "kind": "bit_names",
+      "reason": "Bits 3:0 identify the buffers without names; keep BUFFER_0..3.",
+      "bits": {
+        "0": "BUFFER_0",
+        "1": "BUFFER_1",
+        "2": "BUFFER_2",
+        "3": "BUFFER_3"
+      }
+    }
+  ],
+  "compat_aliases": [
+    {
+      "id": "CSR0710-RENAME",
+      "register": "DMA_ERR",
+      "field": "err",
+      "old": "ALIGN_OR_GEOMETRY",
+      "new": "ALIGN"
+    },
+    {
+      "id": "CSR0710-RENAME",
+      "register": "DMA_ERR",
+      "field": "err",
+      "old": "IDMA_AXI",
+      "new": "AXI_RD"
+    },
+    {
+      "id": "CSR0710-RENAME",
+      "register": "DMA_ERR",
+      "field": "err",
+      "old": "ODMA_AXI",
+      "new": "AXI_WR"
     }
   ],
   "access_semantics": "HAS Table 8-1 / Table 7-10; see docs/ISP_CSR_CONTRACT.md",
@@ -2121,7 +2155,7 @@
           "access": "RW",
           "reset": "0x0",
           "row": 163,
-          "implemented": true,
+          "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
           "bit_names": {}
@@ -3017,7 +3051,7 @@
       "row": 232,
       "reset": "0x00000000",
       "masks": {
-        "RW": "0x0000000F",
+        "RW": "0x0000003F",
         "RO": "0x00000000",
         "W1C": "0x00000000",
         "W1S": "0x00000000",
@@ -3052,7 +3086,18 @@
           "access": "RW",
           "reset": "0x0",
           "row": 235,
-          "implemented": false,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "profile_wr_sel",
+          "bits": "[5:4]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 236,
+          "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
           "bit_names": {}
@@ -3062,7 +3107,7 @@
     {
       "offset": "0x1C04",
       "name": "EE_ALPHA",
-      "row": 236,
+      "row": 237,
       "reset": "0x00004000",
       "masks": {
         "RW": "0x0000FFFF",
@@ -3077,7 +3122,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x4000",
-          "row": 237,
+          "row": 238,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3088,7 +3133,7 @@
     {
       "offset": "0x1C08",
       "name": "EE_BETA",
-      "row": 238,
+      "row": 239,
       "reset": "0x00002000",
       "masks": {
         "RW": "0x0000FFFF",
@@ -3103,7 +3148,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x2000",
-          "row": 239,
+          "row": 240,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3114,7 +3159,7 @@
     {
       "offset": "0x1C0C",
       "name": "EE_CLAMP",
-      "row": 240,
+      "row": 241,
       "reset": "0x00001810",
       "masks": {
         "RW": "0x0000FFFF",
@@ -3129,7 +3174,7 @@
           "bits": "[7:0]",
           "access": "RW",
           "reset": "0x10",
-          "row": 241,
+          "row": 242,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3140,7 +3185,7 @@
           "bits": "[15:8]",
           "access": "RW",
           "reset": "0x18",
-          "row": 242,
+          "row": 243,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3151,7 +3196,7 @@
     {
       "offset": "0x1C10",
       "name": "EE_FEATURE_EN",
-      "row": 243,
+      "row": 244,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000007",
@@ -3166,7 +3211,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 244,
+          "row": 245,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3177,7 +3222,7 @@
           "bits": "[1:1]",
           "access": "RW",
           "reset": "0x0",
-          "row": 245,
+          "row": 246,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3188,7 +3233,7 @@
           "bits": "[2:2]",
           "access": "RW",
           "reset": "0x0",
-          "row": 246,
+          "row": 247,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3199,7 +3244,7 @@
     {
       "offset": "0x1C14",
       "name": "EE_RADIAL_CENTER",
-      "row": 247,
+      "row": 248,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x1FFF1FFF",
@@ -3214,7 +3259,7 @@
           "bits": "[12:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 248,
+          "row": 249,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3225,7 +3270,7 @@
           "bits": "[28:16]",
           "access": "RW",
           "reset": "0x0",
-          "row": 249,
+          "row": 250,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3236,7 +3281,7 @@
     {
       "offset": "0x1C18",
       "name": "EE_RADIAL_R2_TH0",
-      "row": 250,
+      "row": 251,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x07FFFFFF",
@@ -3251,7 +3296,7 @@
           "bits": "[26:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 251,
+          "row": 252,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3262,7 +3307,7 @@
     {
       "offset": "0x1C1C",
       "name": "EE_RADIAL_R2_TH1",
-      "row": 252,
+      "row": 253,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x07FFFFFF",
@@ -3277,7 +3322,7 @@
           "bits": "[26:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 253,
+          "row": 254,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3288,7 +3333,7 @@
     {
       "offset": "0x1C20",
       "name": "EE_RADIAL_R2_TH2",
-      "row": 254,
+      "row": 255,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x07FFFFFF",
@@ -3303,7 +3348,7 @@
           "bits": "[26:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 255,
+          "row": 256,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3314,7 +3359,7 @@
     {
       "offset": "0x1C24",
       "name": "EE_RADIAL_GAIN_01",
-      "row": 256,
+      "row": 257,
       "reset": "0x80008000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -3329,7 +3374,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x8000",
-          "row": 257,
+          "row": 258,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3340,7 +3385,7 @@
           "bits": "[31:16]",
           "access": "RW",
           "reset": "0x8000",
-          "row": 258,
+          "row": 259,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3351,7 +3396,7 @@
     {
       "offset": "0x1C28",
       "name": "EE_RADIAL_GAIN_23",
-      "row": 259,
+      "row": 260,
       "reset": "0x80008000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -3366,7 +3411,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x8000",
-          "row": 260,
+          "row": 261,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3377,7 +3422,7 @@
           "bits": "[31:16]",
           "access": "RW",
           "reset": "0x8000",
-          "row": 261,
+          "row": 262,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3388,7 +3433,7 @@
     {
       "offset": "0x1C2C",
       "name": "EE_LUT_CTRL",
-      "row": 262,
+      "row": 263,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000006",
@@ -3403,7 +3448,7 @@
           "bits": "[2:1]",
           "access": "RW",
           "reset": "0x0",
-          "row": 263,
+          "row": 264,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {
@@ -3419,7 +3464,7 @@
     {
       "offset": "0x1C30",
       "name": "EE_LUT_ADDR",
-      "row": 264,
+      "row": 265,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000003F",
@@ -3434,7 +3479,7 @@
           "bits": "[5:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 265,
+          "row": 266,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3445,7 +3490,7 @@
     {
       "offset": "0x1C34",
       "name": "EE_LUT_WDATA",
-      "row": 266,
+      "row": 267,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000FFFF",
@@ -3460,7 +3505,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 267,
+          "row": 268,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3471,7 +3516,7 @@
     {
       "offset": "0x1C38",
       "name": "EE_STATUS",
-      "row": 268,
+      "row": 269,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -3486,7 +3531,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 269,
+          "row": 270,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3497,7 +3542,7 @@
           "bits": "[1:1]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 270,
+          "row": 271,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3508,7 +3553,7 @@
     {
       "offset": "0x1C3C",
       "name": "EE_LUT_RDATA",
-      "row": 271,
+      "row": 272,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -3523,7 +3568,7 @@
           "bits": "[15:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 272,
+          "row": 273,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3534,7 +3579,7 @@
     {
       "offset": "0x1E00",
       "name": "CNF_CTRL",
-      "row": 273,
+      "row": 274,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000005",
@@ -3549,7 +3594,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 274,
+          "row": 275,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3560,8 +3605,8 @@
           "bits": "[2:2]",
           "access": "RW",
           "reset": "0x0",
-          "row": 275,
-          "implemented": true,
+          "row": 276,
+          "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
           "bit_names": {}
@@ -3571,7 +3616,7 @@
     {
       "offset": "0x1E04",
       "name": "CNF_CHROMA_TH",
-      "row": 276,
+      "row": 277,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x000001FF",
@@ -3586,7 +3631,7 @@
           "bits": "[8:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 277,
+          "row": 278,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3597,7 +3642,7 @@
     {
       "offset": "0x1E08",
       "name": "CNF_LUMA_TH",
-      "row": 278,
+      "row": 279,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x000000FF",
@@ -3612,7 +3657,7 @@
           "bits": "[7:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 279,
+          "row": 280,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3623,7 +3668,7 @@
     {
       "offset": "0x1E0C",
       "name": "CNF_STRENGTH",
-      "row": 280,
+      "row": 281,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000003",
@@ -3638,7 +3683,7 @@
           "bits": "[1:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 281,
+          "row": 282,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -3649,7 +3694,7 @@
     {
       "offset": "0x1E10",
       "name": "CNF_STATUS",
-      "row": 282,
+      "row": 283,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -3664,7 +3709,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 283,
+          "row": 284,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3675,7 +3720,7 @@
     {
       "offset": "0x2000",
       "name": "RESIZER_CTRL",
-      "row": 284,
+      "row": 285,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000007D",
@@ -3690,7 +3735,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 285,
+          "row": 286,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3701,8 +3746,8 @@
           "bits": "[2:2]",
           "access": "RW",
           "reset": "0x0",
-          "row": 286,
-          "implemented": true,
+          "row": 287,
+          "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
           "bit_names": {}
@@ -3712,7 +3757,7 @@
           "bits": "[6:3]",
           "access": "RW",
           "reset": "0x0",
-          "row": 287,
+          "row": 288,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {
@@ -3739,7 +3784,7 @@
     {
       "offset": "0x2014",
       "name": "RESIZER_OUT_W",
-      "row": 288,
+      "row": 289,
       "reset": "0x00000780",
       "masks": {
         "RW": "0x00000000",
@@ -3754,7 +3799,7 @@
           "bits": "[12:0]",
           "access": "RO",
           "reset": "0x780",
-          "row": 289,
+          "row": 290,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3765,7 +3810,7 @@
     {
       "offset": "0x2018",
       "name": "RESIZER_OUT_H",
-      "row": 290,
+      "row": 291,
       "reset": "0x00000438",
       "masks": {
         "RW": "0x00000000",
@@ -3780,7 +3825,7 @@
           "bits": "[12:0]",
           "access": "RO",
           "reset": "0x438",
-          "row": 291,
+          "row": 292,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3791,7 +3836,7 @@
     {
       "offset": "0x201C",
       "name": "RESIZER_STATUS",
-      "row": 292,
+      "row": 293,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -3806,7 +3851,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 293,
+          "row": 294,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3817,7 +3862,7 @@
     {
       "offset": "0x2200",
       "name": "AEC_CTRL",
-      "row": 294,
+      "row": 295,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000001",
@@ -3832,7 +3877,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 295,
+          "row": 296,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3843,7 +3888,7 @@
           "bits": "[1:1]",
           "access": "W1S",
           "reset": "0x0",
-          "row": 296,
+          "row": 297,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3854,7 +3899,7 @@
     {
       "offset": "0x2204",
       "name": "AEC_CONTEXT_ID",
-      "row": 297,
+      "row": 298,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -3869,7 +3914,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 298,
+          "row": 299,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3880,7 +3925,7 @@
     {
       "offset": "0x2208",
       "name": "AEC_ZONE_CFG",
-      "row": 299,
+      "row": 300,
       "reset": "0x00001820",
       "masks": {
         "RW": "0x00001F3F",
@@ -3895,7 +3940,7 @@
           "bits": "[5:0]",
           "access": "RW",
           "reset": "0x20",
-          "row": 300,
+          "row": 301,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3906,7 +3951,7 @@
           "bits": "[12:8]",
           "access": "RW",
           "reset": "0x18",
-          "row": 301,
+          "row": 302,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3917,7 +3962,7 @@
     {
       "offset": "0x220C",
       "name": "AEC_ZONE_SIZE",
-      "row": 302,
+      "row": 303,
       "reset": "0x005A0078",
       "masks": {
         "RW": "0x0FFF0FFF",
@@ -3932,7 +3977,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0x78",
-          "row": 303,
+          "row": 304,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3943,7 +3988,7 @@
           "bits": "[27:16]",
           "access": "RW",
           "reset": "0x5A",
-          "row": 304,
+          "row": 305,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3954,7 +3999,7 @@
     {
       "offset": "0x2210",
       "name": "AEC_SAMPLE_CLIP",
-      "row": 305,
+      "row": 306,
       "reset": "0x0FFF0000",
       "masks": {
         "RW": "0x0FFF0FFF",
@@ -3969,7 +4014,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 306,
+          "row": 307,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3980,7 +4025,7 @@
           "bits": "[27:16]",
           "access": "RW",
           "reset": "0xFFF",
-          "row": 307,
+          "row": 308,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -3991,7 +4036,7 @@
     {
       "offset": "0x2214",
       "name": "AEC_THRESH",
-      "row": 308,
+      "row": 309,
       "reset": "0x0F000100",
       "masks": {
         "RW": "0x0FFF0FFF",
@@ -4006,7 +4051,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0x100",
-          "row": 309,
+          "row": 310,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4017,7 +4062,7 @@
           "bits": "[27:16]",
           "access": "RW",
           "reset": "0xF00",
-          "row": 310,
+          "row": 311,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4028,7 +4073,7 @@
     {
       "offset": "0x2218",
       "name": "AEC_STATUS",
-      "row": 311,
+      "row": 312,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4043,7 +4088,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 312,
+          "row": 313,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4054,7 +4099,7 @@
           "bits": "[1:1]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 313,
+          "row": 314,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4065,7 +4110,7 @@
           "bits": "[2:2]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 314,
+          "row": 315,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4076,7 +4121,7 @@
     {
       "offset": "0x221C",
       "name": "AEC_FRAME_ID",
-      "row": 315,
+      "row": 316,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4091,7 +4136,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 316,
+          "row": 317,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4102,7 +4147,7 @@
     {
       "offset": "0x2220",
       "name": "AEC_RESULT_CONTEXT_ID",
-      "row": 317,
+      "row": 318,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4117,7 +4162,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 318,
+          "row": 319,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4128,7 +4173,7 @@
     {
       "offset": "0x2224",
       "name": "AEC_CHANNEL_SEL",
-      "row": 319,
+      "row": 320,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000003",
@@ -4143,7 +4188,7 @@
           "bits": "[1:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 320,
+          "row": 321,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {
@@ -4159,7 +4204,7 @@
     {
       "offset": "0x2228",
       "name": "AEC_GLOBAL_SUM_LO",
-      "row": 321,
+      "row": 322,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4174,7 +4219,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 322,
+          "row": 323,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4185,7 +4230,7 @@
     {
       "offset": "0x222C",
       "name": "AEC_GLOBAL_SUM_HI",
-      "row": 323,
+      "row": 324,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4200,7 +4245,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 324,
+          "row": 325,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4211,7 +4256,7 @@
     {
       "offset": "0x2230",
       "name": "AEC_GLOBAL_COUNT",
-      "row": 325,
+      "row": 326,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4226,7 +4271,7 @@
           "bits": "[20:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 326,
+          "row": 327,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4237,7 +4282,7 @@
     {
       "offset": "0x2234",
       "name": "AEC_ZONE_ADDR",
-      "row": 327,
+      "row": 328,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x000003FF",
@@ -4252,7 +4297,7 @@
           "bits": "[9:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 328,
+          "row": 329,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4263,7 +4308,7 @@
     {
       "offset": "0x2238",
       "name": "AEC_ZONE_SUM",
-      "row": 329,
+      "row": 330,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4278,7 +4323,7 @@
           "bits": "[27:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 330,
+          "row": 331,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4289,7 +4334,7 @@
     {
       "offset": "0x223C",
       "name": "AEC_ZONE_COUNT",
-      "row": 331,
+      "row": 332,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4304,7 +4349,7 @@
           "bits": "[15:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 332,
+          "row": 333,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4315,7 +4360,7 @@
     {
       "offset": "0x2240",
       "name": "AEC_ZONE_GREEN_OE_UE",
-      "row": 333,
+      "row": 334,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4330,7 +4375,7 @@
           "bits": "[15:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 334,
+          "row": 335,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4341,7 +4386,7 @@
           "bits": "[31:16]",
           "access": "RO",
           "reset": "0x0",
-          "row": 335,
+          "row": 336,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4352,7 +4397,7 @@
     {
       "offset": "0x2244",
       "name": "AEC_ZONE_GREEN_MIN_MAX",
-      "row": 336,
+      "row": 337,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4367,7 +4412,7 @@
           "bits": "[11:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 337,
+          "row": 338,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4378,7 +4423,7 @@
           "bits": "[23:12]",
           "access": "RO",
           "reset": "0x0",
-          "row": 338,
+          "row": 339,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4389,7 +4434,7 @@
     {
       "offset": "0x2248",
       "name": "AEC_HIST_ADDR",
-      "row": 339,
+      "row": 340,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000003F",
@@ -4404,7 +4449,7 @@
           "bits": "[5:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 340,
+          "row": 341,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4415,7 +4460,7 @@
     {
       "offset": "0x224C",
       "name": "AEC_HIST_DATA",
-      "row": 341,
+      "row": 342,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4430,7 +4475,7 @@
           "bits": "[21:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 342,
+          "row": 343,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4441,7 +4486,7 @@
     {
       "offset": "0x2400",
       "name": "AWB_CTRL",
-      "row": 343,
+      "row": 344,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00003FFF",
@@ -4456,7 +4501,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 344,
+          "row": 345,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4467,7 +4512,7 @@
           "bits": "[7:1]",
           "access": "RW",
           "reset": "0x0",
-          "row": 345,
+          "row": 346,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4478,7 +4523,7 @@
           "bits": "[13:8]",
           "access": "RW",
           "reset": "0x0",
-          "row": 346,
+          "row": 347,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4489,7 +4534,7 @@
     {
       "offset": "0x2404",
       "name": "AWB_X_BOUND_ADDR",
-      "row": 347,
+      "row": 348,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000003F",
@@ -4504,7 +4549,7 @@
           "bits": "[5:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 348,
+          "row": 349,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4515,7 +4560,7 @@
     {
       "offset": "0x2408",
       "name": "AWB_Y_BOUND_ADDR",
-      "row": 349,
+      "row": 350,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000001F",
@@ -4530,7 +4575,7 @@
           "bits": "[4:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 350,
+          "row": 351,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4541,7 +4586,7 @@
     {
       "offset": "0x240C",
       "name": "AWB_X_BOUND_DATA",
-      "row": 351,
+      "row": 352,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00001FFF",
@@ -4556,7 +4601,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 352,
+          "row": 353,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4567,7 +4612,7 @@
           "bits": "[12:12]",
           "access": "RW",
           "reset": "0x0",
-          "row": 353,
+          "row": 354,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4578,7 +4623,7 @@
     {
       "offset": "0x2410",
       "name": "AWB_Y_BOUND_DATA",
-      "row": 354,
+      "row": 355,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00001FFF",
@@ -4593,7 +4638,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 355,
+          "row": 356,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4604,7 +4649,7 @@
           "bits": "[12:12]",
           "access": "RW",
           "reset": "0x0",
-          "row": 356,
+          "row": 357,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -4615,7 +4660,7 @@
     {
       "offset": "0x2414",
       "name": "AWB_GLOBAL_SUM_R_H",
-      "row": 357,
+      "row": 358,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4630,7 +4675,7 @@
           "bits": "[2:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 358,
+          "row": 359,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4641,7 +4686,7 @@
     {
       "offset": "0x2418",
       "name": "AWB_GLOBAL_SUM_R_L",
-      "row": 359,
+      "row": 360,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4656,7 +4701,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 360,
+          "row": 361,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4667,7 +4712,7 @@
     {
       "offset": "0x241C",
       "name": "AWB_GLOBAL_SUM_G_H",
-      "row": 361,
+      "row": 362,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4682,7 +4727,7 @@
           "bits": "[2:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 362,
+          "row": 363,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4693,7 +4738,7 @@
     {
       "offset": "0x2420",
       "name": "AWB_GLOBAL_SUM_G_L",
-      "row": 363,
+      "row": 364,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4708,7 +4753,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 364,
+          "row": 365,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4719,7 +4764,7 @@
     {
       "offset": "0x2424",
       "name": "AWB_GLOBAL_SUM_B_H",
-      "row": 365,
+      "row": 366,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4734,7 +4779,7 @@
           "bits": "[2:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 366,
+          "row": 367,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4745,7 +4790,7 @@
     {
       "offset": "0x2428",
       "name": "AWB_GLOBAL_SUM_B_L",
-      "row": 367,
+      "row": 368,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4760,7 +4805,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 368,
+          "row": 369,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4771,7 +4816,7 @@
     {
       "offset": "0x242C",
       "name": "AWB_GLOBAL_COUNT",
-      "row": 369,
+      "row": 370,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4786,7 +4831,7 @@
           "bits": "[22:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 370,
+          "row": 371,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4797,7 +4842,7 @@
     {
       "offset": "0x2430",
       "name": "AWB_ZONE_ADDR",
-      "row": 371,
+      "row": 372,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x000007FF",
@@ -4812,7 +4857,7 @@
           "bits": "[10:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 372,
+          "row": 373,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4823,7 +4868,7 @@
     {
       "offset": "0x2434",
       "name": "AWB_ZONE_SUM_R_H",
-      "row": 373,
+      "row": 374,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4838,7 +4883,7 @@
           "bits": "[2:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 374,
+          "row": 375,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4849,7 +4894,7 @@
     {
       "offset": "0x2438",
       "name": "AWB_ZONE_SUM_R_L",
-      "row": 375,
+      "row": 376,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4864,7 +4909,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 376,
+          "row": 377,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4875,7 +4920,7 @@
     {
       "offset": "0x243C",
       "name": "AWB_ZONE_SUM_G_H",
-      "row": 377,
+      "row": 378,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4890,7 +4935,7 @@
           "bits": "[2:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 378,
+          "row": 379,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4901,7 +4946,7 @@
     {
       "offset": "0x2440",
       "name": "AWB_ZONE_SUM_G_L",
-      "row": 379,
+      "row": 380,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4916,7 +4961,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 380,
+          "row": 381,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4927,7 +4972,7 @@
     {
       "offset": "0x2444",
       "name": "AWB_ZONE_SUM_B_H",
-      "row": 381,
+      "row": 382,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4942,7 +4987,7 @@
           "bits": "[2:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 382,
+          "row": 383,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4953,7 +4998,7 @@
     {
       "offset": "0x2448",
       "name": "AWB_ZONE_SUM_B_L",
-      "row": 383,
+      "row": 384,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4968,7 +5013,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 384,
+          "row": 385,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -4979,7 +5024,7 @@
     {
       "offset": "0x244C",
       "name": "AWB_ZONE_COUNT",
-      "row": 385,
+      "row": 386,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -4994,7 +5039,7 @@
           "bits": "[22:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 386,
+          "row": 387,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5005,7 +5050,7 @@
     {
       "offset": "0x2450",
       "name": "AWB_STATUS",
-      "row": 387,
+      "row": 388,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5020,7 +5065,7 @@
           "bits": "[0:0]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 388,
+          "row": 389,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5031,7 +5076,7 @@
     {
       "offset": "0x2454",
       "name": "AWB_UNDEREXPOSED_LIMIT",
-      "row": 389,
+      "row": 390,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000FFF",
@@ -5046,7 +5091,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 390,
+          "row": 391,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5057,7 +5102,7 @@
     {
       "offset": "0x2458",
       "name": "AWB_SATURATION_LIMIT",
-      "row": 391,
+      "row": 392,
       "reset": "0x00000FFF",
       "masks": {
         "RW": "0x00000FFF",
@@ -5072,7 +5117,7 @@
           "bits": "[11:0]",
           "access": "RW",
           "reset": "0xFFF",
-          "row": 392,
+          "row": 393,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5083,7 +5128,7 @@
     {
       "offset": "0x245C",
       "name": "AWB_CONTEXT_ID",
-      "row": 393,
+      "row": 394,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -5098,7 +5143,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 394,
+          "row": 395,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5109,7 +5154,7 @@
     {
       "offset": "0x2460",
       "name": "AWB_RESULT_CONTEXT_ID",
-      "row": 395,
+      "row": 396,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5124,7 +5169,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 396,
+          "row": 397,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5135,7 +5180,7 @@
     {
       "offset": "0x2464",
       "name": "AWB_FRAME_ID",
-      "row": 397,
+      "row": 398,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5150,7 +5195,184 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 398,
+          "row": 399,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x2468",
+      "name": "AWB_RESULT_CTRL",
+      "row": 400,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000007",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "acquire",
+          "bits": "[0:0]",
+          "access": "W1S",
+          "reset": "0x0",
+          "row": 401,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "release",
+          "bits": "[1:1]",
+          "access": "W1S",
+          "reset": "0x0",
+          "row": 402,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "clear_report",
+          "bits": "[2:2]",
+          "access": "W1S",
+          "reset": "0x0",
+          "row": 403,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x246C",
+      "name": "AWB_RESULT_STATUS",
+      "row": 404,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0x003F7F7F",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "ready_count",
+          "bits": "[1:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 405,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "leased",
+          "bits": "[2:2]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 406,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "read_valid",
+          "bits": "[3:3]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 407,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "read_bank",
+          "bits": "[4:4]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 408,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "write_busy",
+          "bits": "[5:5]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 409,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "overrun",
+          "bits": "[6:6]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 410,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "read_num_zone_x",
+          "bits": "[14:8]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 411,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        },
+        {
+          "name": "read_num_zone_y",
+          "bits": "[21:16]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 412,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x2470",
+      "name": "AWB_DROP_COUNT",
+      "row": 413,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "drop_count",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 414,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5161,7 +5383,7 @@
     {
       "offset": "0x2600",
       "name": "AF_CTRL",
-      "row": 399,
+      "row": 415,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x000001E7",
@@ -5176,7 +5398,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 400,
+          "row": 416,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5187,7 +5409,7 @@
           "bits": "[1:1]",
           "access": "RW",
           "reset": "0x0",
-          "row": 401,
+          "row": 417,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5198,7 +5420,7 @@
           "bits": "[2:2]",
           "access": "RW",
           "reset": "0x0",
-          "row": 402,
+          "row": 418,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5209,7 +5431,7 @@
           "bits": "[3:3]",
           "access": "W1S",
           "reset": "0x0",
-          "row": 403,
+          "row": 419,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5220,7 +5442,7 @@
           "bits": "[4:4]",
           "access": "W1S",
           "reset": "0x0",
-          "row": 404,
+          "row": 420,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5231,7 +5453,7 @@
           "bits": "[5:5]",
           "access": "RW",
           "reset": "0x0",
-          "row": 405,
+          "row": 421,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5242,7 +5464,7 @@
           "bits": "[7:6]",
           "access": "RW",
           "reset": "0x0",
-          "row": 406,
+          "row": 422,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5253,7 +5475,7 @@
           "bits": "[8:8]",
           "access": "RW",
           "reset": "0x0",
-          "row": 407,
+          "row": 423,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5264,7 +5486,7 @@
     {
       "offset": "0x2604",
       "name": "AF_ZONE_EN",
-      "row": 408,
+      "row": 424,
       "reset": "0x0000FFFF",
       "masks": {
         "RW": "0x0000FFFF",
@@ -5279,7 +5501,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0xFFFF",
-          "row": 409,
+          "row": 425,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5307,7 +5529,7 @@
     {
       "offset": "0x2608",
       "name": "AF_METRIC_CFG",
-      "row": 410,
+      "row": 426,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00FFFFFF",
@@ -5322,7 +5544,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 411,
+          "row": 427,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5333,7 +5555,7 @@
           "bits": "[23:16]",
           "access": "RW",
           "reset": "0x0",
-          "row": 412,
+          "row": 428,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5344,7 +5566,7 @@
     {
       "offset": "0x260C",
       "name": "AF_STAT_ADDR",
-      "row": 413,
+      "row": 429,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000000F",
@@ -5359,7 +5581,7 @@
           "bits": "[3:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 414,
+          "row": 430,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5370,7 +5592,7 @@
     {
       "offset": "0x2610",
       "name": "AF_STAT_DATA",
-      "row": 415,
+      "row": 431,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5385,7 +5607,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 416,
+          "row": 432,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5396,7 +5618,7 @@
     {
       "offset": "0x2614",
       "name": "AF_LUT_ADDR",
-      "row": 417,
+      "row": 433,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x000000FF",
@@ -5411,7 +5633,7 @@
           "bits": "[7:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 418,
+          "row": 434,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5422,7 +5644,7 @@
     {
       "offset": "0x2618",
       "name": "AF_LUT_DATA",
-      "row": 419,
+      "row": 435,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000FFFF",
@@ -5437,7 +5659,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 420,
+          "row": 436,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5448,7 +5670,7 @@
     {
       "offset": "0x261C",
       "name": "AF_VCM_CUR_POS",
-      "row": 421,
+      "row": 437,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x0000FFFF",
@@ -5463,7 +5685,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 422,
+          "row": 438,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5474,7 +5696,7 @@
     {
       "offset": "0x2620",
       "name": "AF_VCM_BEST_POS",
-      "row": 423,
+      "row": 439,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5489,7 +5711,7 @@
           "bits": "[15:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 424,
+          "row": 440,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5500,7 +5722,7 @@
     {
       "offset": "0x2624",
       "name": "AF_PEAK_SCORE",
-      "row": 425,
+      "row": 441,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5515,7 +5737,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 426,
+          "row": 442,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5526,7 +5748,7 @@
     {
       "offset": "0x2628",
       "name": "AF_FOCUS_RANGE",
-      "row": 427,
+      "row": 443,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00FFFFFF",
@@ -5541,7 +5763,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 428,
+          "row": 444,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5552,7 +5774,7 @@
           "bits": "[23:16]",
           "access": "RW",
           "reset": "0x0",
-          "row": 429,
+          "row": 445,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5563,7 +5785,7 @@
     {
       "offset": "0x262C",
       "name": "AF_STATUS",
-      "row": 430,
+      "row": 446,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5578,7 +5800,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 431,
+          "row": 447,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5589,7 +5811,7 @@
           "bits": "[1:1]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 432,
+          "row": 448,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5600,7 +5822,7 @@
           "bits": "[2:2]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 433,
+          "row": 449,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5611,7 +5833,7 @@
           "bits": "[3:3]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 434,
+          "row": 450,
           "implemented": false,
           "tied_zero_bits": [],
           "enums": {},
@@ -5622,7 +5844,7 @@
           "bits": "[5:5]",
           "access": "RO",
           "reset": "0x0",
-          "row": 435,
+          "row": 451,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5633,7 +5855,7 @@
     {
       "offset": "0x2630",
       "name": "AF_CONTEXT_ID",
-      "row": 436,
+      "row": 452,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -5648,7 +5870,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 437,
+          "row": 453,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5659,7 +5881,7 @@
     {
       "offset": "0x2634",
       "name": "AF_RESULT_CONTEXT_ID",
-      "row": 438,
+      "row": 454,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5674,7 +5896,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 439,
+          "row": 455,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5685,7 +5907,7 @@
     {
       "offset": "0x2638",
       "name": "AF_FRAME_ID",
-      "row": 440,
+      "row": 456,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5700,7 +5922,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 441,
+          "row": 457,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5711,7 +5933,7 @@
     {
       "offset": "0x2800",
       "name": "OFMT_CTRL",
-      "row": 442,
+      "row": 458,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000001",
@@ -5726,7 +5948,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 443,
+          "row": 459,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5737,7 +5959,7 @@
     {
       "offset": "0x2804",
       "name": "OFMT_Y_STRIDE",
-      "row": 444,
+      "row": 460,
       "reset": "0x00000F00",
       "masks": {
         "RW": "0x0000FFFF",
@@ -5752,7 +5974,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0xF00",
-          "row": 445,
+          "row": 461,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5763,7 +5985,7 @@
     {
       "offset": "0x2808",
       "name": "OFMT_UV_STRIDE",
-      "row": 446,
+      "row": 462,
       "reset": "0x00000F00",
       "masks": {
         "RW": "0x0000FFFF",
@@ -5778,7 +6000,7 @@
           "bits": "[15:0]",
           "access": "RW",
           "reset": "0xF00",
-          "row": 447,
+          "row": 463,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5789,7 +6011,7 @@
     {
       "offset": "0x3000",
       "name": "DMA_CTRL",
-      "row": 448,
+      "row": 464,
       "reset": "0x00003F00",
       "masks": {
         "RW": "0x0000FF03",
@@ -5804,7 +6026,7 @@
           "bits": "[0:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 449,
+          "row": 465,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5815,7 +6037,7 @@
           "bits": "[1:1]",
           "access": "RW",
           "reset": "0x0",
-          "row": 450,
+          "row": 466,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5826,7 +6048,7 @@
           "bits": "[2:2]",
           "access": "W1SC",
           "reset": "0x0",
-          "row": 451,
+          "row": 467,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5837,7 +6059,7 @@
           "bits": "[15:8]",
           "access": "RW",
           "reset": "0x3F",
-          "row": 452,
+          "row": 468,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5848,7 +6070,7 @@
     {
       "offset": "0x3004",
       "name": "DMA_STAT",
-      "row": 453,
+      "row": 469,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5863,7 +6085,7 @@
           "bits": "[0:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 454,
+          "row": 470,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5874,7 +6096,7 @@
           "bits": "[1:1]",
           "access": "RO",
           "reset": "0x0",
-          "row": 455,
+          "row": 471,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -5885,7 +6107,7 @@
     {
       "offset": "0x3008",
       "name": "DMA_ERR",
-      "row": 456,
+      "row": 472,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -5900,18 +6122,18 @@
           "bits": "[5:0]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 457,
+          "row": 473,
           "implemented": true,
           "tied_zero_bits": [
             5
           ],
           "enums": {},
           "bit_names": {
-            "0": "ALIGN_OR_GEOMETRY",
+            "0": "ALIGN",
             "1": "IDMA_UNDERRUN",
             "2": "ODMA_OVERFLOW",
-            "3": "IDMA_AXI",
-            "4": "ODMA_AXI"
+            "3": "AXI_RD",
+            "4": "AXI_WR"
           }
         }
       ]
@@ -5919,10 +6141,10 @@
     {
       "offset": "0x300C",
       "name": "DMA_IRQ_EN",
-      "row": 458,
+      "row": 474,
       "reset": "0x00000000",
       "masks": {
-        "RW": "0x0000007E",
+        "RW": "0x0000007F",
         "RO": "0x00000000",
         "W1C": "0x00000000",
         "W1S": "0x00000000",
@@ -5934,13 +6156,12 @@
           "bits": "[6:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 459,
+          "row": 475,
           "implemented": true,
-          "tied_zero_bits": [
-            0
-          ],
+          "tied_zero_bits": [],
           "enums": {},
           "bit_names": {
+            "0": "CFG_ERROR",
             "1": "IDMA_START",
             "2": "IDMA_DONE",
             "3": "IDMA_UNDERRUN",
@@ -5954,12 +6175,12 @@
     {
       "offset": "0x3010",
       "name": "DMA_IRQ_STAT",
-      "row": 460,
+      "row": 476,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
         "RO": "0x00000000",
-        "W1C": "0x0000007E",
+        "W1C": "0x0000007F",
         "W1S": "0x00000000",
         "W1SC": "0x00000000"
       },
@@ -5969,13 +6190,12 @@
           "bits": "[6:0]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 461,
+          "row": 477,
           "implemented": true,
-          "tied_zero_bits": [
-            0
-          ],
+          "tied_zero_bits": [],
           "enums": {},
           "bit_names": {
+            "0": "CFG_ERROR",
             "1": "IDMA_START",
             "2": "IDMA_DONE",
             "3": "IDMA_UNDERRUN",
@@ -5989,7 +6209,7 @@
     {
       "offset": "0x3020",
       "name": "IDMA_STRIDE",
-      "row": 462,
+      "row": 478,
       "reset": "0x00001E00",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6004,7 +6224,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x1E00",
-          "row": 463,
+          "row": 479,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6015,7 +6235,7 @@
     {
       "offset": "0x3024",
       "name": "IDMA_BUF_VALID",
-      "row": 464,
+      "row": 480,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -6030,7 +6250,7 @@
           "bits": "[7:0]",
           "access": "W1S",
           "reset": "0x0",
-          "row": 465,
+          "row": 481,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6046,7 +6266,7 @@
     {
       "offset": "0x3028",
       "name": "IDMA_FRAME_COUNT",
-      "row": 466,
+      "row": 482,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -6061,7 +6281,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 467,
+          "row": 483,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6072,7 +6292,7 @@
     {
       "offset": "0x3040",
       "name": "IDMA_BUF_ADDR_L0",
-      "row": 468,
+      "row": 484,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6087,7 +6307,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 469,
+          "row": 485,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6098,7 +6318,7 @@
     {
       "offset": "0x3044",
       "name": "IDMA_BUF_ADDR_H0",
-      "row": 470,
+      "row": 486,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6113,7 +6333,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 471,
+          "row": 487,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6124,7 +6344,7 @@
     {
       "offset": "0x3048",
       "name": "IDMA_BUF_ADDR_L1",
-      "row": 472,
+      "row": 488,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6139,7 +6359,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 473,
+          "row": 489,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6150,7 +6370,7 @@
     {
       "offset": "0x304C",
       "name": "IDMA_BUF_ADDR_H1",
-      "row": 474,
+      "row": 490,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6165,7 +6385,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 475,
+          "row": 491,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6176,7 +6396,7 @@
     {
       "offset": "0x3050",
       "name": "IDMA_BUF_ADDR_L2",
-      "row": 476,
+      "row": 492,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6191,7 +6411,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 477,
+          "row": 493,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6202,7 +6422,7 @@
     {
       "offset": "0x3054",
       "name": "IDMA_BUF_ADDR_H2",
-      "row": 478,
+      "row": 494,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6217,7 +6437,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 479,
+          "row": 495,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6228,7 +6448,7 @@
     {
       "offset": "0x3058",
       "name": "IDMA_BUF_ADDR_L3",
-      "row": 480,
+      "row": 496,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6243,7 +6463,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 481,
+          "row": 497,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6254,7 +6474,7 @@
     {
       "offset": "0x305C",
       "name": "IDMA_BUF_ADDR_H3",
-      "row": 482,
+      "row": 498,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6269,7 +6489,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 483,
+          "row": 499,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6280,7 +6500,7 @@
     {
       "offset": "0x3080",
       "name": "ODMA_Y_STRIDE",
-      "row": 484,
+      "row": 500,
       "reset": "0x00000F00",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6295,7 +6515,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0xF00",
-          "row": 485,
+          "row": 501,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6306,7 +6526,7 @@
     {
       "offset": "0x3084",
       "name": "ODMA_UV_STRIDE",
-      "row": 486,
+      "row": 502,
       "reset": "0x00000F00",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6321,7 +6541,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0xF00",
-          "row": 487,
+          "row": 503,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6332,7 +6552,7 @@
     {
       "offset": "0x3088",
       "name": "ODMA_BUF_FREE",
-      "row": 488,
+      "row": 504,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -6347,7 +6567,7 @@
           "bits": "[7:0]",
           "access": "W1S",
           "reset": "0x0",
-          "row": 489,
+          "row": 505,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6363,7 +6583,7 @@
     {
       "offset": "0x308C",
       "name": "ODMA_BUF_DONE",
-      "row": 490,
+      "row": 506,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -6378,7 +6598,7 @@
           "bits": "[7:0]",
           "access": "W1C",
           "reset": "0x0",
-          "row": 491,
+          "row": 507,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6394,7 +6614,7 @@
     {
       "offset": "0x3090",
       "name": "ODMA_FRAME_COUNT",
-      "row": 492,
+      "row": 508,
       "reset": "0x00000000",
       "masks": {
         "RW": "0x00000000",
@@ -6409,7 +6629,7 @@
           "bits": "[31:0]",
           "access": "RO",
           "reset": "0x0",
-          "row": 493,
+          "row": 509,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6420,7 +6640,7 @@
     {
       "offset": "0x30A0",
       "name": "ODMA_Y_ADDR_L0",
-      "row": 494,
+      "row": 510,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6435,7 +6655,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 495,
+          "row": 511,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6446,7 +6666,7 @@
     {
       "offset": "0x30A4",
       "name": "ODMA_Y_ADDR_H0",
-      "row": 496,
+      "row": 512,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6461,7 +6681,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 497,
+          "row": 513,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6472,7 +6692,7 @@
     {
       "offset": "0x30A8",
       "name": "ODMA_UV_ADDR_L0",
-      "row": 498,
+      "row": 514,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6487,7 +6707,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 499,
+          "row": 515,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6498,7 +6718,7 @@
     {
       "offset": "0x30AC",
       "name": "ODMA_UV_ADDR_H0",
-      "row": 500,
+      "row": 516,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6513,7 +6733,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 501,
+          "row": 517,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6524,7 +6744,7 @@
     {
       "offset": "0x30B0",
       "name": "ODMA_Y_ADDR_L1",
-      "row": 502,
+      "row": 518,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6539,7 +6759,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 503,
+          "row": 519,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6550,7 +6770,7 @@
     {
       "offset": "0x30B4",
       "name": "ODMA_Y_ADDR_H1",
-      "row": 504,
+      "row": 520,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6565,7 +6785,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 505,
+          "row": 521,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6576,7 +6796,7 @@
     {
       "offset": "0x30B8",
       "name": "ODMA_UV_ADDR_L1",
-      "row": 506,
+      "row": 522,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6591,7 +6811,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 507,
+          "row": 523,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6602,7 +6822,7 @@
     {
       "offset": "0x30BC",
       "name": "ODMA_UV_ADDR_H1",
-      "row": 508,
+      "row": 524,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6617,7 +6837,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 509,
+          "row": 525,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6628,7 +6848,7 @@
     {
       "offset": "0x30C0",
       "name": "ODMA_Y_ADDR_L2",
-      "row": 510,
+      "row": 526,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6643,7 +6863,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 511,
+          "row": 527,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6654,7 +6874,7 @@
     {
       "offset": "0x30C4",
       "name": "ODMA_Y_ADDR_H2",
-      "row": 512,
+      "row": 528,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6669,7 +6889,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 513,
+          "row": 529,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6680,7 +6900,7 @@
     {
       "offset": "0x30C8",
       "name": "ODMA_UV_ADDR_L2",
-      "row": 514,
+      "row": 530,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6695,7 +6915,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 515,
+          "row": 531,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6706,7 +6926,7 @@
     {
       "offset": "0x30CC",
       "name": "ODMA_UV_ADDR_H2",
-      "row": 516,
+      "row": 532,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6721,7 +6941,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 517,
+          "row": 533,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6732,7 +6952,7 @@
     {
       "offset": "0x30D0",
       "name": "ODMA_Y_ADDR_L3",
-      "row": 518,
+      "row": 534,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6747,7 +6967,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 519,
+          "row": 535,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6758,7 +6978,7 @@
     {
       "offset": "0x30D4",
       "name": "ODMA_Y_ADDR_H3",
-      "row": 520,
+      "row": 536,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6773,7 +6993,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 521,
+          "row": 537,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6784,7 +7004,7 @@
     {
       "offset": "0x30D8",
       "name": "ODMA_UV_ADDR_L3",
-      "row": 522,
+      "row": 538,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6799,7 +7019,7 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 523,
+          "row": 539,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},
@@ -6810,7 +7030,7 @@
     {
       "offset": "0x30DC",
       "name": "ODMA_UV_ADDR_H3",
-      "row": 524,
+      "row": 540,
       "reset": "0x00000000",
       "masks": {
         "RW": "0xFFFFFFFF",
@@ -6825,7 +7045,657 @@
           "bits": "[31:0]",
           "access": "RW",
           "reset": "0x0",
-          "row": 525,
+          "row": 541,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3100",
+      "name": "IDMA_BUF_TAG0",
+      "row": 542,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 543,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3104",
+      "name": "IDMA_BUF_TAG1",
+      "row": 544,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 545,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3108",
+      "name": "IDMA_BUF_TAG2",
+      "row": 546,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 547,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x310C",
+      "name": "IDMA_BUF_TAG3",
+      "row": 548,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 549,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3110",
+      "name": "IDMA_BUF_TS0",
+      "row": 550,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 551,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3114",
+      "name": "IDMA_BUF_TS1",
+      "row": 552,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 553,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3118",
+      "name": "IDMA_BUF_TS2",
+      "row": 554,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 555,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x311C",
+      "name": "IDMA_BUF_TS3",
+      "row": 556,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0xFFFFFFFF",
+        "RO": "0x00000000",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RW",
+          "reset": "0x0",
+          "row": 557,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3120",
+      "name": "ODMA_BUF_TAG0",
+      "row": 558,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 559,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3124",
+      "name": "ODMA_BUF_TAG1",
+      "row": 560,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 561,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3128",
+      "name": "ODMA_BUF_TAG2",
+      "row": 562,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 563,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x312C",
+      "name": "ODMA_BUF_TAG3",
+      "row": 564,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "tag",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 565,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3130",
+      "name": "ODMA_BUF_TS0",
+      "row": 566,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 567,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3134",
+      "name": "ODMA_BUF_TS1",
+      "row": 568,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 569,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3138",
+      "name": "ODMA_BUF_TS2",
+      "row": 570,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 571,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x313C",
+      "name": "ODMA_BUF_TS3",
+      "row": 572,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 573,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3140",
+      "name": "ODMA_BUF_SOF_TS0",
+      "row": 574,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 575,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3144",
+      "name": "ODMA_BUF_SOF_TS1",
+      "row": 576,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 577,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3148",
+      "name": "ODMA_BUF_SOF_TS2",
+      "row": 578,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 579,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x314C",
+      "name": "ODMA_BUF_SOF_TS3",
+      "row": 580,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 581,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3150",
+      "name": "ODMA_BUF_EOF_TS0",
+      "row": 582,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 583,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3154",
+      "name": "ODMA_BUF_EOF_TS1",
+      "row": 584,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 585,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3158",
+      "name": "ODMA_BUF_EOF_TS2",
+      "row": 586,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 587,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x315C",
+      "name": "ODMA_BUF_EOF_TS3",
+      "row": 588,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "timestamp",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 589,
+          "implemented": true,
+          "tied_zero_bits": [],
+          "enums": {},
+          "bit_names": {}
+        }
+      ]
+    },
+    {
+      "offset": "0x3160",
+      "name": "FRAME_COUNTER",
+      "row": 590,
+      "reset": "0x00000000",
+      "masks": {
+        "RW": "0x00000000",
+        "RO": "0xFFFFFFFF",
+        "W1C": "0x00000000",
+        "W1S": "0x00000000",
+        "W1SC": "0x00000000"
+      },
+      "fields": [
+        {
+          "name": "counter",
+          "bits": "[31:0]",
+          "access": "RO",
+          "reset": "0x0",
+          "row": 591,
           "implemented": true,
           "tied_zero_bits": [],
           "enums": {},

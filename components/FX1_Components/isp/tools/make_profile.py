@@ -112,14 +112,24 @@ def profile_writes(raw12, width, height, bayer, preset="basic", pedestal=200):
         w += gamma(0) + [("CSC_CTRL", 0)]
     elif preset in ("full", "full_vga_709"):
         vga = preset == "full_vga_709"
-        w += lsc_load(17, 9, 1 if vga else 0, 1.6)
-        w += [("LSC_PROFILE_SEL", 1 if vga else 0), ("LSC_STRENGTH", 0xC000 if vga else 0x10000), ("LSC_CTRL", 1)]
+        # Boot sequence of MAS Table 31 / owner Q5: profile 0 is active at reset
+        # and is never a destination, so load profile 1, validate, select it.
+        # The mesh may not have more nodes than the active image has pixels on
+        # either axis (MAS §6.8.4, CSR 07/10); clamp it on small frames.
+        sh, sv = BAYER[bayer] & 1, (BAYER[bayer] >> 1) & 1
+        aw, ah = (width - sh) // 2 * 2, (height - sv) // 2 * 2
+        w += lsc_load(min(17, aw), min(9, ah), 1, 1.6)
+        w += [("LSC_PROFILE_SEL", 1), ("LSC_STRENGTH", 0xC000 if vga else 0x10000), ("LSC_CTRL", 1)]
         w += [("BPC_MODE", 0), ("BPC_THRESH", (77 << 16) | 402), ("BPC_CTRL", 1)]
         w += [("DG_CTRL", 1), ("DG_GAIN", 0x0F0 if vga else 0x110)]   # UQ4.8
         w += ccm_writes([[1.4, -0.3, -0.1], [-0.2, 1.4, -0.2], [-0.1, -0.4, 1.5]])
         w += gamma(3 if vga else 0) + [("CSC_CTRL", 1 if vga else 0)]
         w += [("GTM_KEY", 0xBB), ("GTM_LWHITE", 0x0180), ("GTM_ROI_LOG2", 11), ("GTM_CTRL", 1)]
         w += [("NR_2D_CTRL", 1)]
+        # EE tables at unity, written explicitly: they are undefined after reset
+        # (MAS §6.5.2), so a profile that enables EE must load them.
+        for bank, n in ((0, 64), (1, 64), (2, 32), (3, 32)):
+            w += [("EE_LUT_CTRL", bank << 1), ("EE_LUT_ADDR", 0)] + [("EE_LUT_WDATA", 0x8000)] * n
         w += [("EE_ALPHA", 0x6000), ("EE_BETA", 0x4000), ("EE_CLAMP", (40 << 8) | 30), ("EE_CTRL", 1)]
         w += [("CNF_CHROMA_TH", 30), ("CNF_LUMA_TH", 20), ("CNF_CTRL", 0x5)]
         w += resizer(14 if vga else 5)

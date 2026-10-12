@@ -29,8 +29,8 @@ struct fx1_isp_params {
    sc_core::sc_time core_period{2, sc_core::SC_NS};
    // Latency annotated on every CSR access (VP parameter, not a silicon figure).
    sc_core::sc_time csr_latency{10, sc_core::SC_NS};
-   // Soft-reset pulse length in core cycles (CSR row 451, DEC-14).
-   unsigned soft_reset_cycles = 32;
+   // Soft-reset pulse length in core cycles (MAS §6.5.3: 15 for both sources).
+   unsigned soft_reset_cycles = 15;
    // PARA_AXI_DATA_WIDTH / 8 and PARA_AXI_ADDR_WIDTH (HAS Table 5-1).
    unsigned axi_data_bytes = 16;
    unsigned axi_addr_bits = 40;

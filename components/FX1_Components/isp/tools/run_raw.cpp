@@ -279,6 +279,10 @@ struct runner : sc_module {
       write32(FX1_ISP_COMMON_CTRL_OFFSET, FX1_ISP_COMMON_CTRL_ISP_EN_MASK);
       write32(FX1_ISP_COMMON_IRQ_EN_OFFSET, 0xFFFFFFFFu);  // every source on the pin (reserved bits read 0)
       write32(FX1_ISP_DMA_IRQ_EN_OFFSET, 0xFFFFFFFFu);
+      // The Resizer publishes its derived set at most two derivations (2 x 36
+      // clocks) after the last key change (MAS §6.20.4.3); read the output
+      // geometry once it is valid.
+      wait(dut->params().core_period * 80.0);
       const std::uint32_t ow = read32(FX1_ISP_RESIZER_OUT_W_OFFSET), oh = read32(FX1_ISP_RESIZER_OUT_H_OFFSET);
       const std::uint32_t out_stride = align16(ow);
       write32(FX1_ISP_IDMA_STRIDE_OFFSET, in_stride);
@@ -341,9 +345,10 @@ struct runner : sc_module {
          log("frame " + std::to_string(completed) + " done, buffer " + std::to_string(slot) +
              "  COMMON_IRQ_STATUS=" + hex(common) + " DMA_IRQ_STAT=" + hex(dma) +
              " DMA_ERR=" + hex(read32(FX1_ISP_DMA_ERR_OFFSET)) +
-             " AEC/AWB/AF_FRAME_ID=" + std::to_string(read32(FX1_ISP_AEC_FRAME_ID_OFFSET)) + "/" +
-             std::to_string(read32(FX1_ISP_AWB_FRAME_ID_OFFSET)) + "/" +
-             std::to_string(read32(FX1_ISP_AF_FRAME_ID_OFFSET)) + " sha256=" + shas.back().substr(0, 16));
+             " AEC/AF_FRAME_ID=" + std::to_string(read32(FX1_ISP_AEC_FRAME_ID_OFFSET)) + "/" +
+             std::to_string(read32(FX1_ISP_AF_FRAME_ID_OFFSET)) +
+             " AWB_RESULT_STATUS=" + hex(read32(FX1_ISP_AWB_RESULT_STATUS_OFFSET)) +  // results need a lease
+             " sha256=" + shas.back().substr(0, 16));
          write32(FX1_ISP_COMMON_IRQ_STATUS_OFFSET, common);
          write32(FX1_ISP_DMA_IRQ_STAT_OFFSET, dma);
          write32(FX1_ISP_ODMA_BUF_DONE_OFFSET, 1u << slot);

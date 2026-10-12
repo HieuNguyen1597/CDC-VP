@@ -54,7 +54,6 @@ pipeline_config snapshot_config(control_unit &ctl) {
       c.lsc_mesh = ctl.lsc_profile(active);
    }
    c.bpc_en = reg(FX1_ISP_BPC_CTRL_OFFSET) & FX1_ISP_BPC_CTRL_EN_MASK;
-   c.bpc_dynamic_requested = reg(FX1_ISP_BPC_MODE_OFFSET) & FX1_ISP_BPC_MODE_DYNAMIC_DET_EN_MASK;
    const std::uint32_t th = reg(FX1_ISP_BPC_THRESH_OFFSET);
    c.bpc_floor = th & FX1_ISP_BPC_THRESH_THRESH_FLOOR_MASK;
    c.bpc_k = (th & FX1_ISP_BPC_THRESH_THRESH_K_MASK) >> FX1_ISP_BPC_THRESH_THRESH_K_SHIFT;
@@ -80,6 +79,7 @@ pipeline_config snapshot_config(control_unit &ctl) {
    c.nr_en = reg(FX1_ISP_NR_2D_CTRL_OFFSET) & FX1_ISP_NR_2D_CTRL_EN_MASK;
    c.nr_var = ctl.nr_variance();
    c.live = &ctl;
+   c.ee = ctl.ee_frame();
    c.cnf_en = reg(FX1_ISP_CNF_CTRL_OFFSET) & FX1_ISP_CNF_CTRL_EN_MASK;
    c.cnf_chroma_th = ctl.committed(FX1_ISP_CNF_CHROMA_TH_OFFSET) & FX1_ISP_CNF_CHROMA_TH_CHROMA_TH_MASK;
    c.cnf_luma_th = ctl.committed(FX1_ISP_CNF_LUMA_TH_OFFSET) & FX1_ISP_CNF_LUMA_TH_LUMA_TH_MASK;
@@ -88,9 +88,12 @@ pipeline_config snapshot_config(control_unit &ctl) {
    c.gamma_lut = &ctl.gamma_lut();
    c.csc_std = reg(FX1_ISP_CSC_CTRL_OFFSET) & FX1_ISP_CSC_CTRL_STD_MASK;
 
-   c.resizer_en = reg(FX1_ISP_RESIZER_CTRL_OFFSET) & FX1_ISP_RESIZER_CTRL_EN_MASK;
-   c.resizer_scale = fld(ctl.committed(FX1_ISP_RESIZER_CTRL_OFFSET), FX1_ISP_RESIZER_CTRL_SCALE_MASK,
-                         FX1_ISP_RESIZER_CTRL_SCALE_SHIFT);
+   const resizer_set &rz = ctl.resizer_frame();
+   c.resizer_en = rz.key.en;
+   c.resizer_key_valid = rz.key.valid;
+   c.resizer_key_w = rz.key.width;
+   c.resizer_key_h = rz.key.height;
+   c.resizer_scale = rz.key.scale;
 
    c.aec = ctl.aec_active();
    c.awb = ctl.awb_frame_config();
@@ -200,9 +203,18 @@ resizer_plan plan_resizer(bool en, std::uint32_t scale, std::uint32_t in_w, std:
    return p;
 }
 
+// The frame scales only with a published set derived for its own active size.
+bool resizer_applies(const pipeline_config &cfg, const geometry &active) {
+   if (!cfg.resizer_key_valid) {
+      return false;  // the reset set: not scaled
+   }
+   return (cfg.resizer_key_w == 0 && cfg.resizer_key_h == 0) ||
+          (cfg.resizer_key_w == active.width && cfg.resizer_key_h == active.height);
+}
+
 frame_geometry output_geometry(const pipeline_config &cfg, std::uint32_t in_width, std::uint32_t in_height) {
    const geometry a = control_unit::derive_active(in_width, in_height, cfg.bayer_pattern);
-   const resizer_plan p = plan_resizer(cfg.resizer_en, cfg.resizer_scale, a.width, a.height);
+   const resizer_plan p = plan_resizer(cfg.resizer_en && resizer_applies(cfg, a), cfg.resizer_scale, a.width, a.height);
    return {p.out_w, p.out_h};
 }
 
@@ -689,12 +701,15 @@ private:
    bool have_even_ = false;
 };
 
-// EE (HAS §6.18.6): dual-scale high-pass, gain chain, clamp; live parameters.
+// EE (HAS §6.18.6): dual-scale high-pass, gain chain, clamp. Enable, profile
+// and scalars are the frame's (sampled at SOF); the profile's tables are read
+// live row by row, so a write to an in-use table tears the frame (MAS §9.2).
 class ee_stage {
 public:
    using sink = std::function<void(y_row &&)>;
    void begin(const pipeline_config &c, std::uint32_t w, std::uint32_t h) {
       live_ = c.live;
+      f_ = c.ee;
       w_ = w;
       h_ = h;
       win_.begin(h);
@@ -713,26 +728,28 @@ private:
       }
    }
    y_row compute_row() const {
-      const register_file &r = live_->regs();
       const std::uint32_t y = win_.centre();
       y_row o = win_.at(0);
-      if (!(r.peek(FX1_ISP_EE_CTRL_OFFSET) & FX1_ISP_EE_CTRL_EN_MASK) || y < 2 || y + 2 >= h_) {
-         return o;  // bypass (live, ALG-EE-02) or border row
+      if (!f_.en || y < 2 || y + 2 >= h_) {
+         return o;  // bypass (enable sampled at SOF) or border row
       }
-      const std::int64_t alpha = std::min<std::uint32_t>(r.peek(FX1_ISP_EE_ALPHA_OFFSET) & 0xFFFFu, 0x8000u);
-      const std::int64_t beta = std::min<std::uint32_t>(r.peek(FX1_ISP_EE_BETA_OFFSET) & 0xFFFFu, 0x8000u);
-      const std::uint32_t clamp = r.peek(FX1_ISP_EE_CLAMP_OFFSET);
+      const auto &s = f_.scalar;
+      const std::int64_t alpha = std::min<std::uint32_t>(s[ee_alpha] & 0xFFFFu, 0x8000u);
+      const std::int64_t beta = std::min<std::uint32_t>(s[ee_beta] & 0xFFFFu, 0x8000u);
+      const std::uint32_t clamp = s[ee_clamp];
       const std::int64_t cpos = clamp & 0xFFu, cneg = (clamp >> 8) & 0xFFu;
-      const std::uint32_t feat = r.peek(FX1_ISP_EE_FEATURE_EN_OFFSET);
-      const std::uint32_t centre = r.peek(FX1_ISP_EE_RADIAL_CENTER_OFFSET);
+      const std::uint32_t feat = s[ee_feature_en];
+      const std::uint32_t centre = s[ee_radial_center];
       const std::int64_t cx2 = centre & 0x1FFFu, cy2 = (centre >> 16) & 0x1FFFu;
-      const std::int64_t t0 = r.peek(FX1_ISP_EE_RADIAL_R2_TH0_OFFSET) & 0x7FFFFFFu;
-      const std::int64_t t1 = r.peek(FX1_ISP_EE_RADIAL_R2_TH1_OFFSET) & 0x7FFFFFFu;
-      const std::int64_t t2 = r.peek(FX1_ISP_EE_RADIAL_R2_TH2_OFFSET) & 0x7FFFFFFu;
-      const std::uint32_t g01 = r.peek(FX1_ISP_EE_RADIAL_GAIN_01_OFFSET), g23 = r.peek(FX1_ISP_EE_RADIAL_GAIN_23_OFFSET);
+      const std::int64_t t0 = s[ee_radial_r2_th0] & 0x7FFFFFFu;
+      const std::int64_t t1 = s[ee_radial_r2_th1] & 0x7FFFFFFu;
+      const std::int64_t t2 = s[ee_radial_r2_th2] & 0x7FFFFFFu;
+      const std::uint32_t g01 = s[ee_radial_gain_01], g23 = s[ee_radial_gain_23];
       const std::int64_t gr[4] = {std::min<std::uint32_t>(g01 & 0xFFFFu, 0xC000u), std::min<std::uint32_t>(g01 >> 16, 0xC000u),
                                   std::min<std::uint32_t>(g23 & 0xFFFFu, 0xC000u), std::min<std::uint32_t>(g23 >> 16, 0xC000u)};
-      const auto &luma = live_->ee_table(0), &act = live_->ee_table(1), &cp = live_->ee_table(2), &cn = live_->ee_table(3);
+      const unsigned p = f_.profile;  // live tables of the frame's profile
+      const auto &luma = live_->ee_table(p, 0), &act = live_->ee_table(p, 1), &cp = live_->ee_table(p, 2),
+                 &cn = live_->ee_table(p, 3);
       for (std::uint32_t x = 2; x + 2 < w_; ++x) {
          auto P = [&](int dy, int dx) -> std::int64_t { return win_.at(dy)[x + static_cast<std::uint32_t>(dx + 2) - 2]; };
          const std::int64_t c = P(0, 0);
@@ -779,6 +796,7 @@ private:
       return o;
    }
    const control_unit *live_ = nullptr;
+   ee_frame_set f_{};
    std::uint32_t w_ = 0, h_ = 0;
    row_window<y_row> win_{2, border::replicate};  // borders are passed through, never filtered
 };
@@ -1162,7 +1180,8 @@ private:
 
 // AF (HAS §6.23.5, ALG-F §3.3): Sobel |gx| + |gy| on the CSC luma with
 // replicate borders, summed over a fixed 4x4 grid. Observer only: the stream
-// is not modified. EN is read live per evaluated row (ALG-AF-01).
+// is not modified. EN is the value sampled at the frame's SOF (MAS §6.23.2;
+// ALG-AF-01 superseded): a frame that started enabled is measured to its end.
 class af_stage {
 public:
    void begin(const pipeline_config &c, af_result &r, std::uint32_t w, std::uint32_t h) {
@@ -1170,7 +1189,6 @@ public:
       r_ = &r;
       w_ = w;
       h_ = h;
-      full_ = c.af_en;
       r = af_result{};
       win_.begin(h);
    }
@@ -1183,18 +1201,12 @@ public:
       drain(false);
    }
    void finish() { drain(true); }
-   bool full() const { return full_; }
 
 private:
-   bool enabled() const {
-      return c_->live ? (c_->live->regs().peek(FX1_ISP_AF_CTRL_OFFSET) & FX1_ISP_AF_CTRL_EN_MASK) != 0 : c_->af_en;
-   }
    void drain(bool ended) {
       while (win_.ready(ended)) {
          const std::uint32_t yc = win_.centre();
-         if (!enabled()) {
-            full_ = false;
-         } else {
+         if (c_->af_en) {
             const y_row &a = win_.at(-1), &b = win_.at(0), &d = win_.at(1);
             const std::size_t zrow = std::size_t{yc} * 4u / h_ * 4u;
             for (std::uint32_t x = 0; x < w_; ++x) {
@@ -1210,7 +1222,6 @@ private:
    const pipeline_config *c_ = nullptr;
    af_result *r_ = nullptr;
    std::uint32_t w_ = 0, h_ = 0;
-   bool full_ = false;
    row_window<y_row> win_{1, border::replicate};
 };
 
@@ -1322,7 +1333,8 @@ frame_geometry isp_pipeline::begin(const pipeline_config &cfg, std::uint32_t in_
    m.sh = cfg.bayer_pattern & 1u;
    m.sv = (cfg.bayer_pattern >> 1) & 1u;
    m.active = control_unit::derive_active(in_width, in_height, cfg.bayer_pattern);
-   m.plan = plan_resizer(cfg.resizer_en, cfg.resizer_scale, m.active.width, m.active.height);
+   m.plan = plan_resizer(cfg.resizer_en && resizer_applies(cfg, m.active), cfg.resizer_scale, m.active.width,
+                         m.active.height);
    m.y_in = m.y_bayer = m.y_out = m.y_post_bpc = 0;
    m.stats = frame_stats{};
    m.y_out_sink = std::move(y);
@@ -1336,9 +1348,6 @@ frame_geometry isp_pipeline::begin(const pipeline_config &cfg, std::uint32_t in_
       }
       if (cfg.tnr_en) {
          warn("TNR_3D enabled: 3DNR is not supported (HAS 3.1), register storage only (M5-A1)");
-      }
-      if (cfg.bpc_en && cfg.bpc_dynamic_requested) {
-         warn("BPC dynamic detection requested: not modelled, static detection used (DEC-28)");
       }
    }
    m.lsc.begin(m.cfg, m.active.width, m.active.height);
@@ -1392,7 +1401,6 @@ void isp_pipeline::finish() {
    m.stats.lsc_overflow = m.lsc.overflow();
    m.stats.bpc_candidates = m.bpc.candidates();
    m.stats.bpc_defective = m.bpc.defective();
-   m.stats.af_full = m.af.full();
 }
 
 const frame_stats &isp_pipeline::stats() const { return impl_->stats; }
@@ -1418,6 +1426,7 @@ std::vector<std::uint16_t> run_ee(const std::vector<std::uint16_t> &y, std::uint
                                   const control_unit &live) {
    pipeline_config c;
    c.live = &live;
+   c.ee = live.ee_frame();  // the set sampled at the last accepted SOF
    ee_stage st;
    st.begin(c, w, h);
    std::vector<std::uint16_t> out;
@@ -1452,18 +1461,18 @@ void end_of_frame(control_unit &ctl, const pipeline_config &cfg, const frame_sta
    for (unsigned c = 0; c < 4; ++c) {  // 21-bit counters; bypass frames publish 0 (ALG-LSC-08)
       ctl.hw_write(lsc_regs[c], 0x1FFFFFu, std::min<std::uint32_t>(st.lsc_overflow[c], 0x1FFFFFu));
    }
-   if (cfg.bpc_en) {  // ALG-BPC-03 static counts, saturating; DEC-28: 0 when dynamic is requested
-      const bool dyn = cfg.bpc_dynamic_requested;
-      ctl.hw_write(FX1_ISP_BPC_NUM_CANDIDATES_OFFSET, 0x3FFFu, dyn ? 0u : std::min<std::uint32_t>(st.bpc_candidates, 0x3FFFu));
-      ctl.hw_write(FX1_ISP_BPC_NUM_DEFECTIVE_OFFSET, 0x3FFFu, dyn ? 0u : std::min<std::uint32_t>(st.bpc_defective, 0x3FFFu));
+   if (cfg.bpc_en) {  // counted during an enabled frame, 14-bit saturating (MAS §6.9, DEC-28 superseded)
+      ctl.hw_write(FX1_ISP_BPC_NUM_CANDIDATES_OFFSET, 0x3FFFu, std::min<std::uint32_t>(st.bpc_candidates, 0x3FFFu));
+      ctl.hw_write(FX1_ISP_BPC_NUM_DEFECTIVE_OFFSET, 0x3FFFu, std::min<std::uint32_t>(st.bpc_defective, 0x3FFFu));
    }
    ctl.gtm_end_of_frame(st.gtm_yavg);  // stats and rebuild run regardless of EN (HAS p105)
+   ctl.ee_end_of_frame();              // radial gain range event, once per processed frame
    if (st.nr_measured) {
       ctl.nr_publish(st.nr_var);         // held while 2DNR is disabled (ALG-2DNR-09)
    }
    // Tap order AEC -> AWB -> AF; a block disabled for the frame keeps its
    // results (ALG-STAT-06); AF decides on its EN at the end of frame.
-   ctl.stats_publish(cfg.aec.en ? &st.aec : nullptr, cfg.awb.en ? &st.awb : nullptr, &st.af, st.af_full);
+   ctl.stats_publish(cfg.aec.en ? &st.aec : nullptr, cfg.awb.en ? &st.awb : nullptr, &st.af);
 }
 
 }  // namespace cdc::components::fx1_isp::pipe

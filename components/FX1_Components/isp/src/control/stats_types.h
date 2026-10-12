@@ -3,12 +3,14 @@
 // AF (§6.23), shared by the pipeline (accumulation) and the control unit
 // (publication and readout). Review items: plan/alg/ALG_F.
 //
-// Two kinds of storage (HAS §6.21.6.5, §6.22.5.5; DEC-29, DEC-30):
-// - the AEC zone + histogram memory and the AWB zone memory are single
-//   in-place memories, restarted at the SOF of an enabled frame and updated
-//   row by row, so software reads the partial sums of the frame in progress;
-// - global results and AF scores are double-buffered and replaced at
-//   publication.
+// Three kinds of storage:
+// - the AEC zone + histogram memory is a single in-place memory, restarted at
+//   the SOF of an enabled frame and updated row by row, so software reads the
+//   partial sums of the frame in progress (MAS §6.21.4.3, DEC-30);
+// - AWB results live in two banks owned by software through acquire/release
+//   (MAS §6.22.4, §6.22.5.3): global, zones and identity of one frame, stable
+//   while READY or LEASED;
+// - AEC global results and AF scores are replaced at publication.
 #pragma once
 
 #include <array>
@@ -72,7 +74,8 @@ struct awb_result {
    std::uint32_t n = 0;                // 23-bit
 };
 
-// AWB zone memory (single, in place).
+// AWB zone entries of one bank, for the grid captured at admission. An entry
+// not touched by the frame reads 0 (written flags cleared at admission).
 struct awb_memory {
    std::vector<std::array<std::uint64_t, 3>> zsum;
    std::vector<std::uint32_t> zcnt;
@@ -87,6 +90,21 @@ struct awb_memory {
       zsum.assign(n, {});
       zcnt.assign(n, 0);
    }
+};
+
+// One AWB result bank (MAS §6.22.4.3, §6.22.5.3): FREE -> WRITING (admitted
+// at an enabled SOF) -> READY (published after the frame's last sample) ->
+// LEASED (acquired by software) -> FREE (released). READY and LEASED banks are
+// never written.
+struct awb_bank {
+   enum class state { free, writing, ready, leased };
+   state st = state::free;
+   awb_memory mem;                     // zones of the captured grid (mem.nx, mem.ny)
+   awb_result global;                  // global snapshot, published with the bank
+   std::uint32_t frame_id = 0, context_id = 0;
+   std::uint64_t stamp = 0;            // cycle of the last state change: a bank
+                                       // freed or published on an edge is
+                                       // eligible from the following edge
 };
 
 struct af_result {

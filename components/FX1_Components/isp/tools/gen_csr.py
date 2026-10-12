@@ -34,51 +34,81 @@ try:
 except ImportError:  # pragma: no cover - environment problem, not a bug
     sys.exit("gen_csr.py: openpyxl is required (pip install openpyxl)")
 
-GENERATOR_VERSION = "1.0"
-EXPECTED_SHA256 = "0980b61ded06a386f0cc64e0445f93fd85b0b1f967d37f0cd41869c0753cd6bf"
-EXPECTED_COUNTS = {"registers": 226, "fields": 298,
-                   "RW": 192, "RO": 75, "W1C": 20, "W1S": 9, "W1SC": 2}
+GENERATOR_VERSION = "1.1"
+# CSR revision of 2026-10-07 (MAS of the same date). The previous pin was
+# 0980b61d... (226 registers, 298 fields); see docs/ISP_CSR_REVISION_0710.md.
+EXPECTED_SHA256 = "bda077b63d5ffe92c99e856170f4770509934ff900a270e954601b6124750db4"
+EXPECTED_COUNTS = {"registers": 254, "fields": 336,
+                   "RW": 201, "RO": 101, "W1C": 20, "W1S": 12, "W1SC": 2}
 ACCESS_TYPES = ("RW", "RO", "W1C", "W1S", "W1SC")
 APERTURE_BYTES = 0x10000
 
 # Overrides of the literal spreadsheet content. Each one is checked against the
 # text it overrides (`expect_*`), so it cannot outlive the defect it corrects.
+#
+# Kinds:
+#   assert_enum  no change; asserts the spreadsheet enum (a resolved decision
+#                that must not silently regress in a later revision)
+#   enum_names   the description gives values in prose; name them for the header
+#   bit_names    the description gives bit meanings without names; name them
+#   tied_zero    the bits are reserved and read zero
+#
+# CSR 07/10: DEC-11 is now the spreadsheet's own enum order (assert only);
+# SPEC-05 is superseded -- DMA_IRQ bit 0 is CFG_ERROR, no longer reserved.
 OVERRIDES = [
     {
         "id": "DEC-11",
-        "register": "COMMON_BAYER", "field": "pattern", "kind": "enum",
-        "reason": "Field description defines [V,H] encoding 0=RGGB 1=GRBG 2=GBRG "
-                  "3=BGGR and states the trailing enum list is the obsolete order. "
-                  "User decision DEC-11 adopts the description.",
-        "expect_enum": {0: "RGGB", 1: "BGGR", 2: "GRBG", 3: "GBRG"},
-        "enum": {0: "RGGB", 1: "GRBG", 2: "GBRG", 3: "BGGR"},
-    },
-    {
-        "id": "SPEC-05",
-        "register": "DMA_IRQ_EN", "field": "irq_en", "kind": "tied_zero",
-        "reason": "Bit 0 is reserved and tied to zero (no IRQ_CFG_ERROR, SPEC-05).",
-        "expect_text": "Bit 0 is reserved and tied to zero",
-        "bits": [0],
-    },
-    {
-        "id": "SPEC-05",
-        "register": "DMA_IRQ_STAT", "field": "irq", "kind": "tied_zero",
-        "reason": "Bit 0 is reserved and tied to zero (no IRQ_CFG_ERROR, SPEC-05).",
-        "expect_text": "Bit 0 is reserved and tied to zero",
-        "bits": [0],
+        "register": "COMMON_BAYER", "field": "pattern", "kind": "assert_enum",
+        "reason": "The [V,H] encoding 0=RGGB 1=GRBG 2=GBRG 3=BGGR adopted by DEC-11 is the "
+                  "spreadsheet's own enum since the 07/10 revision; asserted so it cannot regress.",
+        "expect_enum": {0: "RGGB", 1: "GRBG", 2: "GBRG", 3: "BGGR"},
     },
     {
         "id": "CSR-DMA-ERR-5",
         "register": "DMA_ERR", "field": "err", "kind": "tied_zero",
-        "reason": "Cause list marks bit 5 as reserved, tied to zero.",
-        "expect_text": "5 (reserved)         tied to zero",
+        "reason": "Cause list marks bit 5 as reserved, reads zero.",
+        "expect_text": "Bit 5 reserved, reads zero.",
         "bits": [5],
     },
+    {
+        "id": "VP-NAMES-CSC",
+        "register": "CSC_CTRL", "field": "std", "kind": "enum_names",
+        "reason": "The values are given in prose; keep the header names BT601/BT709.",
+        "expect_text": "0 selects BT.601; 1 selects BT.709.",
+        "enum": {0: "BT601", 1: "BT709"},
+    },
+    {
+        "id": "VP-NAMES-ODMA-BUF",
+        "register": "ODMA_BUF_FREE", "field": "odma_buf_free", "kind": "bit_names",
+        "reason": "Bits 3:0 identify the four buffers without names; keep BUFFER_0..3.",
+        "expect_text": "Bits 3:0 identify the four buffers",
+        "bits": {0: "BUFFER_0", 1: "BUFFER_1", 2: "BUFFER_2", 3: "BUFFER_3"},
+    },
+    {
+        "id": "VP-NAMES-ODMA-BUF",
+        "register": "ODMA_BUF_DONE", "field": "odma_buf_done", "kind": "bit_names",
+        "reason": "Bits 3:0 identify the buffers without names; keep BUFFER_0..3.",
+        "expect_text": "Bits 3:0 identify buffers",
+        "bits": {0: "BUFFER_0", 1: "BUFFER_1", 2: "BUFFER_2", 3: "BUFFER_3"},
+    },
+]
+
+# Header names that a revision renamed. The old macro stays as an alias of the
+# new one so that code written against the previous map keeps compiling; each
+# entry is asserted (old name gone, new name present) like an override.
+COMPAT_ALIASES = [
+    {"id": "CSR0710-RENAME", "register": "DMA_ERR", "field": "err", "old": "ALIGN_OR_GEOMETRY", "new": "ALIGN"},
+    {"id": "CSR0710-RENAME", "register": "DMA_ERR", "field": "err", "old": "IDMA_AXI", "new": "AXI_RD"},
+    {"id": "CSR0710-RENAME", "register": "DMA_ERR", "field": "err", "old": "ODMA_AXI", "new": "AXI_WR"},
 ]
 
 ENUM_VALUE_RE = re.compile(r"^\s*0x([0-9A-Fa-f]+)\s*=\s*([A-Za-z][A-Za-z0-9_]*)")
 ENUM_BIT_RE = re.compile(r"^\s*bit\s+(\d+)\s*=\s*([A-Za-z][A-Za-z0-9_]*)")
-NOT_IMPL_RE = re.compile(r"not implemented|no hardware", re.IGNORECASE)
+# 07/10 style: "Bit 0 CFG_ERROR (...). Bit 1 IDMA_START." or "Bit 3 AXI_RD: ...",
+# possibly several per line; the name is an upper-case identifier.
+BIT_INLINE_RE = re.compile(r"\bBit\s+(\d+)\s+([A-Z][A-Z0-9_]+)\b")
+NOT_IMPL_RE = re.compile(r"not implemented|no hardware|no processing effect|compatibility field"
+                         r"|reserved for a future", re.IGNORECASE)
 
 
 def fail(msg):
@@ -147,6 +177,9 @@ def read_sheet(ws):
             m = ENUM_BIT_RE.match(line)
             if m:
                 bit_names[int(m.group(1))] = m.group(2)
+                continue
+            for b, name in BIT_INLINE_RE.findall(line):
+                bit_names.setdefault(int(b), name)
         reg["fields"].append({
             "name": str(fname).strip(), "msb": msb, "lsb": lsb, "width": msb - lsb + 1,
             "access": acc, "reset": parse_int(rst, "reset of " + what),
@@ -174,11 +207,22 @@ def apply_overrides(regs):
         fld = next((f for f in reg["fields"] if f["name"] == ov["field"]), None)
         if fld is None:
             fail("override %s: field %s.%s missing" % (ov["id"], ov["register"], ov["field"]))
-        if ov["kind"] == "enum":
+        if ov["kind"] == "assert_enum":
             if fld["enums"] != ov["expect_enum"]:
                 fail("override %s: %s.%s enum is %r, expected %r -- re-review the map"
                      % (ov["id"], ov["register"], ov["field"], fld["enums"], ov["expect_enum"]))
-            fld["enums"] = dict(ov["enum"])
+        elif ov["kind"] in ("enum_names", "bit_names"):
+            if ov["expect_text"] not in fld["description"]:
+                fail("override %s: text %r not found in %s.%s -- re-review the map"
+                     % (ov["id"], ov["expect_text"], ov["register"], ov["field"]))
+            have = fld["enums"] if ov["kind"] == "enum_names" else fld["bits"]
+            if have:
+                fail("override %s: %s.%s now names its values (%r) -- drop the override"
+                     % (ov["id"], ov["register"], ov["field"], have))
+            if ov["kind"] == "enum_names":
+                fld["enums"] = dict(ov["enum"])
+            else:
+                fld["bits"] = dict(ov["bits"])
         elif ov["kind"] == "tied_zero":
             if ov["expect_text"] not in fld["description"]:
                 fail("override %s: text %r not found in %s.%s -- re-review the map"
@@ -190,6 +234,12 @@ def apply_overrides(regs):
         else:
             fail("unknown override kind %r" % ov["kind"])
         applied.append({k: v for k, v in ov.items() if not k.startswith("expect_")})
+    for al in COMPAT_ALIASES:
+        fld = next(f for f in by_name[al["register"]]["fields"] if f["name"] == al["field"])
+        names = set(fld["bits"].values()) | set(fld["enums"].values())
+        if al["new"] not in names or al["old"] in names:
+            fail("alias %s: %s.%s names %r; expected %s present and %s gone -- re-review"
+                 % (al["id"], al["register"], al["field"], sorted(names), al["new"], al["old"]))
     return applied
 
 
@@ -295,6 +345,11 @@ def gen_header(regs, src):
             for bit, name in sorted(f["bits"].items()):
                 if bit not in f["tied_zero_bits"]:
                     w("#define %s_%s_BIT (1u << %du)" % (fn, c_ident(name), bit))
+            for al in COMPAT_ALIASES:
+                if al["register"] == r["name"] and al["field"] == f["name"]:
+                    kind = "_BIT" if al["new"] in f["bits"].values() else ""
+                    w("#define %s_%s%s %s_%s%s /* deprecated alias (%s) */" % (
+                        fn, c_ident(al["old"]), kind, fn, c_ident(al["new"]), kind, al["id"]))
         w("")
     w("#endif /* FX1_ISP_CSR_H */")
     return "\n".join(out) + "\n"
@@ -343,7 +398,7 @@ def gen_table(regs, src):
 def gen_schema(regs, src, applied, counts):
     doc = {
         "generator": "tools/gen_csr.py", "generator_version": GENERATOR_VERSION,
-        "source": src, "counts": counts, "overrides": applied,
+        "source": src, "counts": counts, "overrides": applied, "compat_aliases": COMPAT_ALIASES,
         "access_semantics": "HAS Table 8-1 / Table 7-10; see docs/ISP_CSR_CONTRACT.md",
         "registers": [],
     }

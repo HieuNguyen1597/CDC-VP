@@ -103,6 +103,30 @@ def ee_tables():
     return w
 
 
+def ee_profile(p, k):
+    """Profile p (EE_CTRL.profile_wr_sel) loaded with distinct content k: scalars
+    and the four tables (MAS §6.18.4.1). EE stays disabled."""
+    w = [("EE_CTRL", p << 4),
+         ("EE_ALPHA", 0x2000 + 0x2000 * k), ("EE_BETA", 0x6000 - 0x1800 * k),
+         ("EE_CLAMP", ((20 + 10 * k) << 8) | (12 + 14 * k)), ("EE_FEATURE_EN", (0, 1, 7)[k]),
+         ("EE_RADIAL_CENTER", (31 << 16) | 47), ("EE_RADIAL_R2_TH0", 300), ("EE_RADIAL_R2_TH1", 900),
+         ("EE_RADIAL_R2_TH2", 2000), ("EE_RADIAL_GAIN_01", (0x9000 << 16) | 0x8000),
+         ("EE_RADIAL_GAIN_23", (0xB000 << 16) | 0xA000)]
+    for bank, n in ((0, 64), (1, 64), (2, 32), (3, 32)):
+        w += [("EE_LUT_CTRL", bank << 1), ("EE_LUT_ADDR", 0)]
+        w += [("EE_LUT_WDATA", 0x4000 + ((i * (37 + 11 * k) + bank * 101 + k * 977) % 0x4000)) for i in range(n)]
+    return w
+
+
+def ee_unity_tables():
+    """EE tables at unity (UQ1.15 1.0), loaded explicitly: the tables are undefined
+    after reset (MAS §6.5.2), so an enabled EE block needs its tables written."""
+    w = []
+    for bank, n in ((0, 64), (1, 64), (2, 32), (3, 32)):
+        w += [("EE_LUT_CTRL", bank << 1), ("EE_LUT_ADDR", 0)] + [("EE_LUT_WDATA", 0x8000)] * n
+    return w
+
+
 def pattern_edges(w, h, rng):
     """Flat areas, steps in four directions, a ramp and noise: exercises every demosaic branch."""
     y, x = np.mgrid[0:h, 0:w]
@@ -181,19 +205,21 @@ VECTORS = [
      [("COMMON_BAYER", 1), ("WB_CTRL", 1), ("WB_GAIN_R", 0x200), ("WB_GAIN_B", 0x080)]
      + profile_gamma(3) + [("GAMMA_CTRL", 1)]),
     ("gbrg_ccm_gate_64x36", 64, 36, lambda w, h, rng: rng.integers(0, 4096, size=(h, w)),
-     # CCM written without `updated`: the committed identity set applies (DEC-24).
+     # CCM written without `updated`: since the 07/10 map the field has no
+     # effect and the new matrix applies at SOF (owner Q1, DEC-24 superseded).
      [("COMMON_BAYER", 2)] + ccm_writes([[0.5, 0, 0], [0, 0.5, 0], [0, 0, 0.5]]) + [("CCM_CTRL", 1)]),
     ("lsc_bggr_96x64", 96, 64, pattern_edges,
      [("COMMON_BAYER", 3)] + lsc_load(9, 7, 1, vignette(9, 7)) +
      [("LSC_PROFILE_SEL", 1), ("LSC_STRENGTH", 0xC000), ("LSC_CTRL", 1)]),
     ("lsc_saturate_64x32", 64, 32, lambda w, h, rng: np.full((h, w), 3000) + rng.integers(0, 50, size=(h, w)),
-     lsc_load(2, 2, 0, lambda i, j, c: 0x80000 + (c << 12)) + [("LSC_STRENGTH", 0x10000), ("LSC_CTRL", 1)]),
+     lsc_load(2, 2, 1, lambda i, j, c: 0x80000 + (c << 12)) +   # profile 0 is active at boot (MAS Table 31)
+     [("LSC_PROFILE_SEL", 1), ("LSC_STRENGTH", 0x10000), ("LSC_CTRL", 1)]),
     ("lsc_strength_over_unity_64x32", 64, 32, pattern_edges,   # ALG-LSC-02: negative Ge possible
      lsc_load(3, 3, 2, lambda i, j, c: (i * 3 + j) << 15) + [("LSC_PROFILE_SEL", 2), ("LSC_STRENGTH", 0x1FFFF),
                                                              ("LSC_CTRL", 1)]),
     ("bpc_hot_rggb_80x48", 80, 48, hot_pixels,
      [("BPC_MODE", 0), ("BPC_THRESH", (77 << 16) | 402), ("BPC_CTRL", 1)]),
-    ("bpc_dynamic_requested_64x32", 64, 32, hot_pixels,   # DEC-28: static correction, counters 0
+    ("bpc_dynamic_requested_64x32", 64, 32, hot_pixels,   # DYNAMIC_DET_EN has no effect (MAS §6.9)
      [("BPC_THRESH", (0 << 16) | 100), ("BPC_CTRL", 1)]),
     ("gtm_auto_3frames_96x64", 96, 64, pattern_edges,       # frame 1 pass-through, then HW curves
      [("GTM_KEY", 0xBB), ("GTM_LWHITE", 0x0180), ("GTM_ROI_LOG2", 5), ("GTM_CTRL", 1)], 3),
@@ -207,13 +233,18 @@ VECTORS = [
       ("EE_RADIAL_CENTER", (63 << 16) | 95), ("EE_RADIAL_R2_TH0", 900), ("EE_RADIAL_R2_TH1", 4000),
       ("EE_RADIAL_R2_TH2", 9000), ("EE_RADIAL_GAIN_01", (0x9000 << 16) | 0x8000), ("EE_RADIAL_GAIN_23", (0xFFFF << 16) | 0xA000)]
      + ee_tables() + [("EE_CTRL", 1)]),
+    # Three resident EE profiles (MAS §6.18.4.1, U3): loaded with distinct content,
+    # selected 0, then code 3 (profile 0), then 2; the last frame is checked.
+    ("ee_profiles_3frames_64x48", 64, 48, pattern_edges,
+     ee_profile(0, 0) + ee_profile(1, 1) + ee_profile(2, 2) + [("EE_CTRL", 0x1)], 3,
+     [(1, "EE_CTRL", 0x1 | (3 << 2)), (2, "EE_CTRL", 0x1 | (2 << 2))]),
     ("cnf_64x48", 64, 48, noisy,
      [("CNF_CHROMA_TH", 40), ("CNF_LUMA_TH", 25), ("CNF_CTRL", 0x5)]),
     ("full_chain_bggr_2frames_130x74", 130, 74, noisy,
      [("COMMON_BAYER", 3), ("BLC_CTRL", 1), ("WB_CTRL", 1), ("WB_GAIN_R", 0x1A0), ("WB_GAIN_B", 0x170),
       ("BPC_MODE", 0), ("BPC_CTRL", 1)] + profile_gamma(0) +
-     [("GAMMA_CTRL", 1), ("GTM_KEY", 0xBB), ("GTM_CTRL", 1), ("NR_2D_CTRL", 1), ("EE_CTRL", 1),
-      ("CNF_CHROMA_TH", 30), ("CNF_LUMA_TH", 20), ("CNF_CTRL", 0x5)], 2),
+     [("GAMMA_CTRL", 1), ("GTM_KEY", 0xBB), ("GTM_CTRL", 1), ("NR_2D_CTRL", 1)] + ee_unity_tables() +
+     [("EE_CTRL", 1), ("CNF_CHROMA_TH", 30), ("CNF_LUMA_TH", 20), ("CNF_CTRL", 0x5)], 2),
     ("resize_qhd_1000x600", 1000, 600, pattern_edges,
      [("RESIZER_CTRL", 0x1 | 0x4 | (7 << 3))]),     # qHD 960x540: k = 0, bilinear 1.04 x 1.11
     ("resize_360p_1280x720", 1280, 720, pattern_edges,

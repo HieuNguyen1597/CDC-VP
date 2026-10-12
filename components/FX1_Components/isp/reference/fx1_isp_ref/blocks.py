@@ -67,8 +67,8 @@ def _lsc_axis(d, n):
 def lsc(p, regs, stats):
     nx, ny = regs.f("LSC_MESH_NODES", "mesh_nx"), regs.f("LSC_MESH_NODES", "mesh_ny")
     mesh = regs.lsc_mesh[regs.lsc_active]
-    geometry_ok = 2 <= nx <= 32 and 2 <= ny <= 32          # PARA_LSC_MESH_MAX = 32 (ALG-LSC-11)
     h, w = p.shape
+    geometry_ok = 2 <= nx <= 128 and 2 <= ny <= 128 and nx <= w and ny <= h   # MAS §6.8.4 (CSR 07/10)
     stats.update({"LSC_STAT_OVF_CNT_" + c: 0 for c in ("R", "GR", "GB", "B")})
     if not (regs.f("LSC_CTRL", "en") and mesh is not None and geometry_ok):
         return p.copy()
@@ -90,9 +90,13 @@ def lsc(p, regs, stats):
     return np.clip(pr, 0, 4095)
 
 
-# ---------------------------------------------------------------- BPC (HAS §6.9, static, DEC-28)
+# ---------------------------------------------------------------- BPC (MAS §6.9)
 def bpc(p, regs, stats):
+    """Spatial detection; DYNAMIC_DET_EN has no effect (DEC-28 superseded).
+    The counters clear at SOF and count during an enabled frame, 14-bit
+    saturating; a disabled frame leaves them at 0."""
     if not regs.f("BPC_CTRL", "en"):
+        stats["BPC_NUM_CANDIDATES"] = stats["BPC_NUM_DEFECTIVE"] = 0
         return p.copy()
     floor = regs.f("BPC_THRESH", "thresh_floor")
     k = regs.f("BPC_THRESH", "thresh_k")
@@ -104,9 +108,8 @@ def bpc(p, regs, stats):
     t = np.maximum(floor, (k * (nb.max(axis=0) - nb.min(axis=0)) + 128) >> 8)
     dev = np.abs(p - avg8)
     defect = dev > t
-    dynamic = regs.f("BPC_MODE", "dynamic_det_en")
-    stats["BPC_NUM_CANDIDATES"] = 0 if dynamic else min(int(np.count_nonzero(dev > floor)), 0x3FFF)
-    stats["BPC_NUM_DEFECTIVE"] = 0 if dynamic else min(int(np.count_nonzero(defect)), 0x3FFF)
+    stats["BPC_NUM_CANDIDATES"] = min(int(np.count_nonzero(dev > floor)), 0x3FFF)
+    stats["BPC_NUM_DEFECTIVE"] = min(int(np.count_nonzero(defect)), 0x3FFF)
     return np.where(defect, avg8, p)
 
 
@@ -195,7 +198,7 @@ def _s12(v):
 
 def ccm(rgb, regs, en_isp=True):
     """3x3 signed Q3.9 matrix + Q3.9 offset at the accumulator scale, floor, clamp (ALG-CCM-02).
-    Uses the committed coefficient set (DEC-24)."""
+    Coefficients sampled at the accepted SOF; `updated` has no effect (U1, DEC-24 superseded)."""
     if not (en_isp and regs.f("CCM_CTRL", "en")):
         return rgb.copy()
     names = [["CRR", "CRG", "CRB"], ["CGR", "CGG", "CGB"], ["CBR", "CBG", "CBB"]]
@@ -350,7 +353,9 @@ def ee_gain_chain(gl, ga, gc, gr):
 
 
 def ee(y, regs):
-    if not regs.f("EE_CTRL", "en"):
+    """Enable, profile and scalars as sampled at SOF (regs.ee_frame, MAS
+    §6.18.4.1); the profile's tables (frame based here: no write mid-frame)."""
+    if not regs.ee_frame["en"]:
         return y.copy()
     h, w = y.shape
     if h < 5 or w < 5:
@@ -364,27 +369,27 @@ def ee(y, regs):
     hc = 16 * c - 2 * (t(-1, 0) + t(1, 0) + t(0, -1) + t(0, 1)) - (t(-1, -1) + t(-1, 1) + t(1, -1) + t(1, 1)) \
         - (t(-2, 0) + t(2, 0) + t(0, -2) + t(0, 2))
     e_c = _sround(hc, 4)
-    a = min(regs.f("EE_ALPHA", "alpha"), 0x8000)
-    b = min(regs.f("EE_BETA", "beta"), 0x8000)
+    a = min(regs.ee_f("EE_ALPHA", "alpha"), 0x8000)
+    b = min(regs.ee_f("EE_BETA", "beta"), 0x8000)
     d0 = _sround(a * e_f + b * e_c, 15)
-    tab = [np.minimum(np.array(regs.ee_tables[i], dtype=I64), 0x8000) for i in range(4)]
+    tab = [np.minimum(np.array(regs.ee_luts[regs.ee_frame["profile"]][i], dtype=I64), 0x8000) for i in range(4)]
     gl = tab[0][c >> 2]
-    ga = tab[1][np.minimum(np.maximum(np.abs(e_f), np.abs(e_c)) >> 2, 63)] if regs.f("EE_FEATURE_EN", "activity_en") \
+    ga = tab[1][np.minimum(np.maximum(np.abs(e_f), np.abs(e_c)) >> 2, 63)] if regs.ee_f("EE_FEATURE_EN", "activity_en") \
         else np.full_like(c, 0x8000)
     ic = (win.max(axis=0) - win.min(axis=0)) >> 3
-    gc = np.where(d0 >= 0, tab[2][ic], tab[3][ic]) if regs.f("EE_FEATURE_EN", "contrast_en") else np.full_like(c, 0x8000)
-    if regs.f("EE_FEATURE_EN", "radial_en"):
+    gc = np.where(d0 >= 0, tab[2][ic], tab[3][ic]) if regs.ee_f("EE_FEATURE_EN", "contrast_en") else np.full_like(c, 0x8000)
+    if regs.ee_f("EE_FEATURE_EN", "radial_en"):
         yy, xx = np.mgrid[2:h - 2, 2:w - 2]
-        rr = (2 * xx - regs.f("EE_RADIAL_CENTER", "center_x2")) ** 2 + (2 * yy - regs.f("EE_RADIAL_CENTER", "center_y2")) ** 2
-        g = [min(regs.f("EE_RADIAL_GAIN_01", "gain0"), 0xC000), min(regs.f("EE_RADIAL_GAIN_01", "gain1"), 0xC000),
-             min(regs.f("EE_RADIAL_GAIN_23", "gain2"), 0xC000), min(regs.f("EE_RADIAL_GAIN_23", "gain3"), 0xC000)]
-        th = [regs.f("EE_RADIAL_R2_TH%d" % i, "r2_th%d" % i) for i in range(3)]
+        rr = (2 * xx - regs.ee_f("EE_RADIAL_CENTER", "center_x2")) ** 2 + (2 * yy - regs.ee_f("EE_RADIAL_CENTER", "center_y2")) ** 2
+        g = [min(regs.ee_f("EE_RADIAL_GAIN_01", "gain0"), 0xC000), min(regs.ee_f("EE_RADIAL_GAIN_01", "gain1"), 0xC000),
+             min(regs.ee_f("EE_RADIAL_GAIN_23", "gain2"), 0xC000), min(regs.ee_f("EE_RADIAL_GAIN_23", "gain3"), 0xC000)]
+        th = [regs.ee_f("EE_RADIAL_R2_TH%d" % i, "r2_th%d" % i) for i in range(3)]
         gr = np.where(rr < th[0], g[0], np.where(rr < th[1], g[1], np.where(rr < th[2], g[2], g[3])))
     else:
         gr = np.full_like(c, 0x8000)
     gf = ee_gain_chain(gl, ga, gc, gr)
     d1 = _sround(d0 * gf, 15)
-    d2 = np.where(d1 >= 0, np.minimum(d1, regs.f("EE_CLAMP", "clamp_pos")), np.maximum(d1, -regs.f("EE_CLAMP", "clamp_neg")))
+    d2 = np.where(d1 >= 0, np.minimum(d1, regs.ee_f("EE_CLAMP", "clamp_pos")), np.maximum(d1, -regs.ee_f("EE_CLAMP", "clamp_neg")))
     out = Y.copy()
     out[2:h - 2, 2:w - 2] = np.clip(c + d2, 0, 255)
     return out
@@ -512,13 +517,22 @@ def run(raw, regs, stats=None):
 
 def frame_sof(regs):
     """State updates at the accepted SOF: frame counter, AEC commit, AWB/AF
-    sampling, context latch, GTM bank swap. A frame aborted after its SOF
-    (AXI read error, soft reset) has had these and nothing else."""
+    sampling, context latch, GTM bank swap, LSC profile selection. A frame
+    aborted after its SOF (AXI read error, soft reset) has had these and
+    nothing else."""
     regs.stats.sof(regs)
+    regs.lsc_sof()
+    regs.ee_sof()
     if regs.gtm_pending:
         regs.gtm_read ^= 1
         regs.gtm_pending = False
         regs.gtm_valid = True
+
+
+def frame_abort(regs):
+    """A frame abandoned after its SOF (AXI read error): no publication; the
+    AWB measurement in flight frees its bank."""
+    regs.stats.abort()
 
 
 def frame_eof(regs, stats):

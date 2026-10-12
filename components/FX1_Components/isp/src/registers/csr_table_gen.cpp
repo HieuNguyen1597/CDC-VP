@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // FX1 ISP register table -- GENERATED FILE, DO NOT EDIT.
-// Generator: tools/gen_csr.py v1.0, source SHA-256 0980b61ded06a386f0cc64e0445f93fd85b0b1f967d37f0cd41869c0753cd6bf
+// Generator: tools/gen_csr.py v1.1, source SHA-256 bda077b63d5ffe92c99e856170f4770509934ff900a270e954601b6124750db4
 
 #include "registers/csr_desc.h"
 
@@ -234,7 +234,7 @@ constexpr field_desc fields_65[] = {  // DEMOSAIC_STATUS
 };
 constexpr field_desc fields_66[] = {  // CCM_CTRL
    {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 162},
-   {"updated", 2, 1, 0x00000004u, access::rw, 0x0u, true, 163},
+   {"updated", 2, 1, 0x00000004u, access::rw, 0x0u, false, 163},
 };
 constexpr field_desc fields_67[] = {  // CCM_CRR
    {"coefrr", 0, 12, 0x00000FFFu, access::rw, 0x200u, true, 165},
@@ -340,422 +340,516 @@ constexpr field_desc fields_99[] = {  // TNR_3D_HIST_BASE
 constexpr field_desc fields_100[] = {  // EE_CTRL
    {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 233},
    {"reg_update", 1, 1, 0x00000002u, access::rw, 0x0u, false, 234},
-   {"profile_sel", 2, 2, 0x0000000Cu, access::rw, 0x0u, false, 235},
+   {"profile_sel", 2, 2, 0x0000000Cu, access::rw, 0x0u, true, 235},
+   {"profile_wr_sel", 4, 2, 0x00000030u, access::rw, 0x0u, true, 236},
 };
 constexpr field_desc fields_101[] = {  // EE_ALPHA
-   {"alpha", 0, 16, 0x0000FFFFu, access::rw, 0x4000u, true, 237},
+   {"alpha", 0, 16, 0x0000FFFFu, access::rw, 0x4000u, true, 238},
 };
 constexpr field_desc fields_102[] = {  // EE_BETA
-   {"beta", 0, 16, 0x0000FFFFu, access::rw, 0x2000u, true, 239},
+   {"beta", 0, 16, 0x0000FFFFu, access::rw, 0x2000u, true, 240},
 };
 constexpr field_desc fields_103[] = {  // EE_CLAMP
-   {"clamp_pos", 0, 8, 0x000000FFu, access::rw, 0x10u, true, 241},
-   {"clamp_neg", 8, 8, 0x0000FF00u, access::rw, 0x18u, true, 242},
+   {"clamp_pos", 0, 8, 0x000000FFu, access::rw, 0x10u, true, 242},
+   {"clamp_neg", 8, 8, 0x0000FF00u, access::rw, 0x18u, true, 243},
 };
 constexpr field_desc fields_104[] = {  // EE_FEATURE_EN
-   {"activity_en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 244},
-   {"contrast_en", 1, 1, 0x00000002u, access::rw, 0x0u, true, 245},
-   {"radial_en", 2, 1, 0x00000004u, access::rw, 0x0u, true, 246},
+   {"activity_en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 245},
+   {"contrast_en", 1, 1, 0x00000002u, access::rw, 0x0u, true, 246},
+   {"radial_en", 2, 1, 0x00000004u, access::rw, 0x0u, true, 247},
 };
 constexpr field_desc fields_105[] = {  // EE_RADIAL_CENTER
-   {"center_x2", 0, 13, 0x00001FFFu, access::rw, 0x0u, true, 248},
-   {"center_y2", 16, 13, 0x1FFF0000u, access::rw, 0x0u, true, 249},
+   {"center_x2", 0, 13, 0x00001FFFu, access::rw, 0x0u, true, 249},
+   {"center_y2", 16, 13, 0x1FFF0000u, access::rw, 0x0u, true, 250},
 };
 constexpr field_desc fields_106[] = {  // EE_RADIAL_R2_TH0
-   {"r2_th0", 0, 27, 0x07FFFFFFu, access::rw, 0x0u, true, 251},
+   {"r2_th0", 0, 27, 0x07FFFFFFu, access::rw, 0x0u, true, 252},
 };
 constexpr field_desc fields_107[] = {  // EE_RADIAL_R2_TH1
-   {"r2_th1", 0, 27, 0x07FFFFFFu, access::rw, 0x0u, true, 253},
+   {"r2_th1", 0, 27, 0x07FFFFFFu, access::rw, 0x0u, true, 254},
 };
 constexpr field_desc fields_108[] = {  // EE_RADIAL_R2_TH2
-   {"r2_th2", 0, 27, 0x07FFFFFFu, access::rw, 0x0u, true, 255},
+   {"r2_th2", 0, 27, 0x07FFFFFFu, access::rw, 0x0u, true, 256},
 };
 constexpr field_desc fields_109[] = {  // EE_RADIAL_GAIN_01
-   {"gain0", 0, 16, 0x0000FFFFu, access::rw, 0x8000u, true, 257},
-   {"gain1", 16, 16, 0xFFFF0000u, access::rw, 0x8000u, true, 258},
+   {"gain0", 0, 16, 0x0000FFFFu, access::rw, 0x8000u, true, 258},
+   {"gain1", 16, 16, 0xFFFF0000u, access::rw, 0x8000u, true, 259},
 };
 constexpr field_desc fields_110[] = {  // EE_RADIAL_GAIN_23
-   {"gain2", 0, 16, 0x0000FFFFu, access::rw, 0x8000u, true, 260},
-   {"gain3", 16, 16, 0xFFFF0000u, access::rw, 0x8000u, true, 261},
+   {"gain2", 0, 16, 0x0000FFFFu, access::rw, 0x8000u, true, 261},
+   {"gain3", 16, 16, 0xFFFF0000u, access::rw, 0x8000u, true, 262},
 };
 constexpr field_desc fields_111[] = {  // EE_LUT_CTRL
-   {"lut_sel", 1, 2, 0x00000006u, access::rw, 0x0u, true, 263},
+   {"lut_sel", 1, 2, 0x00000006u, access::rw, 0x0u, true, 264},
 };
 constexpr field_desc fields_112[] = {  // EE_LUT_ADDR
-   {"lut_addr", 0, 6, 0x0000003Fu, access::rw, 0x0u, true, 265},
+   {"lut_addr", 0, 6, 0x0000003Fu, access::rw, 0x0u, true, 266},
 };
 constexpr field_desc fields_113[] = {  // EE_LUT_WDATA
-   {"lut_wdata", 0, 16, 0x0000FFFFu, access::rw, 0x0u, true, 267},
+   {"lut_wdata", 0, 16, 0x0000FFFFu, access::rw, 0x0u, true, 268},
 };
 constexpr field_desc fields_114[] = {  // EE_STATUS
-   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 269},
-   {"error", 1, 1, 0x00000002u, access::w1c, 0x0u, true, 270},
+   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 270},
+   {"error", 1, 1, 0x00000002u, access::w1c, 0x0u, true, 271},
 };
 constexpr field_desc fields_115[] = {  // EE_LUT_RDATA
-   {"rdata", 0, 16, 0x0000FFFFu, access::ro, 0x0u, true, 272},
+   {"rdata", 0, 16, 0x0000FFFFu, access::ro, 0x0u, true, 273},
 };
 constexpr field_desc fields_116[] = {  // CNF_CTRL
-   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 274},
-   {"updated", 2, 1, 0x00000004u, access::rw, 0x0u, true, 275},
+   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 275},
+   {"updated", 2, 1, 0x00000004u, access::rw, 0x0u, false, 276},
 };
 constexpr field_desc fields_117[] = {  // CNF_CHROMA_TH
-   {"chroma_th", 0, 9, 0x000001FFu, access::rw, 0x0u, true, 277},
+   {"chroma_th", 0, 9, 0x000001FFu, access::rw, 0x0u, true, 278},
 };
 constexpr field_desc fields_118[] = {  // CNF_LUMA_TH
-   {"luma_th", 0, 8, 0x000000FFu, access::rw, 0x0u, true, 279},
+   {"luma_th", 0, 8, 0x000000FFu, access::rw, 0x0u, true, 280},
 };
 constexpr field_desc fields_119[] = {  // CNF_STRENGTH
-   {"mode_strength", 0, 2, 0x00000003u, access::rw, 0x0u, false, 281},
+   {"mode_strength", 0, 2, 0x00000003u, access::rw, 0x0u, false, 282},
 };
 constexpr field_desc fields_120[] = {  // CNF_STATUS
-   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 283},
+   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 284},
 };
 constexpr field_desc fields_121[] = {  // RESIZER_CTRL
-   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 285},
-   {"updated", 2, 1, 0x00000004u, access::rw, 0x0u, true, 286},
-   {"scale", 3, 4, 0x00000078u, access::rw, 0x0u, true, 287},
+   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 286},
+   {"updated", 2, 1, 0x00000004u, access::rw, 0x0u, false, 287},
+   {"scale", 3, 4, 0x00000078u, access::rw, 0x0u, true, 288},
 };
 constexpr field_desc fields_122[] = {  // RESIZER_OUT_W
-   {"out_width", 0, 13, 0x00001FFFu, access::ro, 0x780u, true, 289},
+   {"out_width", 0, 13, 0x00001FFFu, access::ro, 0x780u, true, 290},
 };
 constexpr field_desc fields_123[] = {  // RESIZER_OUT_H
-   {"out_height", 0, 13, 0x00001FFFu, access::ro, 0x438u, true, 291},
+   {"out_height", 0, 13, 0x00001FFFu, access::ro, 0x438u, true, 292},
 };
 constexpr field_desc fields_124[] = {  // RESIZER_STATUS
-   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 293},
+   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 294},
 };
 constexpr field_desc fields_125[] = {  // AEC_CTRL
-   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 295},
-   {"commit", 1, 1, 0x00000002u, access::w1s, 0x0u, true, 296},
+   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 296},
+   {"commit", 1, 1, 0x00000002u, access::w1s, 0x0u, true, 297},
 };
 constexpr field_desc fields_126[] = {  // AEC_CONTEXT_ID
-   {"context_id", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 298},
+   {"context_id", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 299},
 };
 constexpr field_desc fields_127[] = {  // AEC_ZONE_CFG
-   {"num_zone_x", 0, 6, 0x0000003Fu, access::rw, 0x20u, true, 300},
-   {"num_zone_y", 8, 5, 0x00001F00u, access::rw, 0x18u, true, 301},
+   {"num_zone_x", 0, 6, 0x0000003Fu, access::rw, 0x20u, true, 301},
+   {"num_zone_y", 8, 5, 0x00001F00u, access::rw, 0x18u, true, 302},
 };
 constexpr field_desc fields_128[] = {  // AEC_ZONE_SIZE
-   {"zone_width", 0, 12, 0x00000FFFu, access::rw, 0x78u, true, 303},
-   {"zone_height", 16, 12, 0x0FFF0000u, access::rw, 0x5Au, true, 304},
+   {"zone_width", 0, 12, 0x00000FFFu, access::rw, 0x78u, true, 304},
+   {"zone_height", 16, 12, 0x0FFF0000u, access::rw, 0x5Au, true, 305},
 };
 constexpr field_desc fields_129[] = {  // AEC_SAMPLE_CLIP
-   {"sample_min_clip", 0, 12, 0x00000FFFu, access::rw, 0x0u, true, 306},
-   {"sample_max_clip", 16, 12, 0x0FFF0000u, access::rw, 0xFFFu, true, 307},
+   {"sample_min_clip", 0, 12, 0x00000FFFu, access::rw, 0x0u, true, 307},
+   {"sample_max_clip", 16, 12, 0x0FFF0000u, access::rw, 0xFFFu, true, 308},
 };
 constexpr field_desc fields_130[] = {  // AEC_THRESH
-   {"th_ue", 0, 12, 0x00000FFFu, access::rw, 0x100u, true, 309},
-   {"th_oe", 16, 12, 0x0FFF0000u, access::rw, 0xF00u, true, 310},
+   {"th_ue", 0, 12, 0x00000FFFu, access::rw, 0x100u, true, 310},
+   {"th_oe", 16, 12, 0x0FFF0000u, access::rw, 0xF00u, true, 311},
 };
 constexpr field_desc fields_131[] = {  // AEC_STATUS
-   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 312},
-   {"stat_done", 1, 1, 0x00000002u, access::w1c, 0x0u, true, 313},
-   {"error", 2, 1, 0x00000004u, access::w1c, 0x0u, false, 314},
+   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 313},
+   {"stat_done", 1, 1, 0x00000002u, access::w1c, 0x0u, true, 314},
+   {"error", 2, 1, 0x00000004u, access::w1c, 0x0u, false, 315},
 };
 constexpr field_desc fields_132[] = {  // AEC_FRAME_ID
-   {"frame_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 316},
+   {"frame_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 317},
 };
 constexpr field_desc fields_133[] = {  // AEC_RESULT_CONTEXT_ID
-   {"context_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 318},
+   {"context_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 319},
 };
 constexpr field_desc fields_134[] = {  // AEC_CHANNEL_SEL
-   {"channel_sel", 0, 2, 0x00000003u, access::rw, 0x0u, true, 320},
+   {"channel_sel", 0, 2, 0x00000003u, access::rw, 0x0u, true, 321},
 };
 constexpr field_desc fields_135[] = {  // AEC_GLOBAL_SUM_LO
-   {"global_sum_lo", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 322},
+   {"global_sum_lo", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 323},
 };
 constexpr field_desc fields_136[] = {  // AEC_GLOBAL_SUM_HI
-   {"global_sum_hi", 0, 1, 0x00000001u, access::ro, 0x0u, true, 324},
+   {"global_sum_hi", 0, 1, 0x00000001u, access::ro, 0x0u, true, 325},
 };
 constexpr field_desc fields_137[] = {  // AEC_GLOBAL_COUNT
-   {"global_count", 0, 21, 0x001FFFFFu, access::ro, 0x0u, true, 326},
+   {"global_count", 0, 21, 0x001FFFFFu, access::ro, 0x0u, true, 327},
 };
 constexpr field_desc fields_138[] = {  // AEC_ZONE_ADDR
-   {"zone_addr", 0, 10, 0x000003FFu, access::rw, 0x0u, true, 328},
+   {"zone_addr", 0, 10, 0x000003FFu, access::rw, 0x0u, true, 329},
 };
 constexpr field_desc fields_139[] = {  // AEC_ZONE_SUM
-   {"zone_sum", 0, 28, 0x0FFFFFFFu, access::ro, 0x0u, true, 330},
+   {"zone_sum", 0, 28, 0x0FFFFFFFu, access::ro, 0x0u, true, 331},
 };
 constexpr field_desc fields_140[] = {  // AEC_ZONE_COUNT
-   {"zone_count", 0, 16, 0x0000FFFFu, access::ro, 0x0u, true, 332},
+   {"zone_count", 0, 16, 0x0000FFFFu, access::ro, 0x0u, true, 333},
 };
 constexpr field_desc fields_141[] = {  // AEC_ZONE_GREEN_OE_UE
-   {"green_ue_count", 0, 16, 0x0000FFFFu, access::ro, 0x0u, true, 334},
-   {"green_oe_count", 16, 16, 0xFFFF0000u, access::ro, 0x0u, true, 335},
+   {"green_ue_count", 0, 16, 0x0000FFFFu, access::ro, 0x0u, true, 335},
+   {"green_oe_count", 16, 16, 0xFFFF0000u, access::ro, 0x0u, true, 336},
 };
 constexpr field_desc fields_142[] = {  // AEC_ZONE_GREEN_MIN_MAX
-   {"green_min", 0, 12, 0x00000FFFu, access::ro, 0x0u, true, 337},
-   {"green_max", 12, 12, 0x00FFF000u, access::ro, 0x0u, true, 338},
+   {"green_min", 0, 12, 0x00000FFFu, access::ro, 0x0u, true, 338},
+   {"green_max", 12, 12, 0x00FFF000u, access::ro, 0x0u, true, 339},
 };
 constexpr field_desc fields_143[] = {  // AEC_HIST_ADDR
-   {"hist_addr", 0, 6, 0x0000003Fu, access::rw, 0x0u, true, 340},
+   {"hist_addr", 0, 6, 0x0000003Fu, access::rw, 0x0u, true, 341},
 };
 constexpr field_desc fields_144[] = {  // AEC_HIST_DATA
-   {"hist_count", 0, 22, 0x003FFFFFu, access::ro, 0x0u, true, 342},
+   {"hist_count", 0, 22, 0x003FFFFFu, access::ro, 0x0u, true, 343},
 };
 constexpr field_desc fields_145[] = {  // AWB_CTRL
-   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 344},
-   {"num_zone_x", 1, 7, 0x000000FEu, access::rw, 0x0u, true, 345},
-   {"num_zone_y", 8, 6, 0x00003F00u, access::rw, 0x0u, true, 346},
+   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 345},
+   {"num_zone_x", 1, 7, 0x000000FEu, access::rw, 0x0u, true, 346},
+   {"num_zone_y", 8, 6, 0x00003F00u, access::rw, 0x0u, true, 347},
 };
 constexpr field_desc fields_146[] = {  // AWB_X_BOUND_ADDR
-   {"x_bound_addr", 0, 6, 0x0000003Fu, access::rw, 0x0u, false, 348},
+   {"x_bound_addr", 0, 6, 0x0000003Fu, access::rw, 0x0u, false, 349},
 };
 constexpr field_desc fields_147[] = {  // AWB_Y_BOUND_ADDR
-   {"y_bound_addr", 0, 5, 0x0000001Fu, access::rw, 0x0u, false, 350},
+   {"y_bound_addr", 0, 5, 0x0000001Fu, access::rw, 0x0u, false, 351},
 };
 constexpr field_desc fields_148[] = {  // AWB_X_BOUND_DATA
-   {"x_bound_data", 0, 12, 0x00000FFFu, access::rw, 0x0u, false, 352},
-   {"x_bound_we", 12, 1, 0x00001000u, access::rw, 0x0u, false, 353},
+   {"x_bound_data", 0, 12, 0x00000FFFu, access::rw, 0x0u, false, 353},
+   {"x_bound_we", 12, 1, 0x00001000u, access::rw, 0x0u, false, 354},
 };
 constexpr field_desc fields_149[] = {  // AWB_Y_BOUND_DATA
-   {"y_bound_data", 0, 12, 0x00000FFFu, access::rw, 0x0u, false, 355},
-   {"y_bound_we", 12, 1, 0x00001000u, access::rw, 0x0u, false, 356},
+   {"y_bound_data", 0, 12, 0x00000FFFu, access::rw, 0x0u, false, 356},
+   {"y_bound_we", 12, 1, 0x00001000u, access::rw, 0x0u, false, 357},
 };
 constexpr field_desc fields_150[] = {  // AWB_GLOBAL_SUM_R_H
-   {"global_sum_r_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 358},
+   {"global_sum_r_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 359},
 };
 constexpr field_desc fields_151[] = {  // AWB_GLOBAL_SUM_R_L
-   {"global_sum_r_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 360},
+   {"global_sum_r_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 361},
 };
 constexpr field_desc fields_152[] = {  // AWB_GLOBAL_SUM_G_H
-   {"global_sum_g_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 362},
+   {"global_sum_g_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 363},
 };
 constexpr field_desc fields_153[] = {  // AWB_GLOBAL_SUM_G_L
-   {"global_sum_g_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 364},
+   {"global_sum_g_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 365},
 };
 constexpr field_desc fields_154[] = {  // AWB_GLOBAL_SUM_B_H
-   {"global_sum_b_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 366},
+   {"global_sum_b_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 367},
 };
 constexpr field_desc fields_155[] = {  // AWB_GLOBAL_SUM_B_L
-   {"global_sum_b_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 368},
+   {"global_sum_b_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 369},
 };
 constexpr field_desc fields_156[] = {  // AWB_GLOBAL_COUNT
-   {"global_count", 0, 23, 0x007FFFFFu, access::ro, 0x0u, true, 370},
+   {"global_count", 0, 23, 0x007FFFFFu, access::ro, 0x0u, true, 371},
 };
 constexpr field_desc fields_157[] = {  // AWB_ZONE_ADDR
-   {"zone_addr", 0, 11, 0x000007FFu, access::rw, 0x0u, true, 372},
+   {"zone_addr", 0, 11, 0x000007FFu, access::rw, 0x0u, true, 373},
 };
 constexpr field_desc fields_158[] = {  // AWB_ZONE_SUM_R_H
-   {"zone_sum_r_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 374},
+   {"zone_sum_r_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 375},
 };
 constexpr field_desc fields_159[] = {  // AWB_ZONE_SUM_R_L
-   {"zone_sum_r_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 376},
+   {"zone_sum_r_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 377},
 };
 constexpr field_desc fields_160[] = {  // AWB_ZONE_SUM_G_H
-   {"zone_sum_g_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 378},
+   {"zone_sum_g_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 379},
 };
 constexpr field_desc fields_161[] = {  // AWB_ZONE_SUM_G_L
-   {"zone_sum_g_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 380},
+   {"zone_sum_g_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 381},
 };
 constexpr field_desc fields_162[] = {  // AWB_ZONE_SUM_B_H
-   {"zone_sum_b_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 382},
+   {"zone_sum_b_h", 0, 3, 0x00000007u, access::ro, 0x0u, true, 383},
 };
 constexpr field_desc fields_163[] = {  // AWB_ZONE_SUM_B_L
-   {"zone_sum_b_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 384},
+   {"zone_sum_b_l", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 385},
 };
 constexpr field_desc fields_164[] = {  // AWB_ZONE_COUNT
-   {"zone_count", 0, 23, 0x007FFFFFu, access::ro, 0x0u, true, 386},
+   {"zone_count", 0, 23, 0x007FFFFFu, access::ro, 0x0u, true, 387},
 };
 constexpr field_desc fields_165[] = {  // AWB_STATUS
-   {"stat_done", 0, 1, 0x00000001u, access::w1c, 0x0u, true, 388},
+   {"stat_done", 0, 1, 0x00000001u, access::w1c, 0x0u, true, 389},
 };
 constexpr field_desc fields_166[] = {  // AWB_UNDEREXPOSED_LIMIT
-   {"underexposed_limit", 0, 12, 0x00000FFFu, access::rw, 0x0u, true, 390},
+   {"underexposed_limit", 0, 12, 0x00000FFFu, access::rw, 0x0u, true, 391},
 };
 constexpr field_desc fields_167[] = {  // AWB_SATURATION_LIMIT
-   {"saturation_limit", 0, 12, 0x00000FFFu, access::rw, 0xFFFu, true, 392},
+   {"saturation_limit", 0, 12, 0x00000FFFu, access::rw, 0xFFFu, true, 393},
 };
 constexpr field_desc fields_168[] = {  // AWB_CONTEXT_ID
-   {"context_id", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 394},
+   {"context_id", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 395},
 };
 constexpr field_desc fields_169[] = {  // AWB_RESULT_CONTEXT_ID
-   {"context_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 396},
+   {"context_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 397},
 };
 constexpr field_desc fields_170[] = {  // AWB_FRAME_ID
-   {"frame_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 398},
+   {"frame_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 399},
 };
-constexpr field_desc fields_171[] = {  // AF_CTRL
-   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 400},
-   {"bypass", 1, 1, 0x00000002u, access::rw, 0x0u, false, 401},
-   {"reg_update", 2, 1, 0x00000004u, access::rw, 0x0u, false, 402},
-   {"search_start", 3, 1, 0x00000008u, access::w1s, 0x0u, false, 403},
-   {"search_abort", 4, 1, 0x00000010u, access::w1s, 0x0u, false, 404},
-   {"lut_en", 5, 1, 0x00000020u, access::rw, 0x0u, false, 405},
-   {"metric_sel", 6, 2, 0x000000C0u, access::rw, 0x0u, false, 406},
-   {"vcm_ack", 8, 1, 0x00000100u, access::rw, 0x0u, false, 407},
+constexpr field_desc fields_171[] = {  // AWB_RESULT_CTRL
+   {"acquire", 0, 1, 0x00000001u, access::w1s, 0x0u, true, 401},
+   {"release", 1, 1, 0x00000002u, access::w1s, 0x0u, true, 402},
+   {"clear_report", 2, 1, 0x00000004u, access::w1s, 0x0u, true, 403},
 };
-constexpr field_desc fields_172[] = {  // AF_ZONE_EN
-   {"zone_en", 0, 16, 0x0000FFFFu, access::rw, 0xFFFFu, false, 409},
+constexpr field_desc fields_172[] = {  // AWB_RESULT_STATUS
+   {"ready_count", 0, 2, 0x00000003u, access::ro, 0x0u, true, 405},
+   {"leased", 2, 1, 0x00000004u, access::ro, 0x0u, true, 406},
+   {"read_valid", 3, 1, 0x00000008u, access::ro, 0x0u, true, 407},
+   {"read_bank", 4, 1, 0x00000010u, access::ro, 0x0u, true, 408},
+   {"write_busy", 5, 1, 0x00000020u, access::ro, 0x0u, true, 409},
+   {"overrun", 6, 1, 0x00000040u, access::ro, 0x0u, true, 410},
+   {"read_num_zone_x", 8, 7, 0x00007F00u, access::ro, 0x0u, true, 411},
+   {"read_num_zone_y", 16, 6, 0x003F0000u, access::ro, 0x0u, true, 412},
 };
-constexpr field_desc fields_173[] = {  // AF_METRIC_CFG
-   {"min_score", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 411},
-   {"settle_frames", 16, 8, 0x00FF0000u, access::rw, 0x0u, false, 412},
+constexpr field_desc fields_173[] = {  // AWB_DROP_COUNT
+   {"drop_count", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 414},
 };
-constexpr field_desc fields_174[] = {  // AF_STAT_ADDR
-   {"zone_addr", 0, 4, 0x0000000Fu, access::rw, 0x0u, true, 414},
+constexpr field_desc fields_174[] = {  // AF_CTRL
+   {"en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 416},
+   {"bypass", 1, 1, 0x00000002u, access::rw, 0x0u, false, 417},
+   {"reg_update", 2, 1, 0x00000004u, access::rw, 0x0u, false, 418},
+   {"search_start", 3, 1, 0x00000008u, access::w1s, 0x0u, false, 419},
+   {"search_abort", 4, 1, 0x00000010u, access::w1s, 0x0u, false, 420},
+   {"lut_en", 5, 1, 0x00000020u, access::rw, 0x0u, false, 421},
+   {"metric_sel", 6, 2, 0x000000C0u, access::rw, 0x0u, false, 422},
+   {"vcm_ack", 8, 1, 0x00000100u, access::rw, 0x0u, false, 423},
 };
-constexpr field_desc fields_175[] = {  // AF_STAT_DATA
-   {"focus_score", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 416},
+constexpr field_desc fields_175[] = {  // AF_ZONE_EN
+   {"zone_en", 0, 16, 0x0000FFFFu, access::rw, 0xFFFFu, false, 425},
 };
-constexpr field_desc fields_176[] = {  // AF_LUT_ADDR
-   {"lut_addr", 0, 8, 0x000000FFu, access::rw, 0x0u, false, 418},
+constexpr field_desc fields_176[] = {  // AF_METRIC_CFG
+   {"min_score", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 427},
+   {"settle_frames", 16, 8, 0x00FF0000u, access::rw, 0x0u, false, 428},
 };
-constexpr field_desc fields_177[] = {  // AF_LUT_DATA
-   {"vcm_position", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 420},
+constexpr field_desc fields_177[] = {  // AF_STAT_ADDR
+   {"zone_addr", 0, 4, 0x0000000Fu, access::rw, 0x0u, true, 430},
 };
-constexpr field_desc fields_178[] = {  // AF_VCM_CUR_POS
-   {"vcm_cur_pos", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 422},
+constexpr field_desc fields_178[] = {  // AF_STAT_DATA
+   {"focus_score", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 432},
 };
-constexpr field_desc fields_179[] = {  // AF_VCM_BEST_POS
-   {"vcm_best_pos", 0, 16, 0x0000FFFFu, access::ro, 0x0u, false, 424},
+constexpr field_desc fields_179[] = {  // AF_LUT_ADDR
+   {"lut_addr", 0, 8, 0x000000FFu, access::rw, 0x0u, false, 434},
 };
-constexpr field_desc fields_180[] = {  // AF_PEAK_SCORE
-   {"peak_score", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, false, 426},
+constexpr field_desc fields_180[] = {  // AF_LUT_DATA
+   {"vcm_position", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 436},
 };
-constexpr field_desc fields_181[] = {  // AF_FOCUS_RANGE
-   {"accept_delta", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 428},
-   {"hof_range", 16, 8, 0x00FF0000u, access::rw, 0x0u, false, 429},
+constexpr field_desc fields_181[] = {  // AF_VCM_CUR_POS
+   {"vcm_cur_pos", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 438},
 };
-constexpr field_desc fields_182[] = {  // AF_STATUS
-   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 431},
-   {"frame_done", 1, 1, 0x00000002u, access::w1c, 0x0u, true, 432},
-   {"search_done", 2, 1, 0x00000004u, access::w1c, 0x0u, false, 433},
-   {"vcm_pos_valid", 3, 1, 0x00000008u, access::w1c, 0x0u, false, 434},
-   {"score_valid", 5, 1, 0x00000020u, access::ro, 0x0u, true, 435},
+constexpr field_desc fields_182[] = {  // AF_VCM_BEST_POS
+   {"vcm_best_pos", 0, 16, 0x0000FFFFu, access::ro, 0x0u, false, 440},
 };
-constexpr field_desc fields_183[] = {  // AF_CONTEXT_ID
-   {"context_id", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 437},
+constexpr field_desc fields_183[] = {  // AF_PEAK_SCORE
+   {"peak_score", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, false, 442},
 };
-constexpr field_desc fields_184[] = {  // AF_RESULT_CONTEXT_ID
-   {"context_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 439},
+constexpr field_desc fields_184[] = {  // AF_FOCUS_RANGE
+   {"accept_delta", 0, 16, 0x0000FFFFu, access::rw, 0x0u, false, 444},
+   {"hof_range", 16, 8, 0x00FF0000u, access::rw, 0x0u, false, 445},
 };
-constexpr field_desc fields_185[] = {  // AF_FRAME_ID
-   {"frame_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 441},
+constexpr field_desc fields_185[] = {  // AF_STATUS
+   {"busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 447},
+   {"frame_done", 1, 1, 0x00000002u, access::w1c, 0x0u, true, 448},
+   {"search_done", 2, 1, 0x00000004u, access::w1c, 0x0u, false, 449},
+   {"vcm_pos_valid", 3, 1, 0x00000008u, access::w1c, 0x0u, false, 450},
+   {"score_valid", 5, 1, 0x00000020u, access::ro, 0x0u, true, 451},
 };
-constexpr field_desc fields_186[] = {  // OFMT_CTRL
-   {"stride_en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 443},
+constexpr field_desc fields_186[] = {  // AF_CONTEXT_ID
+   {"context_id", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 453},
 };
-constexpr field_desc fields_187[] = {  // OFMT_Y_STRIDE
-   {"y_stride", 0, 16, 0x0000FFFFu, access::rw, 0xF00u, true, 445},
+constexpr field_desc fields_187[] = {  // AF_RESULT_CONTEXT_ID
+   {"context_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 455},
 };
-constexpr field_desc fields_188[] = {  // OFMT_UV_STRIDE
-   {"uv_stride", 0, 16, 0x0000FFFFu, access::rw, 0xF00u, true, 447},
+constexpr field_desc fields_188[] = {  // AF_FRAME_ID
+   {"frame_id", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 457},
 };
-constexpr field_desc fields_189[] = {  // DMA_CTRL
-   {"idma_en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 449},
-   {"odma_en", 1, 1, 0x00000002u, access::rw, 0x0u, true, 450},
-   {"soft_reset", 2, 1, 0x00000004u, access::w1sc, 0x0u, true, 451},
-   {"max_burst_m1", 8, 8, 0x0000FF00u, access::rw, 0x3Fu, true, 452},
+constexpr field_desc fields_189[] = {  // OFMT_CTRL
+   {"stride_en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 459},
 };
-constexpr field_desc fields_190[] = {  // DMA_STAT
-   {"idma_busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 454},
-   {"odma_busy", 1, 1, 0x00000002u, access::ro, 0x0u, true, 455},
+constexpr field_desc fields_190[] = {  // OFMT_Y_STRIDE
+   {"y_stride", 0, 16, 0x0000FFFFu, access::rw, 0xF00u, true, 461},
 };
-constexpr field_desc fields_191[] = {  // DMA_ERR
-   {"err", 0, 6, 0x0000001Fu, access::w1c, 0x0u, true, 457},
+constexpr field_desc fields_191[] = {  // OFMT_UV_STRIDE
+   {"uv_stride", 0, 16, 0x0000FFFFu, access::rw, 0xF00u, true, 463},
 };
-constexpr field_desc fields_192[] = {  // DMA_IRQ_EN
-   {"irq_en", 0, 7, 0x0000007Eu, access::rw, 0x0u, true, 459},
+constexpr field_desc fields_192[] = {  // DMA_CTRL
+   {"idma_en", 0, 1, 0x00000001u, access::rw, 0x0u, true, 465},
+   {"odma_en", 1, 1, 0x00000002u, access::rw, 0x0u, true, 466},
+   {"soft_reset", 2, 1, 0x00000004u, access::w1sc, 0x0u, true, 467},
+   {"max_burst_m1", 8, 8, 0x0000FF00u, access::rw, 0x3Fu, true, 468},
 };
-constexpr field_desc fields_193[] = {  // DMA_IRQ_STAT
-   {"irq", 0, 7, 0x0000007Eu, access::w1c, 0x0u, true, 461},
+constexpr field_desc fields_193[] = {  // DMA_STAT
+   {"idma_busy", 0, 1, 0x00000001u, access::ro, 0x0u, true, 470},
+   {"odma_busy", 1, 1, 0x00000002u, access::ro, 0x0u, true, 471},
 };
-constexpr field_desc fields_194[] = {  // IDMA_STRIDE
-   {"idma_stride", 0, 32, 0xFFFFFFFFu, access::rw, 0x1E00u, true, 463},
+constexpr field_desc fields_194[] = {  // DMA_ERR
+   {"err", 0, 6, 0x0000001Fu, access::w1c, 0x0u, true, 473},
 };
-constexpr field_desc fields_195[] = {  // IDMA_BUF_VALID
-   {"idma_buf_valid", 0, 8, 0x000000FFu, access::w1s, 0x0u, true, 465},
+constexpr field_desc fields_195[] = {  // DMA_IRQ_EN
+   {"irq_en", 0, 7, 0x0000007Fu, access::rw, 0x0u, true, 475},
 };
-constexpr field_desc fields_196[] = {  // IDMA_FRAME_COUNT
-   {"idma_frame_count", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 467},
+constexpr field_desc fields_196[] = {  // DMA_IRQ_STAT
+   {"irq", 0, 7, 0x0000007Fu, access::w1c, 0x0u, true, 477},
 };
-constexpr field_desc fields_197[] = {  // IDMA_BUF_ADDR_L0
-   {"idma_buf_addr0_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 469},
+constexpr field_desc fields_197[] = {  // IDMA_STRIDE
+   {"idma_stride", 0, 32, 0xFFFFFFFFu, access::rw, 0x1E00u, true, 479},
 };
-constexpr field_desc fields_198[] = {  // IDMA_BUF_ADDR_H0
-   {"idma_buf_addr0_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 471},
+constexpr field_desc fields_198[] = {  // IDMA_BUF_VALID
+   {"idma_buf_valid", 0, 8, 0x000000FFu, access::w1s, 0x0u, true, 481},
 };
-constexpr field_desc fields_199[] = {  // IDMA_BUF_ADDR_L1
-   {"idma_buf_addr1_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 473},
+constexpr field_desc fields_199[] = {  // IDMA_FRAME_COUNT
+   {"idma_frame_count", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 483},
 };
-constexpr field_desc fields_200[] = {  // IDMA_BUF_ADDR_H1
-   {"idma_buf_addr1_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 475},
+constexpr field_desc fields_200[] = {  // IDMA_BUF_ADDR_L0
+   {"idma_buf_addr0_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 485},
 };
-constexpr field_desc fields_201[] = {  // IDMA_BUF_ADDR_L2
-   {"idma_buf_addr2_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 477},
+constexpr field_desc fields_201[] = {  // IDMA_BUF_ADDR_H0
+   {"idma_buf_addr0_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 487},
 };
-constexpr field_desc fields_202[] = {  // IDMA_BUF_ADDR_H2
-   {"idma_buf_addr2_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 479},
+constexpr field_desc fields_202[] = {  // IDMA_BUF_ADDR_L1
+   {"idma_buf_addr1_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 489},
 };
-constexpr field_desc fields_203[] = {  // IDMA_BUF_ADDR_L3
-   {"idma_buf_addr3_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 481},
+constexpr field_desc fields_203[] = {  // IDMA_BUF_ADDR_H1
+   {"idma_buf_addr1_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 491},
 };
-constexpr field_desc fields_204[] = {  // IDMA_BUF_ADDR_H3
-   {"idma_buf_addr3_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 483},
+constexpr field_desc fields_204[] = {  // IDMA_BUF_ADDR_L2
+   {"idma_buf_addr2_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 493},
 };
-constexpr field_desc fields_205[] = {  // ODMA_Y_STRIDE
-   {"y_stride", 0, 32, 0xFFFFFFFFu, access::rw, 0xF00u, true, 485},
+constexpr field_desc fields_205[] = {  // IDMA_BUF_ADDR_H2
+   {"idma_buf_addr2_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 495},
 };
-constexpr field_desc fields_206[] = {  // ODMA_UV_STRIDE
-   {"uv_stride", 0, 32, 0xFFFFFFFFu, access::rw, 0xF00u, true, 487},
+constexpr field_desc fields_206[] = {  // IDMA_BUF_ADDR_L3
+   {"idma_buf_addr3_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 497},
 };
-constexpr field_desc fields_207[] = {  // ODMA_BUF_FREE
-   {"odma_buf_free", 0, 8, 0x000000FFu, access::w1s, 0x0u, true, 489},
+constexpr field_desc fields_207[] = {  // IDMA_BUF_ADDR_H3
+   {"idma_buf_addr3_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 499},
 };
-constexpr field_desc fields_208[] = {  // ODMA_BUF_DONE
-   {"odma_buf_done", 0, 8, 0x000000FFu, access::w1c, 0x0u, true, 491},
+constexpr field_desc fields_208[] = {  // ODMA_Y_STRIDE
+   {"y_stride", 0, 32, 0xFFFFFFFFu, access::rw, 0xF00u, true, 501},
 };
-constexpr field_desc fields_209[] = {  // ODMA_FRAME_COUNT
-   {"odma_frame_count", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 493},
+constexpr field_desc fields_209[] = {  // ODMA_UV_STRIDE
+   {"uv_stride", 0, 32, 0xFFFFFFFFu, access::rw, 0xF00u, true, 503},
 };
-constexpr field_desc fields_210[] = {  // ODMA_Y_ADDR_L0
-   {"odma_y_addr0_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 495},
+constexpr field_desc fields_210[] = {  // ODMA_BUF_FREE
+   {"odma_buf_free", 0, 8, 0x000000FFu, access::w1s, 0x0u, true, 505},
 };
-constexpr field_desc fields_211[] = {  // ODMA_Y_ADDR_H0
-   {"odma_y_addr0_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 497},
+constexpr field_desc fields_211[] = {  // ODMA_BUF_DONE
+   {"odma_buf_done", 0, 8, 0x000000FFu, access::w1c, 0x0u, true, 507},
 };
-constexpr field_desc fields_212[] = {  // ODMA_UV_ADDR_L0
-   {"odma_uv_addr0_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 499},
+constexpr field_desc fields_212[] = {  // ODMA_FRAME_COUNT
+   {"odma_frame_count", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 509},
 };
-constexpr field_desc fields_213[] = {  // ODMA_UV_ADDR_H0
-   {"odma_uv_addr0_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 501},
+constexpr field_desc fields_213[] = {  // ODMA_Y_ADDR_L0
+   {"odma_y_addr0_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 511},
 };
-constexpr field_desc fields_214[] = {  // ODMA_Y_ADDR_L1
-   {"odma_y_addr1_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 503},
+constexpr field_desc fields_214[] = {  // ODMA_Y_ADDR_H0
+   {"odma_y_addr0_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 513},
 };
-constexpr field_desc fields_215[] = {  // ODMA_Y_ADDR_H1
-   {"odma_y_addr1_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 505},
+constexpr field_desc fields_215[] = {  // ODMA_UV_ADDR_L0
+   {"odma_uv_addr0_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 515},
 };
-constexpr field_desc fields_216[] = {  // ODMA_UV_ADDR_L1
-   {"odma_uv_addr1_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 507},
+constexpr field_desc fields_216[] = {  // ODMA_UV_ADDR_H0
+   {"odma_uv_addr0_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 517},
 };
-constexpr field_desc fields_217[] = {  // ODMA_UV_ADDR_H1
-   {"odma_uv_addr1_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 509},
+constexpr field_desc fields_217[] = {  // ODMA_Y_ADDR_L1
+   {"odma_y_addr1_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 519},
 };
-constexpr field_desc fields_218[] = {  // ODMA_Y_ADDR_L2
-   {"odma_y_addr2_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 511},
+constexpr field_desc fields_218[] = {  // ODMA_Y_ADDR_H1
+   {"odma_y_addr1_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 521},
 };
-constexpr field_desc fields_219[] = {  // ODMA_Y_ADDR_H2
-   {"odma_y_addr2_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 513},
+constexpr field_desc fields_219[] = {  // ODMA_UV_ADDR_L1
+   {"odma_uv_addr1_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 523},
 };
-constexpr field_desc fields_220[] = {  // ODMA_UV_ADDR_L2
-   {"odma_uv_addr2_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 515},
+constexpr field_desc fields_220[] = {  // ODMA_UV_ADDR_H1
+   {"odma_uv_addr1_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 525},
 };
-constexpr field_desc fields_221[] = {  // ODMA_UV_ADDR_H2
-   {"odma_uv_addr2_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 517},
+constexpr field_desc fields_221[] = {  // ODMA_Y_ADDR_L2
+   {"odma_y_addr2_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 527},
 };
-constexpr field_desc fields_222[] = {  // ODMA_Y_ADDR_L3
-   {"odma_y_addr3_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 519},
+constexpr field_desc fields_222[] = {  // ODMA_Y_ADDR_H2
+   {"odma_y_addr2_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 529},
 };
-constexpr field_desc fields_223[] = {  // ODMA_Y_ADDR_H3
-   {"odma_y_addr3_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 521},
+constexpr field_desc fields_223[] = {  // ODMA_UV_ADDR_L2
+   {"odma_uv_addr2_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 531},
 };
-constexpr field_desc fields_224[] = {  // ODMA_UV_ADDR_L3
-   {"odma_uv_addr3_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 523},
+constexpr field_desc fields_224[] = {  // ODMA_UV_ADDR_H2
+   {"odma_uv_addr2_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 533},
 };
-constexpr field_desc fields_225[] = {  // ODMA_UV_ADDR_H3
-   {"odma_uv_addr3_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 525},
+constexpr field_desc fields_225[] = {  // ODMA_Y_ADDR_L3
+   {"odma_y_addr3_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 535},
+};
+constexpr field_desc fields_226[] = {  // ODMA_Y_ADDR_H3
+   {"odma_y_addr3_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 537},
+};
+constexpr field_desc fields_227[] = {  // ODMA_UV_ADDR_L3
+   {"odma_uv_addr3_lo", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 539},
+};
+constexpr field_desc fields_228[] = {  // ODMA_UV_ADDR_H3
+   {"odma_uv_addr3_hi", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 541},
+};
+constexpr field_desc fields_229[] = {  // IDMA_BUF_TAG0
+   {"tag", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 543},
+};
+constexpr field_desc fields_230[] = {  // IDMA_BUF_TAG1
+   {"tag", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 545},
+};
+constexpr field_desc fields_231[] = {  // IDMA_BUF_TAG2
+   {"tag", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 547},
+};
+constexpr field_desc fields_232[] = {  // IDMA_BUF_TAG3
+   {"tag", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 549},
+};
+constexpr field_desc fields_233[] = {  // IDMA_BUF_TS0
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 551},
+};
+constexpr field_desc fields_234[] = {  // IDMA_BUF_TS1
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 553},
+};
+constexpr field_desc fields_235[] = {  // IDMA_BUF_TS2
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 555},
+};
+constexpr field_desc fields_236[] = {  // IDMA_BUF_TS3
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::rw, 0x0u, true, 557},
+};
+constexpr field_desc fields_237[] = {  // ODMA_BUF_TAG0
+   {"tag", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 559},
+};
+constexpr field_desc fields_238[] = {  // ODMA_BUF_TAG1
+   {"tag", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 561},
+};
+constexpr field_desc fields_239[] = {  // ODMA_BUF_TAG2
+   {"tag", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 563},
+};
+constexpr field_desc fields_240[] = {  // ODMA_BUF_TAG3
+   {"tag", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 565},
+};
+constexpr field_desc fields_241[] = {  // ODMA_BUF_TS0
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 567},
+};
+constexpr field_desc fields_242[] = {  // ODMA_BUF_TS1
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 569},
+};
+constexpr field_desc fields_243[] = {  // ODMA_BUF_TS2
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 571},
+};
+constexpr field_desc fields_244[] = {  // ODMA_BUF_TS3
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 573},
+};
+constexpr field_desc fields_245[] = {  // ODMA_BUF_SOF_TS0
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 575},
+};
+constexpr field_desc fields_246[] = {  // ODMA_BUF_SOF_TS1
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 577},
+};
+constexpr field_desc fields_247[] = {  // ODMA_BUF_SOF_TS2
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 579},
+};
+constexpr field_desc fields_248[] = {  // ODMA_BUF_SOF_TS3
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 581},
+};
+constexpr field_desc fields_249[] = {  // ODMA_BUF_EOF_TS0
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 583},
+};
+constexpr field_desc fields_250[] = {  // ODMA_BUF_EOF_TS1
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 585},
+};
+constexpr field_desc fields_251[] = {  // ODMA_BUF_EOF_TS2
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 587},
+};
+constexpr field_desc fields_252[] = {  // ODMA_BUF_EOF_TS3
+   {"timestamp", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 589},
+};
+constexpr field_desc fields_253[] = {  // FRAME_COUNTER
+   {"counter", 0, 32, 0xFFFFFFFFu, access::ro, 0x0u, true, 591},
 };
 
 }  // namespace
@@ -861,132 +955,160 @@ const reg_desc registers[] = {
    {0x1A00u, "TNR_3D_CTRL", 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_97, 1, 226},
    {0x1A04u, "TNR_3D_MTF_SEL", 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_98, 1, 228},
    {0x1A08u, "TNR_3D_HIST_BASE", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_99, 1, 230},
-   {0x1C00u, "EE_CTRL", 0x00000000u, 0x0000000Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_100, 3, 232},
-   {0x1C04u, "EE_ALPHA", 0x00004000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_101, 1, 236},
-   {0x1C08u, "EE_BETA", 0x00002000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_102, 1, 238},
-   {0x1C0Cu, "EE_CLAMP", 0x00001810u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_103, 2, 240},
-   {0x1C10u, "EE_FEATURE_EN", 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_104, 3, 243},
-   {0x1C14u, "EE_RADIAL_CENTER", 0x00000000u, 0x1FFF1FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_105, 2, 247},
-   {0x1C18u, "EE_RADIAL_R2_TH0", 0x00000000u, 0x07FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_106, 1, 250},
-   {0x1C1Cu, "EE_RADIAL_R2_TH1", 0x00000000u, 0x07FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_107, 1, 252},
-   {0x1C20u, "EE_RADIAL_R2_TH2", 0x00000000u, 0x07FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_108, 1, 254},
-   {0x1C24u, "EE_RADIAL_GAIN_01", 0x80008000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_109, 2, 256},
-   {0x1C28u, "EE_RADIAL_GAIN_23", 0x80008000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_110, 2, 259},
-   {0x1C2Cu, "EE_LUT_CTRL", 0x00000000u, 0x00000006u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_111, 1, 262},
-   {0x1C30u, "EE_LUT_ADDR", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_112, 1, 264},
-   {0x1C34u, "EE_LUT_WDATA", 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_113, 1, 266},
-   {0x1C38u, "EE_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000002u, 0x00000000u, 0x00000000u, fields_114, 2, 268},
-   {0x1C3Cu, "EE_LUT_RDATA", 0x00000000u, 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_115, 1, 271},
-   {0x1E00u, "CNF_CTRL", 0x00000000u, 0x00000005u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_116, 2, 273},
-   {0x1E04u, "CNF_CHROMA_TH", 0x00000000u, 0x000001FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_117, 1, 276},
-   {0x1E08u, "CNF_LUMA_TH", 0x00000000u, 0x000000FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_118, 1, 278},
-   {0x1E0Cu, "CNF_STRENGTH", 0x00000000u, 0x00000003u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_119, 1, 280},
-   {0x1E10u, "CNF_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, fields_120, 1, 282},
-   {0x2000u, "RESIZER_CTRL", 0x00000000u, 0x0000007Du, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_121, 3, 284},
-   {0x2014u, "RESIZER_OUT_W", 0x00000780u, 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_122, 1, 288},
-   {0x2018u, "RESIZER_OUT_H", 0x00000438u, 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_123, 1, 290},
-   {0x201Cu, "RESIZER_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, fields_124, 1, 292},
-   {0x2200u, "AEC_CTRL", 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000002u, 0x00000000u, fields_125, 2, 294},
-   {0x2204u, "AEC_CONTEXT_ID", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_126, 1, 297},
-   {0x2208u, "AEC_ZONE_CFG", 0x00001820u, 0x00001F3Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_127, 2, 299},
-   {0x220Cu, "AEC_ZONE_SIZE", 0x005A0078u, 0x0FFF0FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_128, 2, 302},
-   {0x2210u, "AEC_SAMPLE_CLIP", 0x0FFF0000u, 0x0FFF0FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_129, 2, 305},
-   {0x2214u, "AEC_THRESH", 0x0F000100u, 0x0FFF0FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_130, 2, 308},
-   {0x2218u, "AEC_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000006u, 0x00000000u, 0x00000000u, fields_131, 3, 311},
-   {0x221Cu, "AEC_FRAME_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_132, 1, 315},
-   {0x2220u, "AEC_RESULT_CONTEXT_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_133, 1, 317},
-   {0x2224u, "AEC_CHANNEL_SEL", 0x00000000u, 0x00000003u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_134, 1, 319},
-   {0x2228u, "AEC_GLOBAL_SUM_LO", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_135, 1, 321},
-   {0x222Cu, "AEC_GLOBAL_SUM_HI", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, fields_136, 1, 323},
-   {0x2230u, "AEC_GLOBAL_COUNT", 0x00000000u, 0x00000000u, 0x001FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_137, 1, 325},
-   {0x2234u, "AEC_ZONE_ADDR", 0x00000000u, 0x000003FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_138, 1, 327},
-   {0x2238u, "AEC_ZONE_SUM", 0x00000000u, 0x00000000u, 0x0FFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_139, 1, 329},
-   {0x223Cu, "AEC_ZONE_COUNT", 0x00000000u, 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_140, 1, 331},
-   {0x2240u, "AEC_ZONE_GREEN_OE_UE", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_141, 2, 333},
-   {0x2244u, "AEC_ZONE_GREEN_MIN_MAX", 0x00000000u, 0x00000000u, 0x00FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_142, 2, 336},
-   {0x2248u, "AEC_HIST_ADDR", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_143, 1, 339},
-   {0x224Cu, "AEC_HIST_DATA", 0x00000000u, 0x00000000u, 0x003FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_144, 1, 341},
-   {0x2400u, "AWB_CTRL", 0x00000000u, 0x00003FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_145, 3, 343},
-   {0x2404u, "AWB_X_BOUND_ADDR", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_146, 1, 347},
-   {0x2408u, "AWB_Y_BOUND_ADDR", 0x00000000u, 0x0000001Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_147, 1, 349},
-   {0x240Cu, "AWB_X_BOUND_DATA", 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_148, 2, 351},
-   {0x2410u, "AWB_Y_BOUND_DATA", 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_149, 2, 354},
-   {0x2414u, "AWB_GLOBAL_SUM_R_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_150, 1, 357},
-   {0x2418u, "AWB_GLOBAL_SUM_R_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_151, 1, 359},
-   {0x241Cu, "AWB_GLOBAL_SUM_G_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_152, 1, 361},
-   {0x2420u, "AWB_GLOBAL_SUM_G_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_153, 1, 363},
-   {0x2424u, "AWB_GLOBAL_SUM_B_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_154, 1, 365},
-   {0x2428u, "AWB_GLOBAL_SUM_B_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_155, 1, 367},
-   {0x242Cu, "AWB_GLOBAL_COUNT", 0x00000000u, 0x00000000u, 0x007FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_156, 1, 369},
-   {0x2430u, "AWB_ZONE_ADDR", 0x00000000u, 0x000007FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_157, 1, 371},
-   {0x2434u, "AWB_ZONE_SUM_R_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_158, 1, 373},
-   {0x2438u, "AWB_ZONE_SUM_R_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_159, 1, 375},
-   {0x243Cu, "AWB_ZONE_SUM_G_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_160, 1, 377},
-   {0x2440u, "AWB_ZONE_SUM_G_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_161, 1, 379},
-   {0x2444u, "AWB_ZONE_SUM_B_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_162, 1, 381},
-   {0x2448u, "AWB_ZONE_SUM_B_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_163, 1, 383},
-   {0x244Cu, "AWB_ZONE_COUNT", 0x00000000u, 0x00000000u, 0x007FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_164, 1, 385},
-   {0x2450u, "AWB_STATUS", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, fields_165, 1, 387},
-   {0x2454u, "AWB_UNDEREXPOSED_LIMIT", 0x00000000u, 0x00000FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_166, 1, 389},
-   {0x2458u, "AWB_SATURATION_LIMIT", 0x00000FFFu, 0x00000FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_167, 1, 391},
-   {0x245Cu, "AWB_CONTEXT_ID", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_168, 1, 393},
-   {0x2460u, "AWB_RESULT_CONTEXT_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_169, 1, 395},
-   {0x2464u, "AWB_FRAME_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_170, 1, 397},
-   {0x2600u, "AF_CTRL", 0x00000000u, 0x000001E7u, 0x00000000u, 0x00000000u, 0x00000018u, 0x00000000u, fields_171, 8, 399},
-   {0x2604u, "AF_ZONE_EN", 0x0000FFFFu, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_172, 1, 408},
-   {0x2608u, "AF_METRIC_CFG", 0x00000000u, 0x00FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_173, 2, 410},
-   {0x260Cu, "AF_STAT_ADDR", 0x00000000u, 0x0000000Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_174, 1, 413},
-   {0x2610u, "AF_STAT_DATA", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_175, 1, 415},
-   {0x2614u, "AF_LUT_ADDR", 0x00000000u, 0x000000FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_176, 1, 417},
-   {0x2618u, "AF_LUT_DATA", 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_177, 1, 419},
-   {0x261Cu, "AF_VCM_CUR_POS", 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_178, 1, 421},
-   {0x2620u, "AF_VCM_BEST_POS", 0x00000000u, 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_179, 1, 423},
-   {0x2624u, "AF_PEAK_SCORE", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_180, 1, 425},
-   {0x2628u, "AF_FOCUS_RANGE", 0x00000000u, 0x00FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_181, 2, 427},
-   {0x262Cu, "AF_STATUS", 0x00000000u, 0x00000000u, 0x00000021u, 0x0000000Eu, 0x00000000u, 0x00000000u, fields_182, 5, 430},
-   {0x2630u, "AF_CONTEXT_ID", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_183, 1, 436},
-   {0x2634u, "AF_RESULT_CONTEXT_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_184, 1, 438},
-   {0x2638u, "AF_FRAME_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_185, 1, 440},
-   {0x2800u, "OFMT_CTRL", 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_186, 1, 442},
-   {0x2804u, "OFMT_Y_STRIDE", 0x00000F00u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_187, 1, 444},
-   {0x2808u, "OFMT_UV_STRIDE", 0x00000F00u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_188, 1, 446},
-   {0x3000u, "DMA_CTRL", 0x00003F00u, 0x0000FF03u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000004u, fields_189, 4, 448},
-   {0x3004u, "DMA_STAT", 0x00000000u, 0x00000000u, 0x00000003u, 0x00000000u, 0x00000000u, 0x00000000u, fields_190, 2, 453},
-   {0x3008u, "DMA_ERR", 0x00000000u, 0x00000000u, 0x00000000u, 0x0000001Fu, 0x00000000u, 0x00000000u, fields_191, 1, 456},
-   {0x300Cu, "DMA_IRQ_EN", 0x00000000u, 0x0000007Eu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_192, 1, 458},
-   {0x3010u, "DMA_IRQ_STAT", 0x00000000u, 0x00000000u, 0x00000000u, 0x0000007Eu, 0x00000000u, 0x00000000u, fields_193, 1, 460},
-   {0x3020u, "IDMA_STRIDE", 0x00001E00u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_194, 1, 462},
-   {0x3024u, "IDMA_BUF_VALID", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x000000FFu, 0x00000000u, fields_195, 1, 464},
-   {0x3028u, "IDMA_FRAME_COUNT", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_196, 1, 466},
-   {0x3040u, "IDMA_BUF_ADDR_L0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_197, 1, 468},
-   {0x3044u, "IDMA_BUF_ADDR_H0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_198, 1, 470},
-   {0x3048u, "IDMA_BUF_ADDR_L1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_199, 1, 472},
-   {0x304Cu, "IDMA_BUF_ADDR_H1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_200, 1, 474},
-   {0x3050u, "IDMA_BUF_ADDR_L2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_201, 1, 476},
-   {0x3054u, "IDMA_BUF_ADDR_H2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_202, 1, 478},
-   {0x3058u, "IDMA_BUF_ADDR_L3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_203, 1, 480},
-   {0x305Cu, "IDMA_BUF_ADDR_H3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_204, 1, 482},
-   {0x3080u, "ODMA_Y_STRIDE", 0x00000F00u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_205, 1, 484},
-   {0x3084u, "ODMA_UV_STRIDE", 0x00000F00u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_206, 1, 486},
-   {0x3088u, "ODMA_BUF_FREE", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x000000FFu, 0x00000000u, fields_207, 1, 488},
-   {0x308Cu, "ODMA_BUF_DONE", 0x00000000u, 0x00000000u, 0x00000000u, 0x000000FFu, 0x00000000u, 0x00000000u, fields_208, 1, 490},
-   {0x3090u, "ODMA_FRAME_COUNT", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_209, 1, 492},
-   {0x30A0u, "ODMA_Y_ADDR_L0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_210, 1, 494},
-   {0x30A4u, "ODMA_Y_ADDR_H0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_211, 1, 496},
-   {0x30A8u, "ODMA_UV_ADDR_L0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_212, 1, 498},
-   {0x30ACu, "ODMA_UV_ADDR_H0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_213, 1, 500},
-   {0x30B0u, "ODMA_Y_ADDR_L1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_214, 1, 502},
-   {0x30B4u, "ODMA_Y_ADDR_H1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_215, 1, 504},
-   {0x30B8u, "ODMA_UV_ADDR_L1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_216, 1, 506},
-   {0x30BCu, "ODMA_UV_ADDR_H1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_217, 1, 508},
-   {0x30C0u, "ODMA_Y_ADDR_L2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_218, 1, 510},
-   {0x30C4u, "ODMA_Y_ADDR_H2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_219, 1, 512},
-   {0x30C8u, "ODMA_UV_ADDR_L2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_220, 1, 514},
-   {0x30CCu, "ODMA_UV_ADDR_H2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_221, 1, 516},
-   {0x30D0u, "ODMA_Y_ADDR_L3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_222, 1, 518},
-   {0x30D4u, "ODMA_Y_ADDR_H3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_223, 1, 520},
-   {0x30D8u, "ODMA_UV_ADDR_L3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_224, 1, 522},
-   {0x30DCu, "ODMA_UV_ADDR_H3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_225, 1, 524},
+   {0x1C00u, "EE_CTRL", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_100, 4, 232},
+   {0x1C04u, "EE_ALPHA", 0x00004000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_101, 1, 237},
+   {0x1C08u, "EE_BETA", 0x00002000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_102, 1, 239},
+   {0x1C0Cu, "EE_CLAMP", 0x00001810u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_103, 2, 241},
+   {0x1C10u, "EE_FEATURE_EN", 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_104, 3, 244},
+   {0x1C14u, "EE_RADIAL_CENTER", 0x00000000u, 0x1FFF1FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_105, 2, 248},
+   {0x1C18u, "EE_RADIAL_R2_TH0", 0x00000000u, 0x07FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_106, 1, 251},
+   {0x1C1Cu, "EE_RADIAL_R2_TH1", 0x00000000u, 0x07FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_107, 1, 253},
+   {0x1C20u, "EE_RADIAL_R2_TH2", 0x00000000u, 0x07FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_108, 1, 255},
+   {0x1C24u, "EE_RADIAL_GAIN_01", 0x80008000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_109, 2, 257},
+   {0x1C28u, "EE_RADIAL_GAIN_23", 0x80008000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_110, 2, 260},
+   {0x1C2Cu, "EE_LUT_CTRL", 0x00000000u, 0x00000006u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_111, 1, 263},
+   {0x1C30u, "EE_LUT_ADDR", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_112, 1, 265},
+   {0x1C34u, "EE_LUT_WDATA", 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_113, 1, 267},
+   {0x1C38u, "EE_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000002u, 0x00000000u, 0x00000000u, fields_114, 2, 269},
+   {0x1C3Cu, "EE_LUT_RDATA", 0x00000000u, 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_115, 1, 272},
+   {0x1E00u, "CNF_CTRL", 0x00000000u, 0x00000005u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_116, 2, 274},
+   {0x1E04u, "CNF_CHROMA_TH", 0x00000000u, 0x000001FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_117, 1, 277},
+   {0x1E08u, "CNF_LUMA_TH", 0x00000000u, 0x000000FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_118, 1, 279},
+   {0x1E0Cu, "CNF_STRENGTH", 0x00000000u, 0x00000003u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_119, 1, 281},
+   {0x1E10u, "CNF_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, fields_120, 1, 283},
+   {0x2000u, "RESIZER_CTRL", 0x00000000u, 0x0000007Du, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_121, 3, 285},
+   {0x2014u, "RESIZER_OUT_W", 0x00000780u, 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_122, 1, 289},
+   {0x2018u, "RESIZER_OUT_H", 0x00000438u, 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_123, 1, 291},
+   {0x201Cu, "RESIZER_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, fields_124, 1, 293},
+   {0x2200u, "AEC_CTRL", 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000002u, 0x00000000u, fields_125, 2, 295},
+   {0x2204u, "AEC_CONTEXT_ID", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_126, 1, 298},
+   {0x2208u, "AEC_ZONE_CFG", 0x00001820u, 0x00001F3Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_127, 2, 300},
+   {0x220Cu, "AEC_ZONE_SIZE", 0x005A0078u, 0x0FFF0FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_128, 2, 303},
+   {0x2210u, "AEC_SAMPLE_CLIP", 0x0FFF0000u, 0x0FFF0FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_129, 2, 306},
+   {0x2214u, "AEC_THRESH", 0x0F000100u, 0x0FFF0FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_130, 2, 309},
+   {0x2218u, "AEC_STATUS", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000006u, 0x00000000u, 0x00000000u, fields_131, 3, 312},
+   {0x221Cu, "AEC_FRAME_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_132, 1, 316},
+   {0x2220u, "AEC_RESULT_CONTEXT_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_133, 1, 318},
+   {0x2224u, "AEC_CHANNEL_SEL", 0x00000000u, 0x00000003u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_134, 1, 320},
+   {0x2228u, "AEC_GLOBAL_SUM_LO", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_135, 1, 322},
+   {0x222Cu, "AEC_GLOBAL_SUM_HI", 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, fields_136, 1, 324},
+   {0x2230u, "AEC_GLOBAL_COUNT", 0x00000000u, 0x00000000u, 0x001FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_137, 1, 326},
+   {0x2234u, "AEC_ZONE_ADDR", 0x00000000u, 0x000003FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_138, 1, 328},
+   {0x2238u, "AEC_ZONE_SUM", 0x00000000u, 0x00000000u, 0x0FFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_139, 1, 330},
+   {0x223Cu, "AEC_ZONE_COUNT", 0x00000000u, 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_140, 1, 332},
+   {0x2240u, "AEC_ZONE_GREEN_OE_UE", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_141, 2, 334},
+   {0x2244u, "AEC_ZONE_GREEN_MIN_MAX", 0x00000000u, 0x00000000u, 0x00FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_142, 2, 337},
+   {0x2248u, "AEC_HIST_ADDR", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_143, 1, 340},
+   {0x224Cu, "AEC_HIST_DATA", 0x00000000u, 0x00000000u, 0x003FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_144, 1, 342},
+   {0x2400u, "AWB_CTRL", 0x00000000u, 0x00003FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_145, 3, 344},
+   {0x2404u, "AWB_X_BOUND_ADDR", 0x00000000u, 0x0000003Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_146, 1, 348},
+   {0x2408u, "AWB_Y_BOUND_ADDR", 0x00000000u, 0x0000001Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_147, 1, 350},
+   {0x240Cu, "AWB_X_BOUND_DATA", 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_148, 2, 352},
+   {0x2410u, "AWB_Y_BOUND_DATA", 0x00000000u, 0x00001FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_149, 2, 355},
+   {0x2414u, "AWB_GLOBAL_SUM_R_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_150, 1, 358},
+   {0x2418u, "AWB_GLOBAL_SUM_R_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_151, 1, 360},
+   {0x241Cu, "AWB_GLOBAL_SUM_G_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_152, 1, 362},
+   {0x2420u, "AWB_GLOBAL_SUM_G_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_153, 1, 364},
+   {0x2424u, "AWB_GLOBAL_SUM_B_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_154, 1, 366},
+   {0x2428u, "AWB_GLOBAL_SUM_B_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_155, 1, 368},
+   {0x242Cu, "AWB_GLOBAL_COUNT", 0x00000000u, 0x00000000u, 0x007FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_156, 1, 370},
+   {0x2430u, "AWB_ZONE_ADDR", 0x00000000u, 0x000007FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_157, 1, 372},
+   {0x2434u, "AWB_ZONE_SUM_R_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_158, 1, 374},
+   {0x2438u, "AWB_ZONE_SUM_R_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_159, 1, 376},
+   {0x243Cu, "AWB_ZONE_SUM_G_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_160, 1, 378},
+   {0x2440u, "AWB_ZONE_SUM_G_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_161, 1, 380},
+   {0x2444u, "AWB_ZONE_SUM_B_H", 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, 0x00000000u, 0x00000000u, fields_162, 1, 382},
+   {0x2448u, "AWB_ZONE_SUM_B_L", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_163, 1, 384},
+   {0x244Cu, "AWB_ZONE_COUNT", 0x00000000u, 0x00000000u, 0x007FFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_164, 1, 386},
+   {0x2450u, "AWB_STATUS", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, fields_165, 1, 388},
+   {0x2454u, "AWB_UNDEREXPOSED_LIMIT", 0x00000000u, 0x00000FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_166, 1, 390},
+   {0x2458u, "AWB_SATURATION_LIMIT", 0x00000FFFu, 0x00000FFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_167, 1, 392},
+   {0x245Cu, "AWB_CONTEXT_ID", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_168, 1, 394},
+   {0x2460u, "AWB_RESULT_CONTEXT_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_169, 1, 396},
+   {0x2464u, "AWB_FRAME_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_170, 1, 398},
+   {0x2468u, "AWB_RESULT_CTRL", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000007u, 0x00000000u, fields_171, 3, 400},
+   {0x246Cu, "AWB_RESULT_STATUS", 0x00000000u, 0x00000000u, 0x003F7F7Fu, 0x00000000u, 0x00000000u, 0x00000000u, fields_172, 8, 404},
+   {0x2470u, "AWB_DROP_COUNT", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_173, 1, 413},
+   {0x2600u, "AF_CTRL", 0x00000000u, 0x000001E7u, 0x00000000u, 0x00000000u, 0x00000018u, 0x00000000u, fields_174, 8, 415},
+   {0x2604u, "AF_ZONE_EN", 0x0000FFFFu, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_175, 1, 424},
+   {0x2608u, "AF_METRIC_CFG", 0x00000000u, 0x00FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_176, 2, 426},
+   {0x260Cu, "AF_STAT_ADDR", 0x00000000u, 0x0000000Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_177, 1, 429},
+   {0x2610u, "AF_STAT_DATA", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_178, 1, 431},
+   {0x2614u, "AF_LUT_ADDR", 0x00000000u, 0x000000FFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_179, 1, 433},
+   {0x2618u, "AF_LUT_DATA", 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_180, 1, 435},
+   {0x261Cu, "AF_VCM_CUR_POS", 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_181, 1, 437},
+   {0x2620u, "AF_VCM_BEST_POS", 0x00000000u, 0x00000000u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_182, 1, 439},
+   {0x2624u, "AF_PEAK_SCORE", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_183, 1, 441},
+   {0x2628u, "AF_FOCUS_RANGE", 0x00000000u, 0x00FFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_184, 2, 443},
+   {0x262Cu, "AF_STATUS", 0x00000000u, 0x00000000u, 0x00000021u, 0x0000000Eu, 0x00000000u, 0x00000000u, fields_185, 5, 446},
+   {0x2630u, "AF_CONTEXT_ID", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_186, 1, 452},
+   {0x2634u, "AF_RESULT_CONTEXT_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_187, 1, 454},
+   {0x2638u, "AF_FRAME_ID", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_188, 1, 456},
+   {0x2800u, "OFMT_CTRL", 0x00000000u, 0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_189, 1, 458},
+   {0x2804u, "OFMT_Y_STRIDE", 0x00000F00u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_190, 1, 460},
+   {0x2808u, "OFMT_UV_STRIDE", 0x00000F00u, 0x0000FFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_191, 1, 462},
+   {0x3000u, "DMA_CTRL", 0x00003F00u, 0x0000FF03u, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000004u, fields_192, 4, 464},
+   {0x3004u, "DMA_STAT", 0x00000000u, 0x00000000u, 0x00000003u, 0x00000000u, 0x00000000u, 0x00000000u, fields_193, 2, 469},
+   {0x3008u, "DMA_ERR", 0x00000000u, 0x00000000u, 0x00000000u, 0x0000001Fu, 0x00000000u, 0x00000000u, fields_194, 1, 472},
+   {0x300Cu, "DMA_IRQ_EN", 0x00000000u, 0x0000007Fu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_195, 1, 474},
+   {0x3010u, "DMA_IRQ_STAT", 0x00000000u, 0x00000000u, 0x00000000u, 0x0000007Fu, 0x00000000u, 0x00000000u, fields_196, 1, 476},
+   {0x3020u, "IDMA_STRIDE", 0x00001E00u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_197, 1, 478},
+   {0x3024u, "IDMA_BUF_VALID", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x000000FFu, 0x00000000u, fields_198, 1, 480},
+   {0x3028u, "IDMA_FRAME_COUNT", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_199, 1, 482},
+   {0x3040u, "IDMA_BUF_ADDR_L0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_200, 1, 484},
+   {0x3044u, "IDMA_BUF_ADDR_H0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_201, 1, 486},
+   {0x3048u, "IDMA_BUF_ADDR_L1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_202, 1, 488},
+   {0x304Cu, "IDMA_BUF_ADDR_H1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_203, 1, 490},
+   {0x3050u, "IDMA_BUF_ADDR_L2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_204, 1, 492},
+   {0x3054u, "IDMA_BUF_ADDR_H2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_205, 1, 494},
+   {0x3058u, "IDMA_BUF_ADDR_L3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_206, 1, 496},
+   {0x305Cu, "IDMA_BUF_ADDR_H3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_207, 1, 498},
+   {0x3080u, "ODMA_Y_STRIDE", 0x00000F00u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_208, 1, 500},
+   {0x3084u, "ODMA_UV_STRIDE", 0x00000F00u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_209, 1, 502},
+   {0x3088u, "ODMA_BUF_FREE", 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, 0x000000FFu, 0x00000000u, fields_210, 1, 504},
+   {0x308Cu, "ODMA_BUF_DONE", 0x00000000u, 0x00000000u, 0x00000000u, 0x000000FFu, 0x00000000u, 0x00000000u, fields_211, 1, 506},
+   {0x3090u, "ODMA_FRAME_COUNT", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_212, 1, 508},
+   {0x30A0u, "ODMA_Y_ADDR_L0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_213, 1, 510},
+   {0x30A4u, "ODMA_Y_ADDR_H0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_214, 1, 512},
+   {0x30A8u, "ODMA_UV_ADDR_L0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_215, 1, 514},
+   {0x30ACu, "ODMA_UV_ADDR_H0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_216, 1, 516},
+   {0x30B0u, "ODMA_Y_ADDR_L1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_217, 1, 518},
+   {0x30B4u, "ODMA_Y_ADDR_H1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_218, 1, 520},
+   {0x30B8u, "ODMA_UV_ADDR_L1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_219, 1, 522},
+   {0x30BCu, "ODMA_UV_ADDR_H1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_220, 1, 524},
+   {0x30C0u, "ODMA_Y_ADDR_L2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_221, 1, 526},
+   {0x30C4u, "ODMA_Y_ADDR_H2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_222, 1, 528},
+   {0x30C8u, "ODMA_UV_ADDR_L2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_223, 1, 530},
+   {0x30CCu, "ODMA_UV_ADDR_H2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_224, 1, 532},
+   {0x30D0u, "ODMA_Y_ADDR_L3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_225, 1, 534},
+   {0x30D4u, "ODMA_Y_ADDR_H3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_226, 1, 536},
+   {0x30D8u, "ODMA_UV_ADDR_L3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_227, 1, 538},
+   {0x30DCu, "ODMA_UV_ADDR_H3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_228, 1, 540},
+   {0x3100u, "IDMA_BUF_TAG0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_229, 1, 542},
+   {0x3104u, "IDMA_BUF_TAG1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_230, 1, 544},
+   {0x3108u, "IDMA_BUF_TAG2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_231, 1, 546},
+   {0x310Cu, "IDMA_BUF_TAG3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_232, 1, 548},
+   {0x3110u, "IDMA_BUF_TS0", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_233, 1, 550},
+   {0x3114u, "IDMA_BUF_TS1", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_234, 1, 552},
+   {0x3118u, "IDMA_BUF_TS2", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_235, 1, 554},
+   {0x311Cu, "IDMA_BUF_TS3", 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u, fields_236, 1, 556},
+   {0x3120u, "ODMA_BUF_TAG0", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_237, 1, 558},
+   {0x3124u, "ODMA_BUF_TAG1", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_238, 1, 560},
+   {0x3128u, "ODMA_BUF_TAG2", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_239, 1, 562},
+   {0x312Cu, "ODMA_BUF_TAG3", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_240, 1, 564},
+   {0x3130u, "ODMA_BUF_TS0", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_241, 1, 566},
+   {0x3134u, "ODMA_BUF_TS1", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_242, 1, 568},
+   {0x3138u, "ODMA_BUF_TS2", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_243, 1, 570},
+   {0x313Cu, "ODMA_BUF_TS3", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_244, 1, 572},
+   {0x3140u, "ODMA_BUF_SOF_TS0", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_245, 1, 574},
+   {0x3144u, "ODMA_BUF_SOF_TS1", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_246, 1, 576},
+   {0x3148u, "ODMA_BUF_SOF_TS2", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_247, 1, 578},
+   {0x314Cu, "ODMA_BUF_SOF_TS3", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_248, 1, 580},
+   {0x3150u, "ODMA_BUF_EOF_TS0", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_249, 1, 582},
+   {0x3154u, "ODMA_BUF_EOF_TS1", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_250, 1, 584},
+   {0x3158u, "ODMA_BUF_EOF_TS2", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_251, 1, 586},
+   {0x315Cu, "ODMA_BUF_EOF_TS3", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_252, 1, 588},
+   {0x3160u, "FRAME_COUNTER", 0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u, fields_253, 1, 590},
 };
 
 const std::size_t num_registers = sizeof(registers) / sizeof(registers[0]);

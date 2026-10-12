@@ -257,7 +257,7 @@ interrupts reach tasks.
 | Topic | Where |
 |---|---|
 | SYS_DMA programming | [`components/FX1_Components/dma/docs/PROGRAMMING_GUIDE.md`](../../../components/FX1_Components/dma/docs/PROGRAMMING_GUIDE.md); examples `tests/dma_m2m`, `tests/recovery/dma_recovery.c` (errors, chains, pause/resume) |
-| ISP programming | [`components/FX1_Components/isp/docs/ISP_PROGRAMMING_GUIDE.md`](../../../components/FX1_Components/isp/docs/ISP_PROGRAMMING_GUIDE.md); MMIO HAL `tests/isp_stream/isp_common.c`; streaming `tests/isp_stream/main.c`; statistics `frame_id.c`; error and reset recovery `tests/recovery/isp_recovery.c` |
+| ISP programming | [`components/FX1_Components/isp/docs/ISP_PROGRAMMING_GUIDE.md`](../../../components/FX1_Components/isp/docs/ISP_PROGRAMMING_GUIDE.md); MMIO HAL `tests/isp_stream/isp_common.c`; streaming `tests/isp_stream/main.c`; statistics `frame_id.c`; error and reset recovery `tests/recovery/isp_recovery.c`; frame metadata, AWB result ownership, DMA reset and Resizer `tests/isp_stream/isp_mas0710.c` |
 | Interrupts | `tests/plic_irq`, `tests/clint_irq` |
 | Two harts, atomics | `tests/hello_2hart`, `tests/atomic/*` |
 | Two harts and two devices at once | `tests/shared_mem/hart1_dma.c` with `isp_stream/main.c` |
@@ -272,9 +272,12 @@ The ISP tests need no external data:
 - **Input.** `tests/isp_stream/isp_fixture.h` holds a deterministic 64×48 RGGB
   RAW formula (firmware recomputes it). It also holds three register profiles
   (`basic`, `basic + GTM auto`, `basic + statistics`) as `{offset, value}`
-  tables.
+  tables. A second, cheaper formula gives the 648×368 frames of the Resizer
+  case, which has its own `basic` profile.
 - **Expected results.** The same header holds the NV12 CRC-32 and the
-  statistics expected for every frame.
+  statistics expected for every frame. It also holds the expected outcome of
+  every step of the AWB ownership script (`isp_mas0710.c`) and the CRCs of the
+  three Resizer frames.
 - **Provenance.** The values come from the pinned Python reference of the ISP
   component, and the header records the SHA-256 of the reference files used.
 

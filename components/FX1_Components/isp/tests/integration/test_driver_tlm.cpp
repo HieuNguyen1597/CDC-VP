@@ -11,6 +11,7 @@
 // Usage: fx1_isp_test_driver_tlm <vectors dir>
 
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -77,6 +78,7 @@ struct bench : sc_module {
    fx1_test::test_memory *mem = nullptr;
    fs::path root;
    fx1_isp_dev dev{};
+   bool fast_csr = false;  // CSR accesses shorter than a core clock (review U2-R2)
    std::size_t vectors = 0, helper_calls = 0;
    std::map<std::string, unsigned> helpers;
 
@@ -107,8 +109,10 @@ struct bench : sc_module {
       static_cast<bench *>(ctx)->access(tlm::TLM_WRITE_COMMAND, off, v);
    }
    static void hal_delay(void *ctx, std::uint32_t cycles) {
+      static_cast<bench *>(ctx)->delay_requested += cycles;
       static_cast<bench *>(ctx)->wait(static_cast<bench *>(ctx)->dut->params().core_period * static_cast<double>(cycles));
    }
+   std::uint64_t delay_requested = 0;  // core clocks the driver asked the HAL to wait
    std::uint32_t rd(std::uint32_t off) { return hal_read(this, off); }
 
    void reset_and_init() {
@@ -166,7 +170,7 @@ struct bench : sc_module {
             }
             if (t.size() == 65) {
                hal_write(this, FX1_ISP_GTM_CTRL_OFFSET, v);
-               fx1_isp_load_gtm_lut(&dev, t.data());
+               FX1_CHECK_EQ(fx1_isp_load_gtm_lut(&dev, t.data()), FX1_ISP_OK);  // no frame yet: nothing pending
                ++helpers["gtm_lut"];
                i += k;
                continue;
@@ -301,12 +305,86 @@ struct bench : sc_module {
    }
 
    // ---- statistics through the driver readers ----
+   // One AWB result of the script: the reads between ACQUIRE and RELEASE.
+   struct awb_block {
+      std::map<std::string, std::uint32_t> want;  // "REG" or "AWB_ZONE_*@zone"
+   };
+
+   // AWB through the ownership API (MAS §6.22.4): every result the script
+   // acquires, in the same order, with its identity, grid, globals and zones.
+   void check_awb(const std::string &name, const std::vector<awb_block> &blocks) {
+      const char *ch = "RGB";
+      for (std::size_t k = 0; k < blocks.size(); ++k) {
+         const auto &w = blocks[k].want;
+         const std::string ctx = name + " awb result " + std::to_string(k);
+         const auto want_of = [&](const std::string &key) {
+            const auto it = w.find(key);
+            return it == w.end() ? 0u : it->second;
+         };
+         fx1_isp_awb_lease lease{};
+         FX1_CHECK_EQ_CTX(fx1_isp_awb_acquire(&dev, &lease), FX1_ISP_OK, ctx + " acquire");
+         FX1_CHECK_EQ_CTX(fx1_isp_awb_acquire(&dev, nullptr), FX1_ISP_EBUSY, ctx + " second acquire");
+         const std::uint32_t st = want_of("AWB_RESULT_STATUS");
+         FX1_CHECK_EQ_CTX(lease.frame_id, want_of("AWB_FRAME_ID"), ctx + " FRAME_ID");
+         FX1_CHECK_EQ_CTX(lease.context_id, want_of("AWB_RESULT_CONTEXT_ID"), ctx + " CONTEXT_ID");
+         FX1_CHECK_EQ_CTX(lease.nx, (st & FX1_ISP_AWB_RESULT_STATUS_READ_NUM_ZONE_X_MASK) >>
+                                        FX1_ISP_AWB_RESULT_STATUS_READ_NUM_ZONE_X_SHIFT, ctx + " nx");
+         FX1_CHECK_EQ_CTX(lease.ny, (st & FX1_ISP_AWB_RESULT_STATUS_READ_NUM_ZONE_Y_MASK) >>
+                                        FX1_ISP_AWB_RESULT_STATUS_READ_NUM_ZONE_Y_SHIFT, ctx + " ny");
+         FX1_CHECK_EQ_CTX(lease.bank, (st & FX1_ISP_AWB_RESULT_STATUS_READ_BANK_MASK) >>
+                                          FX1_ISP_AWB_RESULT_STATUS_READ_BANK_SHIFT, ctx + " bank");
+         fx1_isp_awb_global g{};
+         FX1_CHECK_EQ_CTX(fx1_isp_awb_read_global(&dev, &g), FX1_ISP_OK, ctx + " global");
+         for (unsigned c = 0; c < 3; ++c) {
+            FX1_CHECK_EQ_CTX(g.sum[c] & 0xFFFFFFFFu, want_of(std::string("AWB_GLOBAL_SUM_") + ch[c] + "_L"), ctx);
+            FX1_CHECK_EQ_CTX(g.sum[c] >> 32, want_of(std::string("AWB_GLOBAL_SUM_") + ch[c] + "_H"), ctx);
+         }
+         FX1_CHECK_EQ_CTX(g.count, want_of("AWB_GLOBAL_COUNT"), ctx + " count");
+         const unsigned n = lease.nx * lease.ny;
+         for (const auto &kv : w) {
+            if (kv.first.rfind("AWB_ZONE_COUNT@", 0) != 0) {
+               continue;
+            }
+            const unsigned z = static_cast<unsigned>(std::stoul(kv.first.substr(15)));
+            fx1_isp_awb_zone zr{};
+            if (z >= n) {  // beyond the captured grid: the driver refuses, the hardware reads 0
+               FX1_CHECK_EQ_CTX(fx1_isp_awb_read_zones(&dev, z, 1, &zr), FX1_ISP_EINVAL, ctx + " zone beyond grid");
+               FX1_CHECK_EQ_CTX(kv.second, 0u, ctx + " script zone beyond grid");
+               continue;
+            }
+            FX1_CHECK_EQ_CTX(fx1_isp_awb_read_zones(&dev, z, 1, &zr), FX1_ISP_OK, ctx + " zone");
+            const std::string zs = "@" + std::to_string(z);
+            FX1_CHECK_EQ_CTX(zr.count, kv.second, ctx + " zone count" + zs);
+            for (unsigned c = 0; c < 3; ++c) {
+               FX1_CHECK_EQ_CTX(zr.sum[c] & 0xFFFFFFFFu, want_of(std::string("AWB_ZONE_SUM_") + ch[c] + "_L" + zs), ctx + zs);
+               FX1_CHECK_EQ_CTX(zr.sum[c] >> 32, want_of(std::string("AWB_ZONE_SUM_") + ch[c] + "_H" + zs), ctx + zs);
+            }
+         }
+         FX1_CHECK_EQ_CTX(fx1_isp_awb_release(&dev), FX1_ISP_OK, ctx + " release");
+      }
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_acquire(&dev, nullptr), FX1_ISP_ENODATA, name + " awb: nothing left");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_release(&dev), FX1_ISP_ESTATE, name + " awb: release without a lease");
+   }
+
    void check_stats(const std::string &name, const std::vector<fx1_test::csr_line> &script) {
       std::map<std::string, std::uint32_t> sel;
       std::map<std::string, std::uint32_t> want;  // "REG@selectors" -> value
+      std::vector<awb_block> awb;
+      bool in_awb = false;
       for (const fx1_test::csr_line &l : script) {
          if (l.set) {
+            if (l.reg == "AWB_RESULT_CTRL") {
+               in_awb = (l.value & FX1_ISP_AWB_RESULT_CTRL_ACQUIRE_MASK) != 0;
+               if (in_awb) {
+                  awb.emplace_back();
+               }
+            }
             sel[l.reg] = l.value;
+            continue;
+         }
+         if (in_awb) {
+            const bool zone = l.reg.rfind("AWB_ZONE", 0) == 0;
+            awb.back().want[zone ? l.reg + "@" + std::to_string(sel["AWB_ZONE_ADDR"]) : l.reg] = l.value;
             continue;
          }
          std::string key = l.reg;
@@ -320,8 +398,8 @@ struct bench : sc_module {
             key += "@" + std::to_string(sel["AEC_HIST_ADDR"]);
          } else if (l.reg == "AF_STAT_DATA") {
             key += "@" + std::to_string(sel["AF_STAT_ADDR"]);
-         } else if (l.reg.rfind("AWB_ZONE", 0) == 0) {
-            continue;  // AWB zones: no driver reader (raw muxes, covered by the vector tests)
+         } else if (l.reg.rfind("AWB_", 0) == 0 && l.reg != "AWB_STATUS" && l.reg != "AWB_DROP_COUNT") {
+            continue;  // AWB results outside a lease read 0: checked by the vector tests
          }
          want[key] = l.value;
       }
@@ -368,16 +446,7 @@ struct bench : sc_module {
       for (unsigned bin = 0; bin < 64; ++bin) {
          expect("AEC_HIST_DATA@" + std::to_string(bin), hist[bin]);
       }
-      fx1_isp_awb_global wg{};
-      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &wg), FX1_ISP_OK, name + " awb global");
-      const char *ch = "RGB";
-      for (unsigned c = 0; c < 3; ++c) {
-         expect(std::string("AWB_GLOBAL_SUM_") + ch[c] + "_L", wg.sum[c] & 0xFFFFFFFFu);
-         expect(std::string("AWB_GLOBAL_SUM_") + ch[c] + "_H", wg.sum[c] >> 32);
-      }
-      expect("AWB_GLOBAL_COUNT", wg.count);
-      expect("AWB_FRAME_ID", wg.frame_id);
-      expect("AWB_RESULT_CONTEXT_ID", wg.context_id);
+      check_awb(name, awb);
       fx1_isp_af_scores af{};
       FX1_CHECK_EQ_CTX(fx1_isp_read_af(&dev, &af), FX1_ISP_OK, name + " af");
       for (unsigned z = 0; z < 16; ++z) {
@@ -671,13 +740,17 @@ struct bench : sc_module {
       }
       std::vector<std::uint32_t> coef(4 * 2 * 2, 0x40000);
       std::uint32_t err = 0;
-      FX1_CHECK_EQ(fx1_isp_lsc_load(&dev, 0, 2, 2, coef.data(), &err), FX1_ISP_OK);
-      FX1_CHECK_EQ(fx1_isp_lsc_select(&dev, 0), FX1_ISP_OK);
-      dut->debug_accepted_sof();  // profile 0 becomes active
+      // Profile 0 is active at reset and is never a destination, valid or not
+      // (MAS Table 31, owner Q5): the boot sequence loads profile 1 and selects it.
       FX1_CHECK_EQ(fx1_isp_lsc_load(&dev, 0, 2, 2, coef.data(), &err), FX1_ISP_EIO);
       FX1_CHECK_EQ(err & FX1_ISP_LSC_ERROR_ACTIVE_LOAD_REJECT_MASK, FX1_ISP_LSC_ERROR_ACTIVE_LOAD_REJECT_MASK);
+      FX1_CHECK_EQ(fx1_isp_lsc_load(&dev, 1, 2, 2, coef.data(), &err), FX1_ISP_OK);
+      FX1_CHECK_EQ(fx1_isp_lsc_select(&dev, 1), FX1_ISP_OK);
+      dut->debug_accepted_sof();  // profile 1 becomes active
+      FX1_CHECK_EQ(fx1_isp_lsc_load(&dev, 1, 2, 2, coef.data(), &err), FX1_ISP_EIO);
+      FX1_CHECK_EQ(err & FX1_ISP_LSC_ERROR_ACTIVE_LOAD_REJECT_MASK, FX1_ISP_LSC_ERROR_ACTIVE_LOAD_REJECT_MASK);
       FX1_CHECK_EQ(fx1_isp_lsc_select(&dev, 2), FX1_ISP_EIO);  // not loaded
-      FX1_CHECK_EQ(fx1_isp_lsc_load(&dev, 1, 33, 2, coef.data(), &err), FX1_ISP_EINVAL);  // DEC-31
+      FX1_CHECK_EQ(fx1_isp_lsc_load(&dev, 2, 129, 2, coef.data(), &err), FX1_ISP_EINVAL);  // 2..128 nodes (CSR 07/10)
       FX1_CHECK_EQ(fx1_isp_set_geometry(&dev, 3, 4, 0), FX1_ISP_EINVAL);
       FX1_CHECK_EQ(fx1_isp_load_ee_table(&dev, 2, nullptr, 64), FX1_ISP_EINVAL);
    }
@@ -882,6 +955,397 @@ struct bench : sc_module {
       mem->faults.clear();
    }
 
+   // AWB ownership through the driver (MAS §6.22.4; plan U2 item 5): the
+   // explicit API, the compatibility reader, loss reporting and a lease ended
+   // by a reset the driver did not issue.
+   void test_awb_driver() {
+      const fs::path sdir = root / "stats_flat_channels_64x48";  // AWB 4 x 3, context 0x102
+      const std::string ctx = "awb driver";
+      const std::uint32_t sw = 64, sh = 48, stride = align16(2 * sw);
+      reset_and_init();
+      apply_profile(fx1_test::read_profile(sdir / "profile.csrw"));
+      const fx1_isp_buffers b = buffer_layout(stride, align16(rd(FX1_ISP_RESIZER_OUT_W_OFFSET)));
+      FX1_CHECK_EQ(fx1_isp_start(&dev, &b), FX1_ISP_OK);
+      const std::vector<std::uint8_t> raw = read_file(sdir / "input.bin");
+      std::vector<std::vector<std::uint8_t>> done;
+      auto frames = [&](unsigned n) {
+         for (unsigned k = 0; k < n; ++k) {
+            load_input(fx1_isp_next_input(&dev), raw, sw, sh, stride, b);
+            FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+         }
+         done.clear();
+         service(done, n, b, ctx);
+         // Statistics are published when the pipeline ends the frame, which
+         // in this model can follow the ODMA completion under output
+         // backpressure (U2-A7). Software waits for the publication, as MAS
+         // §6.22.4.1 asks (READY_COUNT / stats_ready), here for an idle pipeline.
+         const sc_time end = sc_time_stamp() + sc_time(1, SC_MS);
+         while ((rd(FX1_ISP_DEMOSAIC_STATUS_OFFSET) & FX1_ISP_DEMOSAIC_STATUS_BUSY_MASK) && sc_time_stamp() < end) {
+            wait(dut->params().core_period * 4.0);
+         }
+         FX1_CHECK_EQ_CTX(rd(FX1_ISP_DEMOSAIC_STATUS_OFFSET) & FX1_ISP_DEMOSAIC_STATUS_BUSY_MASK, 0, ctx + " pipeline idle");
+      };
+      fx1_isp_awb_lease lease{};
+      fx1_isp_awb_global g{}, g1{};
+      fx1_isp_awb_zone zones[12]{};
+      fx1_isp_awb_status rep{};
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_ENODATA, ctx + " nothing published yet");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_acquire(&dev, &lease), FX1_ISP_ENODATA, ctx + " nothing to acquire");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_read_global(&dev, &g), FX1_ISP_ESTATE, ctx + " read without a lease");
+
+      // Explicit API: one result, held while the next frame is measured. The
+      // ACQUIRE is issued at the start of a core clock, so with fast CSR
+      // accesses the next one falls on the same clock unless the driver waits.
+      frames(1);
+      const auto now = static_cast<std::uint64_t>(sc_time_stamp() / dut->params().core_period);
+      wait(dut->params().core_period * static_cast<double>(now + 1) - sc_time_stamp());
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_acquire(&dev, &lease), FX1_ISP_OK, ctx + " acquire");
+      FX1_CHECK_EQ_CTX(dev.awb_leased, 1, ctx + " lease recorded");
+      FX1_CHECK_EQ_CTX(lease.frame_id, 1, ctx + " FRAME_ID");
+      FX1_CHECK_EQ_CTX(lease.context_id, 0x102, ctx + " CONTEXT_ID");
+      FX1_CHECK_EQ_CTX(lease.nx * 10 + lease.ny, 43, ctx + " captured grid");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_read_global(&dev, &g1), FX1_ISP_OK, ctx + " global");
+      FX1_CHECK_EQ_CTX(g1.count > 0 ? 1 : 0, 1, ctx + " qualified pixels");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_read_zones(&dev, 0, 12, zones), FX1_ISP_OK, ctx + " zones");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_read_zones(&dev, 11, 2, zones), FX1_ISP_EINVAL, ctx + " beyond the grid");
+      std::uint64_t zsum = 0;
+      for (const auto &z : zones) {
+         zsum += z.count;
+      }
+      FX1_CHECK_EQ_CTX(zsum, g1.count, ctx + " zones add up to the global count");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_EBUSY, ctx + " compatibility reader while leased");
+      frames(1);  // frame 2 goes to the other bank; the lease does not change
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_read_global(&dev, &g), FX1_ISP_OK, ctx + " lease after a new frame");
+      FX1_CHECK_EQ_CTX(g.count, g1.count, ctx + " leased result stable");
+      FX1_CHECK_EQ_CTX(g.frame_id, 1, ctx + " leased result identity");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_AWB_FRAME_ID_OFFSET), 1, ctx + " leased FRAME_ID");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_release(&dev), FX1_ISP_OK, ctx + " release");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_release(&dev), FX1_ISP_ESTATE, ctx + " second release");
+
+      // Compatibility reader: drains the ready results, returns the newest,
+      // and keeps returning it while nothing new is ready.
+      frames(1);  // frame 3; frame 2 still ready
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_OK, ctx + " compatibility reader");
+      FX1_CHECK_EQ_CTX(g.frame_id, 3, ctx + " newest result");
+      FX1_CHECK_EQ_CTX(g.count, g1.count, ctx + " same input, same result");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_report(&dev, &rep, 0), FX1_ISP_OK, ctx + " report");
+      FX1_CHECK_EQ_CTX(rep.ready_count, 0, ctx + " drained");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_OK, ctx + " again");
+      FX1_CHECK_EQ_CTX(g.frame_id, 3, ctx + " cached");
+
+      // Unread results: the third enabled frame finds no free bank.
+      frames(3);  // frames 4, 5 ready; 6 skipped
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_report(&dev, &rep, 1), FX1_ISP_OK, ctx + " report and clear");
+      FX1_CHECK_EQ_CTX(rep.ready_count, 2, ctx + " two ready");
+      FX1_CHECK_EQ_CTX(rep.drop_count, 1, ctx + " one skipped");
+      FX1_CHECK_EQ_CTX(rep.overrun, 1, ctx + " overrun");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_report(&dev, &rep, 0), FX1_ISP_OK, ctx + " report");
+      FX1_CHECK_EQ_CTX(rep.drop_count, 0, ctx + " drops cleared");
+      FX1_CHECK_EQ_CTX(rep.overrun, 0, ctx + " overrun cleared");
+      FX1_CHECK_EQ_CTX(rep.ready_count, 2, ctx + " data kept");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_OK, ctx + " after the loss");
+      FX1_CHECK_EQ_CTX(g.frame_id, 5, ctx + " newest published (6 was skipped)");
+
+      // A COMMON soft reset the driver did not issue ends the lease.
+      frames(1);  // frame 7
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_acquire(&dev, &lease), FX1_ISP_OK, ctx + " acquire before reset");
+      hal_write(this, FX1_ISP_COMMON_CTRL_OFFSET, FX1_ISP_COMMON_CTRL_ISP_EN_MASK | FX1_ISP_COMMON_CTRL_SOFT_RST_MASK);
+      wait(dut->params().core_period * 40.0);
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_read_global(&dev, &g), FX1_ISP_ENODATA, ctx + " lease gone");
+      FX1_CHECK_EQ_CTX(fx1_isp_awb_release(&dev), FX1_ISP_ESTATE, ctx + " lease dropped by the driver");
+      // The cache describes results the reset cleared (review U2-R1).
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_ENODATA, ctx + " cache dropped with the lease");
+      fx1_isp_soft_reset(&dev);
+      FX1_CHECK_EQ_CTX(fx1_isp_read_awb_global(&dev, &g), FX1_ISP_ENODATA, ctx + " cache dropped by soft reset");
+      fx1_isp_stop(&dev);
+   }
+
+   // EE resident profiles through the driver (MAS §6.18.4.1, §9.2; U3): the
+   // vector ee_features_96x64's EE content is loaded into profile 2 with
+   // fx1_isp_ee_load_profile, other content into profile 0, profile 2 is
+   // selected, and the frame must equal the vector's expected output. Then
+   // the refusal of a profile a frame in flight may use.
+   void test_ee_driver() {
+      const fs::path dir = root / "ee_features_96x64";
+      const std::string ctx = "ee driver";
+      std::ifstream meta(dir / "meta.txt");
+      std::uint32_t in_w = 0, in_h = 0, out_w = 0, out_h = 0, frames = 1;
+      meta >> in_w >> in_h >> out_w >> out_h >> frames;
+      const std::vector<std::uint8_t> input = read_file(dir / "input.bin");
+      // Split the profile: the EE content into a driver profile, the rest as is.
+      fx1_isp_ee_profile ep{};
+      std::vector<fx1_test::csr_line> others;
+      std::uint16_t *tables[4] = {ep.luma, ep.activity, ep.contrast_pos, ep.contrast_neg};
+      unsigned bank = 0, addr = 0;
+      bool enable = false;
+      for (const fx1_test::csr_line &l : fx1_test::read_profile(dir / "profile.csrw")) {
+         const std::uint32_t off = reg(l.reg) ? reg(l.reg)->offset : 0;
+         if (off >= FX1_ISP_EE_ALPHA_OFFSET && off <= FX1_ISP_EE_RADIAL_GAIN_23_OFFSET) {
+            uint32_t *sc[10] = {&ep.alpha, &ep.beta, &ep.clamp, &ep.feature_en, &ep.radial_center, &ep.r2_th[0],
+                                &ep.r2_th[1], &ep.r2_th[2], &ep.radial_gain_01, &ep.radial_gain_23};
+            *sc[(off - FX1_ISP_EE_ALPHA_OFFSET) / 4] = l.value;
+         } else if (l.reg == "EE_LUT_CTRL") {
+            bank = (l.value >> FX1_ISP_EE_LUT_CTRL_LUT_SEL_SHIFT) & 3u;
+         } else if (l.reg == "EE_LUT_ADDR") {
+            addr = l.value;
+         } else if (l.reg == "EE_LUT_WDATA") {
+            tables[bank][addr++ & (bank < 2 ? 63u : 31u)] = static_cast<std::uint16_t>(l.value);
+         } else if (l.reg == "EE_CTRL") {
+            enable = (l.value & FX1_ISP_EE_CTRL_EN_MASK) != 0;
+         } else {
+            others.push_back(l);
+         }
+      }
+      FX1_CHECK_EQ_CTX(enable ? 1 : 0, 1, ctx + " vector enables EE");
+      fx1_isp_ee_profile other = ep;
+      other.alpha = 0x8000;
+      other.clamp = 0xFFFF;
+      for (auto &v : other.luma) {
+         v = 0x4000;
+      }
+      reset_and_init();
+      apply_profile(others);
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 3, &ep), FX1_ISP_EINVAL, ctx + " profile 3");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_select(&dev, 3, 1), FX1_ISP_EINVAL, ctx + " select 3");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 0, &other), FX1_ISP_OK, ctx + " load 0");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 2, &ep), FX1_ISP_OK, ctx + " load 2");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_select(&dev, 2, 1), FX1_ISP_OK, ctx + " select 2");
+      const std::uint32_t in_stride = align16(2 * in_w);
+      const fx1_isp_buffers b = buffer_layout(in_stride, align16(rd(FX1_ISP_RESIZER_OUT_W_OFFSET)));
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " start");
+      std::vector<std::vector<std::uint8_t>> done;
+      load_input(fx1_isp_next_input(&dev), input, in_w, in_h, in_stride, b);
+      FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+      service(done, 1, b, ctx);
+      std::vector<std::uint8_t> want = read_file(dir / "expected_y.bin");
+      const std::vector<std::uint8_t> uv = read_file(dir / "expected_uv.bin");
+      want.insert(want.end(), uv.begin(), uv.end());
+      FX1_CHECK_EQ_CTX(!done.empty() && done.back() == want ? 1 : 0, 1, ctx + " profile 2 = the vector's EE");
+      // While a frame is in EE, the selected profile and the one selected
+      // before it are refused; another one may be loaded.
+      load_input(fx1_isp_next_input(&dev), input, in_w, in_h, in_stride, b);
+      FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+      const sc_time end = sc_time_stamp() + sc_time(20, SC_MS);
+      while (!(rd(FX1_ISP_EE_STATUS_OFFSET) & FX1_ISP_EE_STATUS_BUSY_MASK) && sc_time_stamp() < end) {
+         wait(100, SC_NS);
+      }
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_EE_STATUS_OFFSET) & FX1_ISP_EE_STATUS_BUSY_MASK, FX1_ISP_EE_STATUS_BUSY_MASK,
+                       ctx + " EE busy");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 2, &ep), FX1_ISP_EBUSY, ctx + " selected profile while busy");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 1, &other), FX1_ISP_OK, ctx + " unused profile while busy");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_select(&dev, 0, 1), FX1_ISP_OK, ctx + " select 0 while busy");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 2, &ep), FX1_ISP_EBUSY, ctx + " previous profile while busy");
+      // A second switch in the same busy period: profile 2 is still the
+      // in-flight frame's (review U3-R1); every profile selected is kept.
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_select(&dev, 1, 1), FX1_ISP_OK, ctx + " select 1 while busy");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_EE_STATUS_OFFSET) & FX1_ISP_EE_STATUS_BUSY_MASK, FX1_ISP_EE_STATUS_BUSY_MASK,
+                       ctx + " still busy");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 2, &other), FX1_ISP_EBUSY, ctx + " in-flight profile after two switches");
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 0, &other), FX1_ISP_EBUSY, ctx + " intermediate selection");
+      done.clear();
+      service(done, 1, b, ctx);
+      FX1_CHECK_EQ_CTX(!done.empty() && done.back() == want ? 1 : 0, 1, ctx + " frame in flight kept profile 2");
+      const sc_time end2 = sc_time_stamp() + sc_time(20, SC_MS);
+      while ((rd(FX1_ISP_EE_STATUS_OFFSET) & FX1_ISP_EE_STATUS_BUSY_MASK) && sc_time_stamp() < end2) {
+         wait(100, SC_NS);
+      }
+      FX1_CHECK_EQ_CTX(fx1_isp_ee_load_profile(&dev, 2, &ep), FX1_ISP_OK, ctx + " previous profile once EE was idle");
+      fx1_isp_stop(&dev);
+   }
+
+   // GTM software table through the driver while GTM is enabled: the memory
+   // takes writes only while EN = 0 (MAS p146), so the driver clears EN for
+   // the load and restores it (U3).
+   void test_gtm_driver() {
+      const std::string ctx = "gtm driver";
+      std::uint16_t lut[65];
+      for (unsigned i = 0; i < 65; ++i) {
+         lut[i] = static_cast<std::uint16_t>(0x100 + 37 * i);
+      }
+      auto lut_mismatches = [&] {
+         unsigned bad = 0;
+         for (unsigned i = 0; i < 65; ++i) {
+            hal_write(this, FX1_ISP_GTM_LUT_ADDR_OFFSET, i);
+            bad += rd(FX1_ISP_GTM_LUT_RDATA_OFFSET) != lut[i];
+         }
+         return bad;
+      };
+      // Cold: no frame since init, nothing can be pending.
+      reset_and_init();
+      hal_write(this, FX1_ISP_GTM_CTRL_OFFSET, FX1_ISP_GTM_CTRL_EN_MASK);
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, ctx + " cold load");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_GTM_CTRL_OFFSET), FX1_ISP_GTM_CTRL_EN_MASK | FX1_ISP_GTM_CTRL_MANUAL_MASK,
+                       ctx + " EN restored, MANUAL set");
+      FX1_CHECK_EQ_CTX(lut_mismatches(), 0u, ctx + " cold read-back");
+      // Step 4 catches a load the memory did not take: EN set again behind
+      // the driver after step 1, so the writes are discarded.
+      for (auto &v : lut) {
+         v = static_cast<std::uint16_t>(v ^ 0x5A5A);
+      }
+      FX1_CHECK_EQ_CTX(fx1_isp_gtm_manual_begin(&dev), FX1_ISP_OK, ctx + " begin");
+      hal_write(this, FX1_ISP_GTM_CTRL_OFFSET, FX1_ISP_GTM_CTRL_EN_MASK | FX1_ISP_GTM_CTRL_MANUAL_MASK);
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EIO, ctx + " discarded writes detected");
+      for (auto &v : lut) {
+         v = static_cast<std::uint16_t>(v ^ 0x5A5A);
+      }
+      // Auto mode running: the frame's end built a curve that waits for the
+      // next SOF (review U3-R2, MAS §9.2 step 2).
+      const fs::path dir = root / "gtm_auto_3frames_96x64";
+      std::ifstream meta(dir / "meta.txt");
+      std::uint32_t in_w = 0, in_h = 0, out_w = 0, out_h = 0, frames = 1;
+      meta >> in_w >> in_h >> out_w >> out_h >> frames;
+      const std::vector<std::uint8_t> input = read_file(dir / "input.bin");
+      reset_and_init();
+      apply_profile(fx1_test::read_profile(dir / "profile.csrw"));
+      const std::uint32_t in_stride = align16(2 * in_w);
+      const fx1_isp_buffers b = buffer_layout(in_stride, align16(rd(FX1_ISP_RESIZER_OUT_W_OFFSET)));
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " start");
+      std::vector<std::vector<std::uint8_t>> done;
+      auto one_frame = [&] {
+         load_input(fx1_isp_next_input(&dev), input, in_w, in_h, in_stride, b);
+         FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+         done.clear();
+         service(done, 1, b, ctx);
+         const sc_time end = sc_time_stamp() + sc_time(1, SC_MS);  // the frame's end (U2-A7)
+         while ((rd(FX1_ISP_GTM_STATUS_OFFSET) & FX1_ISP_GTM_STATUS_BUSY_MASK) && sc_time_stamp() < end) {
+            wait(100, SC_NS);
+         }
+      };
+      one_frame();  // automatic curve built at its end, pending
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EAGAIN, ctx + " refused: a curve may be pending");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_GTM_CTRL_OFFSET), FX1_ISP_GTM_CTRL_MANUAL_MASK, ctx + " step 1: EN 0, MANUAL 1");
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EAGAIN, ctx + " still refused");
+      one_frame();  // step 2: one frame started after step 1 completes
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, ctx + " load after one frame");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_GTM_CTRL_OFFSET), FX1_ISP_GTM_CTRL_EN_MASK | FX1_ISP_GTM_CTRL_MANUAL_MASK,
+                       ctx + " EN restored");
+      FX1_CHECK_EQ_CTX(lut_mismatches(), 0u, ctx + " read-back");
+      one_frame();
+      one_frame();
+      FX1_CHECK_EQ_CTX(lut_mismatches(), 0u, ctx + " the software curve survives the next SOFs");
+      fx1_isp_stop(&dev);
+
+      // The first automatic frame loses its output (ODMA write error): it was
+      // still processed and its end built a curve (review U3-R3). No output
+      // succeeded and nothing is queued, yet the state is not cold.
+      const fx1_isp_hal hal{&bench::hal_read, &bench::hal_write, &bench::hal_delay, this};
+      reset_and_init();
+      apply_profile(fx1_test::read_profile(dir / "profile.csrw"));
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " start (lost frame)");
+      load_input(fx1_isp_next_input(&dev), input, in_w, in_h, in_stride, b);
+      mem->faults.push_back({tlm::TLM_WRITE_COMMAND, b.y[0], b.y[0] + 64u, 1});
+      FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+      const sc_time end = sc_time_stamp() + sc_time(20, SC_MS);
+      while (!(rd(FX1_ISP_DMA_ERR_OFFSET) & FX1_ISP_DMA_ERR_ERR_AXI_WR_BIT) && sc_time_stamp() < end) {
+         wait(100, SC_NS);
+      }
+      wait(sc_time(1, SC_MS));  // the frame's end
+      fx1_isp_events ev{};
+      fx1_isp_irq(&dev, &ev);
+      fx1_isp_recovery rec{};
+      FX1_CHECK_EQ_CTX(fx1_isp_recover_ex(&dev, ev.dma_err, &rec), FX1_ISP_OK, ctx + " recover");
+      FX1_CHECK_EQ_CTX(fx1_isp_next_lost(&dev, nullptr, nullptr), FX1_ISP_OK, ctx + " frame lost");
+      mem->faults.clear();
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), 0u, ctx + " no output succeeded");
+      FX1_CHECK_EQ_CTX(dev.in_flight, 0u, ctx + " nothing queued");
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EAGAIN, ctx + " lost frame: not cold");
+      one_frame();
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, ctx + " load after the handover frame");
+      one_frame();
+      FX1_CHECK_EQ_CTX(lut_mismatches(), 0u, ctx + " curve kept after a lost first frame");
+      fx1_isp_stop(&dev);
+
+      // Re-initialised without i_rst_n after an automatic frame: the pending
+      // curve survives the soft reset of fx1_isp_init, so this is not cold.
+      reset_and_init();
+      apply_profile(fx1_test::read_profile(dir / "profile.csrw"));
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " start (warm init)");
+      one_frame();
+      FX1_CHECK_EQ_CTX(fx1_isp_init(&dev, &hal), FX1_ISP_OK, ctx + " warm init");
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EAGAIN, ctx + " warm init: not cold");
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " restart");
+      one_frame();
+      FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, ctx + " load after the handover frame");
+      one_frame();
+      FX1_CHECK_EQ_CTX(lut_mismatches(), 0u, ctx + " curve kept after a warm init");
+      fx1_isp_stop(&dev);
+
+      // The first frame after i_rst_n runs on a manual curve: it reads the read
+      // bank live, so a load while it is in the pipeline would change it, even
+      // though IDMA_FRAME_COUNT is still 0 (review U3-R3 C1). A queued frame
+      // is not cold.
+      std::uint16_t lut_b[65];
+      for (unsigned i = 0; i < 65; ++i) {
+         lut_b[i] = static_cast<std::uint16_t>(lut[64 - i] ^ 0x0F0F);
+      }
+      const fs::path mdir = root / "mandatory_rggb_64x32";
+      const std::vector<std::uint8_t> mraw = read_file(mdir / "input.bin");
+      std::vector<std::vector<std::uint8_t>> baseline, guarded;
+      auto manual_first_frame = [&](bool load_during) {
+         reset_and_init();
+         apply_profile(fx1_test::read_profile(mdir / "profile.csrw"));
+         hal_write(this, FX1_ISP_GTM_CTRL_OFFSET, FX1_ISP_GTM_CTRL_EN_MASK);
+         FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, ctx + " cold manual load");
+         const fx1_isp_buffers mb = buffer_layout(128, align16(rd(FX1_ISP_RESIZER_OUT_W_OFFSET)));
+         FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &mb), FX1_ISP_OK, ctx + " start (manual)");
+         load_input(fx1_isp_next_input(&dev), mraw, 64, 32, 128, mb);
+         FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue (manual)");
+         std::vector<std::vector<std::uint8_t>> &out = load_during ? guarded : baseline;
+         if (load_during) {
+            const sc_time t_end = sc_time_stamp() + sc_time(1, SC_MS);
+            while (!(rd(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK) && sc_time_stamp() < t_end) {
+               wait(10, SC_NS);
+            }
+            FX1_CHECK_EQ_CTX(rd(FX1_ISP_IDMA_FRAME_COUNT_OFFSET), 0u, ctx + " first frame not taken yet");
+            FX1_CHECK_EQ_CTX(dev.in_flight, 1u, ctx + " one frame queued");
+            FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut_b), FX1_ISP_EAGAIN, ctx + " frame in flight: not cold");
+         }
+         service(out, 1, mb, ctx);
+         fx1_isp_stop(&dev);
+      };
+      manual_first_frame(false);
+      manual_first_frame(true);
+      FX1_CHECK_EQ_CTX(!baseline.empty() && !guarded.empty() && baseline.back() == guarded.back() ? 1 : 0, 1,
+                       ctx + " the first manual frame keeps its curve");
+   }
+
+   // The driver waits for the Resizer's published set (MAS §6.20.4.3, Table
+   // 124): 35 clocks after the configuration, and after a soft reset the
+   // 15-clock pulse plus a derivation. In this TLM no scalable frame can
+   // reach its SOF that early (its first line is >= 1280 bytes), so the waits
+   // are checked as the driver's timing contract.
+   void test_resizer_waits() {
+      const std::string ctx = "resizer waits";
+      reset_and_init();
+      std::uint64_t before = delay_requested;
+      fx1_isp_soft_reset(&dev);
+      FX1_CHECK_EQ_CTX(delay_requested - before >= 15u + 36u ? 1 : 0, 1, ctx + " soft reset");
+      const fx1_isp_buffers b = buffer_layout(align16(2 * 1920), align16(1920));
+      before = delay_requested;
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " start");
+      FX1_CHECK_EQ_CTX(delay_requested - before >= 2u * 36u ? 1 : 0, 1, ctx + " start: two derivations");
+      fx1_isp_stop(&dev);
+      // The key changed while the dividers work on a previous one (review
+      // U4-R1): the start must see the last key's set, for a stride sized for
+      // that mode and for one sized for the largest.
+      for (const std::uint32_t stride : {640u, 3840u}) {
+         const std::string sc = ctx + " changed key, stride " + std::to_string(stride);
+         reset_and_init();
+         FX1_CHECK_EQ_CTX(fx1_isp_set_geometry(&dev, 3840, 2160, 0), FX1_ISP_OK, sc + " geometry");
+         wait(dut->params().core_period * 100.0);
+         hal_write(this, FX1_ISP_RESIZER_CTRL_OFFSET,
+                   1u | (FX1_ISP_RESIZER_CTRL_SCALE_RES_1280X720 << FX1_ISP_RESIZER_CTRL_SCALE_SHIFT));
+         wait(dut->params().core_period * 2.0);  // the HD derivation has started
+         hal_write(this, FX1_ISP_RESIZER_CTRL_OFFSET,
+                   1u | (FX1_ISP_RESIZER_CTRL_SCALE_RES_640X480 << FX1_ISP_RESIZER_CTRL_SCALE_SHIFT));
+         const fx1_isp_buffers vb = buffer_layout(align16(2 * 3840), stride);
+         FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &vb), FX1_ISP_OK, sc + " start");
+         FX1_CHECK_EQ_CTX(dev.out_width, 640u, sc + " width");
+         FX1_CHECK_EQ_CTX(dev.out_height, 480u, sc + " height");
+         fx1_isp_stop(&dev);
+      }
+   }
+
    void test_first_frame_abort_stats() {
       const fs::path sdir = root / "stats_flat_channels_64x48";
       reset_and_init();
@@ -1074,6 +1538,318 @@ struct bench : sc_module {
    // is retried and completes once, nothing is lost. (b) The IDMA finishes it:
    // the loss is reported, by interrupt only (the IDMA_DONE source), also when
    // it is the last frame and nothing else would raise the line.
+   // Buffer metadata through the driver (MAS Table 160, milestone U5): the
+   // tag and capture timestamp given at queue time come back with the
+   // completed buffer, with output timestamps in the same time base; the
+   // stream runs past the four-buffer rotation.
+   void test_metadata_driver() {
+      const std::string ctx = "metadata";
+      const fs::path dir = root / "mandatory_rggb_64x32";
+      const fx1_isp_buffers b = start_error_case(dir);
+      const unsigned frames = 7;
+      std::vector<std::uint32_t> tag(frames), ts(frames), seqs(frames);
+      unsigned queued = 0, completed = 0;
+      std::uint32_t prev_eof = 0;
+      const sc_time end = sc_time_stamp() + sc_time(50, SC_MS);
+      while (completed < frames && sc_time_stamp() < end) {
+         while (queued < frames && fx1_isp_input_ready(&dev) && dev.in_flight < 4) {
+            load_input(fx1_isp_next_input(&dev), e_inputs[queued % 4], ew, eh, align16(2 * ew), b);
+            tag[queued] = 0xF00D0000u + queued;
+            ts[queued] = fx1_isp_frame_counter(&dev);  // capture time in the IP time base
+            FX1_CHECK_EQ_CTX(fx1_isp_queue_frame_meta(&dev, tag[queued], ts[queued], &seqs[queued]), FX1_ISP_OK,
+                             ctx + " queue");
+            ++queued;
+         }
+         unsigned idx = 0;
+         std::uint32_t seq = 0;
+         fx1_isp_frame_meta m{};
+         if (fx1_isp_next_done_meta(&dev, &idx, &seq, &m) == FX1_ISP_OK) {
+            const std::string fc = ctx + " frame " + std::to_string(completed);
+            FX1_CHECK_EQ_CTX(seq, seqs[completed], fc + " order");
+            FX1_CHECK_EQ_CTX(m.tag, tag[completed], fc + " tag");
+            FX1_CHECK_EQ_CTX(m.ts, ts[completed], fc + " ts");
+            FX1_CHECK_EQ_CTX(output(idx, b) == e_expected[completed % 4] ? 1 : 0, 1, fc + " content");
+            FX1_CHECK_EQ_CTX(m.sof_ts > m.ts && m.eof_ts > m.sof_ts && m.sof_ts > prev_eof ? 1 : 0, 1, fc + " time order");
+            FX1_CHECK_EQ_CTX(fx1_isp_frame_counter(&dev) > m.eof_ts ? 1 : 0, 1, fc + " published after EOF");
+            prev_eof = m.eof_ts;
+            ++completed;
+         } else {
+            wait(5, SC_US);
+         }
+      }
+      FX1_CHECK_EQ_CTX(completed, frames, ctx + " all frames");
+      // Queued while the IDMA is enabled and waiting (underrun): it starts
+      // the frame at IDMA_BUF_VALID, so the tag must already be written.
+      wait(20, SC_US);
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_DMA_ERR_OFFSET) & FX1_ISP_DMA_ERR_ERR_IDMA_UNDERRUN_BIT,
+                       FX1_ISP_DMA_ERR_ERR_IDMA_UNDERRUN_BIT, ctx + " IDMA waiting");
+      load_input(fx1_isp_next_input(&dev), e_inputs[1], ew, eh, align16(2 * ew), b);
+      FX1_CHECK_EQ_CTX(fx1_isp_queue_frame_meta(&dev, 0xBEEF0001u, 0x1234u, nullptr), FX1_ISP_OK, ctx + " idle queue");
+      {
+         unsigned idx = 0;
+         fx1_isp_frame_meta m{};
+         const sc_time until = sc_time_stamp() + sc_time(10, SC_MS);
+         while (fx1_isp_next_done_meta(&dev, &idx, nullptr, &m) != FX1_ISP_OK && sc_time_stamp() < until) {
+            wait(5, SC_US);
+         }
+         FX1_CHECK_EQ_CTX(m.tag, 0xBEEF0001u, ctx + " idle queue tag");
+         FX1_CHECK_EQ_CTX(m.ts, 0x1234u, ctx + " idle queue ts");
+      }
+      // The older queue calls leave IDMA_BUF_TAG/TS as they are.
+      const unsigned next = fx1_isp_next_input(&dev);
+      const std::uint32_t left = rd(FX1_ISP_IDMA_BUF_TAG0_OFFSET + 4u * next);
+      load_input(next, e_inputs[0], ew, eh, align16(2 * ew), b);
+      FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " old queue");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_IDMA_BUF_TAG0_OFFSET + 4u * next), left, ctx + " old queue leaves the tag");
+      fx1_isp_stop(&dev);
+   }
+
+   // fx1_isp_dma_reset in the middle of a frame (MAS Table 183, DMA_CTRL
+   // soft reset): the frame is discarded, nothing completes for it, both
+   // rotations restart at buffer 0 with the stream still enabled, and the
+   // next frames are correct. Published statistics are kept (the AWB lease
+   // across a DMA reset is checked on the platform, isp_mas0710).
+   void test_dma_reset_driver() {
+      const std::string ctx = "dma reset";
+      const fs::path dir = root / "mandatory_rggb_64x32";
+      const fx1_isp_buffers b = start_error_case(dir);
+      queue_input(0, b, ctx);
+      std::vector<std::vector<std::uint8_t>> done;
+      FX1_CHECK(service(done, 1, b, ctx + " first frame"));
+      const std::uint32_t fid = rd(FX1_ISP_AEC_FRAME_ID_OFFSET);
+      const std::uint32_t odma_before = rd(FX1_ISP_ODMA_FRAME_COUNT_OFFSET);
+      mem->latency = sc_time(20, SC_NS);
+      const std::size_t writes_before = mem->count(tlm::TLM_WRITE_COMMAND, false);
+      queue_input(1, b, ctx);
+      const sc_time end = sc_time_stamp() + sc_time(5, SC_MS);
+      while (mem->count(tlm::TLM_WRITE_COMMAND, false) < writes_before + 8 && sc_time_stamp() < end) {
+         wait(100, SC_NS);  // the second frame is being written
+      }
+      // The abort point (review U6): the ODMA is writing the frame, not done.
+      FX1_CHECK_EQ_CTX(mem->count(tlm::TLM_WRITE_COMMAND, false) >= writes_before + 8 ? 1 : 0, 1, ctx + " writes");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_DMA_STAT_OFFSET) & FX1_ISP_DMA_STAT_ODMA_BUSY_MASK,
+                       FX1_ISP_DMA_STAT_ODMA_BUSY_MASK, ctx + " ODMA busy at the reset");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), odma_before, ctx + " not completed at the reset");
+      FX1_CHECK_EQ_CTX(fx1_isp_dma_reset(&dev), 1, ctx + " one frame dropped");
+      mem->latency = SC_ZERO_TIME;
+      FX1_CHECK_EQ_CTX(dev.in_flight, 0, ctx + " nothing in flight");
+      FX1_CHECK_EQ_CTX(fx1_isp_next_input(&dev), 0u, ctx + " rotation restarts");
+      wait(200, SC_US);
+      unsigned idx = 0;
+      FX1_CHECK_EQ_CTX(fx1_isp_next_done(&dev, &idx), FX1_ISP_ENODATA, ctx + " no completion of the aborted frame");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), odma_before, ctx + " ODMA count");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_AEC_FRAME_ID_OFFSET), fid, ctx + " published statistics kept");
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_DMA_CTRL_OFFSET) & 0x3u, 0x3u, ctx + " enables kept");
+      for (unsigned k = 0; k < 4; ++k) {
+         queue_input(k, b, ctx);
+      }
+      done.clear();
+      FX1_CHECK(service(done, 4, b, ctx + " restart"));
+      for (unsigned k = 0; k < std::min<std::size_t>(4, done.size()); ++k) {
+         FX1_CHECK_EQ_CTX(done[k] == e_expected[k] ? 1 : 0, 1, ctx + " frame " + std::to_string(k));
+      }
+      FX1_CHECK_EQ_CTX(rd(FX1_ISP_ODMA_FRAME_COUNT_OFFSET), odma_before + 4u, ctx + " four more outputs");
+      fx1_isp_stop(&dev);
+      FX1_CHECK_EQ_CTX(fx1_isp_dma_reset(&dev), FX1_ISP_ESTATE, ctx + " only while streaming");
+   }
+
+   // Review U6-R1: a DMA reset that aborts nothing keeps the published AEC
+   // zone/histogram data readable; one that aborts a frame in progress makes
+   // it untrusted until the next publication.
+   void test_dma_reset_stats() {
+      const std::string ctx = std::string("dma reset stats") + (fast_csr ? " (fast CSR)" : "");
+      const fs::path dir = root / "stats_flat_channels_64x48";
+      const std::vector<std::uint8_t> input = read_file(dir / "input.bin");
+      reset_and_init();
+      apply_profile(fx1_test::read_profile(dir / "profile.csrw"));
+      const std::uint32_t in_stride = align16(2 * 64);
+      const fx1_isp_buffers b = buffer_layout(in_stride, align16(rd(FX1_ISP_RESIZER_OUT_W_OFFSET)));
+      FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, ctx + " start");
+      auto one_frame = [&] {
+         const unsigned out = dev.out_done;
+         load_input(fx1_isp_next_input(&dev), input, 64, 48, in_stride, b);
+         FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+         std::vector<std::vector<std::uint8_t>> done;
+         service(done, 1, b, ctx);
+         // Collected means acknowledged: no DONE left behind, also when the
+         // W1C met the completion's core clock (review U6-R3).
+         FX1_CHECK_EQ_CTX(rd(FX1_ISP_ODMA_BUF_DONE_OFFSET) & (1u << out), 0u, ctx + " DONE acknowledged");
+         const sc_time end = sc_time_stamp() + sc_time(1, SC_MS);  // publication (U2-A7)
+         while ((rd(FX1_ISP_AEC_STATUS_OFFSET) & FX1_ISP_AEC_STATUS_BUSY_MASK) && sc_time_stamp() < end) {
+            wait(100, SC_NS);
+         }
+      };
+      // Reset while a frame of the given output is being measured.
+      auto abort_measuring = [&](const std::string &what) {
+         mem->latency = sc_time(20, SC_NS);
+         load_input(fx1_isp_next_input(&dev), input, 64, 48, in_stride, b);
+         FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue " + what);
+         const sc_time end = sc_time_stamp() + sc_time(5, SC_MS);
+         while (!(rd(FX1_ISP_AEC_STATUS_OFFSET) & FX1_ISP_AEC_STATUS_BUSY_MASK) && sc_time_stamp() < end) {
+            wait(100, SC_NS);
+         }
+         FX1_CHECK_EQ_CTX(rd(FX1_ISP_AEC_STATUS_OFFSET) & FX1_ISP_AEC_STATUS_BUSY_MASK, FX1_ISP_AEC_STATUS_BUSY_MASK,
+                          ctx + " AEC measuring at the reset " + what);
+         FX1_CHECK_EQ_CTX(fx1_isp_dma_reset(&dev), 1, ctx + " frame in progress dropped " + what);
+         mem->latency = SC_ZERO_TIME;
+      };
+      fx1_isp_aec_zone z0[4], z1[4];
+      std::uint32_t h0[64], h1[64], f0 = 0, f1 = 0;
+      one_frame();
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z0, h0, &f0), FX1_ISP_OK, ctx + " read before");
+      FX1_CHECK_EQ_CTX(dev.in_flight, 0u, ctx + " idle");
+      FX1_CHECK_EQ_CTX(fx1_isp_dma_reset(&dev), 0, ctx + " idle reset drops nothing");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_OK, ctx + " still readable");
+      FX1_CHECK_EQ_CTX(f1, f0, ctx + " same FRAME_ID");
+      FX1_CHECK_EQ_CTX(std::memcmp(z0, z1, sizeof z0) == 0 && std::memcmp(h0, h1, sizeof h0) == 0 ? 1 : 0, 1,
+                       ctx + " same zones and histogram");
+      // A frame completed but not yet collected is not an abort either.
+      load_input(fx1_isp_next_input(&dev), input, 64, 48, in_stride, b);
+      FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue (left DONE)");
+      const sc_time end = sc_time_stamp() + sc_time(5, SC_MS);
+      while (!rd(FX1_ISP_ODMA_BUF_DONE_OFFSET) && sc_time_stamp() < end) {
+         wait(1, SC_US);
+      }
+      wait(20, SC_US);  // its publication
+      FX1_CHECK_EQ_CTX(fx1_isp_dma_reset(&dev), 1, ctx + " DONE frame dropped from the queue");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_OK, ctx + " readable after a DONE frame");
+      FX1_CHECK_EQ_CTX(f1, f0 + 1u, ctx + " its publication");
+      // A frame in progress: its partial accumulation is refused.
+      abort_measuring("(aborted)");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_ENODATA, ctx + " partial data refused");
+      one_frame();
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_OK, ctx + " next publication");
+      // Review U6-R3: the reviewer's sequence end to end (consume, then a
+      // frame on another output aborted while measuring) ...
+      one_frame();
+      abort_measuring("(after a collected frame)");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_ENODATA,
+                       ctx + " refused after a collected frame");
+      one_frame();
+      // ... and with a DONE bit left set on the collected buffer, which is no
+      // longer in flight: it must not count for the frame being measured.
+      const unsigned collected = (dev.out_done + FX1_ISP_NUM_BUFFERS - 1u) % FX1_ISP_NUM_BUFFERS;
+      dut->debug_hw_set(FX1_ISP_ODMA_BUF_DONE_OFFSET, 1u << collected);
+      abort_measuring("(stale DONE on another buffer)");
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_ENODATA,
+                       ctx + " refused with a stale DONE on another buffer");
+      one_frame();
+      FX1_CHECK_EQ_CTX(fx1_isp_read_aec_zones(&dev, 0, 4, z1, h1, &f1), FX1_ISP_OK, ctx + " next publication (2)");
+      fx1_isp_stop(&dev);
+   }
+
+   // Review U6-R3: next_done's W1C of DONE on the core clock on which the
+   // hardware sets the bit (hardware set wins). The completion is replayed
+   // on a clock edge with debug_hw_set, and next_done runs at once: with CSR
+   // accesses shorter than a core clock (fast CSR) its W1C falls on that
+   // clock. The bit must still be clear when next_done returns, so the
+   // buffer does not look complete when it is queued again.
+   void test_done_ack_race() {
+      const std::string ctx = std::string("DONE acknowledgement") + (fast_csr ? " (fast CSR)" : "");
+      const fs::path dir = root / "mandatory_rggb_64x32";
+      const std::vector<std::uint8_t> raw = read_file(dir / "input.bin");
+      std::vector<std::uint8_t> want = read_file(dir / "expected_y.bin");
+      const std::vector<std::uint8_t> want_uv = read_file(dir / "expected_uv.bin");
+      want.insert(want.end(), want_uv.begin(), want_uv.end());
+      const fx1_isp_buffers b = start_error_case(dir);
+      for (unsigned k = 0; k < 6; ++k) {  // through the rotation, each buffer reused
+         const unsigned out = dev.out_done;
+         load_input(fx1_isp_next_input(&dev), raw, ew, eh, align16(2 * ew), b);
+         FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, ctx + " queue");
+         const sc_time end = sc_time_stamp() + sc_time(5, SC_MS);
+         while (!(dut->debug_peek(FX1_ISP_ODMA_BUF_DONE_OFFSET) & (1u << out)) && sc_time_stamp() < end) {
+            wait(100, SC_NS);
+         }
+         const sc_time p = dut->params().core_period;
+         const double now = std::floor(sc_time_stamp() / p);
+         wait(p * (now + 1.0) - sc_time_stamp());  // the start of a core clock
+         dut->debug_hw_set(FX1_ISP_ODMA_BUF_DONE_OFFSET, 1u << out);  // set on this clock
+         unsigned idx = 99;
+         FX1_CHECK_EQ_CTX(fx1_isp_next_done(&dev, &idx), FX1_ISP_OK, ctx + " collected");
+         FX1_CHECK_EQ_CTX(idx, out, ctx + " buffer");
+         FX1_CHECK_EQ_CTX(dut->debug_peek(FX1_ISP_ODMA_BUF_DONE_OFFSET) & (1u << out), 0u,
+                          ctx + " DONE clear after next_done, frame " + std::to_string(k));
+         FX1_CHECK_EQ_CTX(output(idx, b) == want ? 1 : 0, 1, ctx + " content");
+      }
+      fx1_isp_stop(&dev);
+   }
+
+   // Review U6-R2: a DMA reset during a GTM hand-over. The frames counted at
+   // step 1 that the reset dropped are not waited for: one frame taken after
+   // the reset completes step 2. Before it, a pending curve still blocks.
+   void test_dma_reset_gtm() {
+      const std::string ctx = std::string("dma reset gtm") + (fast_csr ? " (fast CSR)" : "");
+      std::uint16_t lut[65];
+      for (unsigned i = 0; i < 65; ++i) {
+         lut[i] = static_cast<std::uint16_t>(0x200 + 29 * i);
+      }
+      auto lut_ok = [&] {
+         unsigned bad = 0;
+         for (unsigned i = 0; i < 65; ++i) {
+            hal_write(this, FX1_ISP_GTM_LUT_ADDR_OFFSET, i);
+            bad += rd(FX1_ISP_GTM_LUT_RDATA_OFFSET) != lut[i];
+         }
+         return bad == 0;
+      };
+      const fs::path dir = root / "gtm_auto_3frames_96x64";
+      std::ifstream meta(dir / "meta.txt");
+      std::uint32_t in_w = 0, in_h = 0, out_w = 0, out_h = 0, frames = 1;
+      meta >> in_w >> in_h >> out_w >> out_h >> frames;
+      const std::vector<std::uint8_t> input = read_file(dir / "input.bin");
+      const std::uint32_t in_stride = align16(2 * in_w);
+      for (const bool cold : {false, true}) {
+         const std::string cc = ctx + (cold ? " cold" : " warm");
+         reset_and_init();
+         apply_profile(fx1_test::read_profile(dir / "profile.csrw"));
+         const fx1_isp_buffers b = buffer_layout(in_stride, align16(rd(FX1_ISP_RESIZER_OUT_W_OFFSET)));
+         FX1_CHECK_EQ_CTX(fx1_isp_start(&dev, &b), FX1_ISP_OK, cc + " start");
+         auto one_frame = [&] {
+            load_input(fx1_isp_next_input(&dev), input, in_w, in_h, in_stride, b);
+            FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, cc + " queue");
+            std::vector<std::vector<std::uint8_t>> done;
+            service(done, 1, b, cc);
+            const sc_time end = sc_time_stamp() + sc_time(1, SC_MS);
+            while ((rd(FX1_ISP_GTM_STATUS_OFFSET) & FX1_ISP_GTM_STATUS_BUSY_MASK) && sc_time_stamp() < end) {
+               wait(100, SC_NS);
+            }
+         };
+         if (!cold) {
+            one_frame();  // automatic curve built at its end, pending
+         }
+         const std::uint32_t count = rd(FX1_ISP_IDMA_FRAME_COUNT_OFFSET);
+         FX1_CHECK_EQ_CTX(count, cold ? 0u : 1u, cc + " IDMA_FRAME_COUNT");
+         // A frame whose input is still being read when step 1 runs.
+         mem->latency = sc_time(1, SC_US);
+         load_input(fx1_isp_next_input(&dev), input, in_w, in_h, in_stride, b);
+         FX1_CHECK_EQ_CTX(fx1_isp_queue_frame(&dev), FX1_ISP_OK, cc + " queue (to drop)");
+         const sc_time end = sc_time_stamp() + sc_time(1, SC_MS);
+         while (!(rd(FX1_ISP_DMA_STAT_OFFSET) & FX1_ISP_DMA_STAT_IDMA_BUSY_MASK) && sc_time_stamp() < end) {
+            wait(100, SC_NS);
+         }
+         FX1_CHECK_EQ_CTX(fx1_isp_gtm_manual_begin(&dev), FX1_ISP_OK, cc + " step 1 with a frame in flight");
+         FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EAGAIN, cc + " refused before the reset");
+         FX1_CHECK_EQ_CTX(fx1_isp_dma_reset(&dev), 1, cc + " the reset drops it");
+         mem->latency = SC_ZERO_TIME;
+         FX1_CHECK_EQ_CTX(rd(FX1_ISP_IDMA_FRAME_COUNT_OFFSET), count, cc + " the dropped input was not taken");
+         if (cold) {
+            // Nothing was taken since i_rst_n and nothing is queued: no
+            // curve can be pending, the load proceeds at once.
+            FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, cc + " load after the reset");
+         } else {
+            FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_EAGAIN, cc + " the pending curve still blocks");
+            one_frame();  // one frame taken after the reset: step 2 done
+            FX1_CHECK_EQ_CTX(fx1_isp_load_gtm_lut(&dev, lut), FX1_ISP_OK, cc + " load after one new frame");
+         }
+         FX1_CHECK_EQ_CTX(rd(FX1_ISP_GTM_CTRL_OFFSET), FX1_ISP_GTM_CTRL_EN_MASK | FX1_ISP_GTM_CTRL_MANUAL_MASK,
+                          cc + " EN restored, MANUAL kept");
+         FX1_CHECK_EQ_CTX(lut_ok() ? 1 : 0, 1, cc + " read-back");
+         one_frame();
+         one_frame();
+         FX1_CHECK_EQ_CTX(lut_ok() ? 1 : 0, 1, cc + " the software curve survives the next SOFs");
+         fx1_isp_stop(&dev);
+      }
+   }
+
    void test_deferred_loss() {
       const fs::path dir = root / "mandatory_rggb_64x32";
       const std::uint32_t stride = align16(2 * ew);
@@ -1141,6 +1917,22 @@ struct bench : sc_module {
    }
 
    void run() {
+      if (fast_csr) {
+         // AWB ownership and every statistics readout with CSR accesses
+         // shorter than a core clock: the driver must wait the MAS clocks.
+         for (const auto &e : fs::directory_iterator(root)) {
+            if (e.is_directory() && e.path().filename().string().rfind("stats_", 0) == 0) {
+               run_vector(e.path());
+            }
+         }
+         test_awb_driver();
+         test_gtm_driver();  // the GTM hand-over counts frames, not CSR time (review U3-R3)
+         test_dma_reset_stats();
+         test_dma_reset_gtm();
+         test_done_ack_race();
+         sc_stop();
+         return;
+      }
       for (const auto &e : fs::directory_iterator(root)) {
          if (e.is_directory()) {
             run_vector(e.path());
@@ -1150,6 +1942,15 @@ struct bench : sc_module {
       test_driver_state_machine();
       test_stats_after_abort();
       test_first_frame_abort_stats();
+      test_awb_driver();
+      test_ee_driver();
+      test_gtm_driver();
+      test_resizer_waits();
+      test_metadata_driver();
+      test_dma_reset_driver();
+      test_dma_reset_stats();
+      test_dma_reset_gtm();
+      test_done_ack_race();
       test_deferred_loss();
       run_fault_campaign();
       sc_stop();
@@ -1160,15 +1961,22 @@ struct bench : sc_module {
 
 int sc_main(int argc, char *argv[]) {
    if (argc < 2) {
-      std::cerr << "usage: " << argv[0] << " <vectors dir>\n";
+      std::cerr << "usage: " << argv[0] << " <vectors dir> [--fast-csr]\n";
       return 2;
    }
+   const bool fast = argc > 2 && std::string(argv[2]) == "--fast-csr";
    sc_signal<bool> rst_n("rst_n");
    sc_signal<bool> irq("irq");
-   fx1_isp_tlm dut("isp", fx1_isp_params{});
+   fx1_isp_params params{};
+   if (fast) {  // a CSR access is a tenth of a core clock
+      params.core_period = sc_time(10, SC_NS);
+      params.csr_latency = sc_time(1, SC_NS);
+   }
+   fx1_isp_tlm dut("isp", params);
    fx1_test::test_memory mem("mem", mem_base, mem_size);
    bench tb("tb");
    tb.root = argv[1];
+   tb.fast_csr = fast;
    tb.socket.bind(dut.csr_socket);
    dut.idma_socket.bind(mem.idma);
    dut.odma_socket.bind(mem.odma);
@@ -1179,6 +1987,11 @@ int sc_main(int argc, char *argv[]) {
    tb.dut = &dut;
    tb.mem = &mem;
    sc_start();
+   if (fast) {
+      FX1_CHECK(tb.vectors >= 6);
+      std::cout << "driver (fast CSR): " << tb.vectors << " statistics vectors\n";
+      return fx1_test::summary("fx1_isp_test_driver_tlm --fast-csr");
+   }
    FX1_CHECK(tb.vectors >= 32);
    std::cout << "driver: " << tb.vectors << " vectors;";
    for (const auto &kv : tb.helpers) {

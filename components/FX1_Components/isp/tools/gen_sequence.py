@@ -7,7 +7,7 @@ statistics, geometry and Bayer order). The burst then submits 1-3 frames
 through the 4-buffer rotation, optionally with one event:
 
   none, underrun, overflow  every frame completes (DEC-18 stall is lossless)
-  soft_reset_common/_dma    soft reset in the middle of the first frame (DEC-14):
+  soft_reset_common/_dma    soft reset in the middle of the first frame (MAS Table 183):
                             that frame had its SOF only; rotation returns to 0
                             and software resubmits the whole burst
   idma_axi_error            read error in the middle of the first frame (DEC-19):
@@ -73,6 +73,9 @@ def frame_content(w, h, rng):
 class Generator:
     def __init__(self):
         self.rng = np.random.default_rng(SEED)
+        # EE profile choices (U3) come from their own stream, so the other draws
+        # of the sequence are those of the single-profile generator.
+        self.rng_ee = np.random.default_rng(SEED + 3)
         self.regs = regs_mod.Registers()
         self.lines = []
         self.files = {}
@@ -134,7 +137,7 @@ class Generator:
             self.write("BLC_OFS_G0_DFT", ped)
             self.write("BLC_SCALE_G0", round(4095 / (4095 - ped) * 65536))
         elif kind == "ccm":
-            if r(0, 2) == 0:                      # coefficients without `updated`: gated (DEC-24)
+            if r(0, 2) == 0:                      # coefficients without `updated` (no effect since 07/10)
                 self.write("CCM_CTRL", 1)
             names = ["CRR", "CRG", "CRB", "CGR", "CGG", "CGB", "CBR", "CBG", "CBB"]
             for i, n in enumerate(names):
@@ -170,10 +173,14 @@ class Generator:
         elif kind == "nr":
             self.write("NR_2D_CTRL", r(0, 1))
         elif kind == "ee":
+            # Program one of the three profiles; select any code (3 = profile 0).
+            wr, sel = int(self.rng_ee.integers(0, 3)), int(self.rng_ee.integers(0, 4))
+            ctrl = self.regs.value["EE_CTRL"]
+            self.write("EE_CTRL", (ctrl & ~0x30) | (wr << 4))
             self.write("EE_ALPHA", r(0, 0xFFFF))
             self.write("EE_BETA", r(0, 0xFFFF))
             self.write("EE_CLAMP", (r(0, 255) << 8) | r(0, 255))
-            self.write("EE_CTRL", r(0, 1))
+            self.write("EE_CTRL", r(0, 1) | (sel << 2) | (wr << 4))
         elif kind == "cnf":
             self.write("CNF_CHROMA_TH", r(0, 60))
             self.write("CNF_LUMA_TH", r(0, 60))
@@ -236,11 +243,14 @@ class Generator:
         raws = [raw for _, raw in inputs]
         if event.startswith("soft_reset"):
             blocks.frame_sof(self.regs)              # first frame: SOF, then the reset
-            self.regs.soft_reset()
+            # Scope per MAS Table 183: COMMON clears statistics, the 2DNR
+            # estimate and an LSC load; DMA-only keeps them.
+            self.regs.soft_reset("dma" if event == "soft_reset_dma" else "common")
             for raw in raws:                         # resubmitted from rotation slot 0
                 self.done(raw)
         elif event == "idma_axi_error":
             blocks.frame_sof(self.regs)
+            blocks.frame_abort(self.regs)            # discarded end to end
             for raw in raws:                         # the same buffer re-armed, then the rest
                 self.done(raw)
         elif event == "odma_axi_error":
@@ -261,6 +271,17 @@ class Generator:
     # -- script -----------------------------------------------------------------
     def base_config(self):
         self.set_geometry(GEOMETRIES[0])
+        # EE tables at unity, loaded once (no random draw): the tables are
+        # undefined after reset (MAS §6.5.2), so the EE deltas below may only
+        # enable the block once its tables are written.
+        for p in range(3):                           # every resident profile (MAS §6.18.4.1)
+            self.write("EE_CTRL", p << 4)
+            for bank, n in ((0, 64), (1, 64), (2, 32), (3, 32)):
+                self.write("EE_LUT_CTRL", bank << 1)
+                self.write("EE_LUT_ADDR", 0)
+                for _ in range(n):
+                    self.write("EE_LUT_WDATA", 0x8000)
+        self.write("EE_CTRL", 0)
         for k in ("blc", "wb", "dg", "gamma", "csc", "bpc", "lsc", "gtm", "nr", "ee", "cnf"):
             self.delta(k)
         self.write("AEC_ZONE_CFG", 8 | (6 << 8))

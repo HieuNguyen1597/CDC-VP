@@ -234,14 +234,36 @@ struct bench : sc_module {
          const std::uint32_t quarter = geom_h / 4u;
          wait(dut->params().core_period * static_cast<double>(geom_w) * static_cast<double>(quarter));  // a quarter in
          FX1_CHECK_EQ_CTX(odma_count(), base, where + " reset inside the first frame");
+         const std::uint32_t aec_id = read32(FX1_ISP_AEC_FRAME_ID_OFFSET);
          if (event == "soft_reset_common") {
             write32(FX1_ISP_COMMON_CTRL_OFFSET, FX1_ISP_COMMON_CTRL_ISP_EN_MASK | FX1_ISP_COMMON_CTRL_SOFT_RST_MASK);
          } else {
             write32(FX1_ISP_DMA_CTRL_OFFSET, 0x3F03 | FX1_ISP_DMA_CTRL_SOFT_RESET_MASK);
          }
-         wait(dut->params().core_period * 40.0);  // past the 32-cycle window
+         wait(dut->params().core_period * 40.0);  // past the 15-cycle pulse (MAS §6.5.3)
          FX1_CHECK_EQ_CTX(read32(FX1_ISP_IDMA_BUF_VALID_OFFSET), 0, where + " ownership cleared");
          FX1_CHECK_EQ_CTX(odma_count(), base, where + " counters kept, no late DONE");
+         // The abandoned frame leaves nothing busy, before any re-arm and also
+         // a whole frame time later; the last publication is kept (review R1).
+         const auto idle = [&](const std::string &when) {
+            for (const std::uint32_t off : {FX1_ISP_DEMOSAIC_STATUS_OFFSET, FX1_ISP_CCM_STATUS_OFFSET,
+                                            FX1_ISP_GAMMA_STATUS_OFFSET, FX1_ISP_GTM_STATUS_OFFSET,
+                                            FX1_ISP_NR_2D_STATUS_OFFSET, FX1_ISP_EE_STATUS_OFFSET,
+                                            FX1_ISP_CNF_STATUS_OFFSET, FX1_ISP_RESIZER_STATUS_OFFSET}) {
+               FX1_CHECK_EQ_CTX(read32(off) & 1u, 0, where + " block idle " + when + " @" + fx1_test::hex(off));
+            }
+            FX1_CHECK_EQ_CTX(read32(FX1_ISP_AEC_STATUS_OFFSET) & FX1_ISP_AEC_STATUS_BUSY_MASK, 0,
+                             where + " AEC idle " + when);
+            FX1_CHECK_EQ_CTX(read32(FX1_ISP_AF_STATUS_OFFSET) & FX1_ISP_AF_STATUS_BUSY_MASK, 0,
+                             where + " AF idle " + when);
+            FX1_CHECK_EQ_CTX(read32(FX1_ISP_COMMON_STATUS_OFFSET) & FX1_ISP_COMMON_STATUS_BUSY_MASK, 0,
+                             where + " pipeline idle " + when);
+            FX1_CHECK_EQ_CTX(read32(FX1_ISP_AEC_FRAME_ID_OFFSET), aec_id, where + " FRAME_ID kept " + when);
+            FX1_CHECK_EQ_CTX(odma_count(), base, where + " no late DONE " + when);
+         };
+         idle("after the pulse");
+         wait(dut->params().core_period * static_cast<double>(geom_w) * static_cast<double>(geom_h + 8u));
+         idle("one frame time later");
          idma_head = odma_head = 0;  // M2-A1: rotation back to buffer 0
          for (std::size_t k = 0; k < n; ++k) {
             load(static_cast<unsigned>(k), inputs[k]);
@@ -326,6 +348,7 @@ struct bench : sc_module {
       std::ifstream f(dir / "sequence.txt");
       std::string line;
       std::size_t lineno = 0;
+      bool configured = false;  // a write since the last burst
       while (std::getline(f, line)) {
          ++lineno;
          std::istringstream is(line);
@@ -339,6 +362,7 @@ struct bench : sc_module {
             is >> name >> value;
             if (const csr::reg_desc *d = reg(name)) {
                write32(d->offset, static_cast<std::uint32_t>(std::stoul(value, nullptr, 0)));
+               configured = true;
             }
          } else if (cmd == "counter") {
             std::string value;
@@ -348,6 +372,12 @@ struct bench : sc_module {
             dut->debug_hw_write(FX1_ISP_IDMA_FRAME_COUNT_OFFSET, 0xFFFFFFFFu, v);
             dut->debug_hw_write(FX1_ISP_ODMA_FRAME_COUNT_OFFSET, 0xFFFFFFFFu, v);
          } else if (cmd == "burst") {
+            if (configured) {
+               // Complete the configuration before starting the frames that use
+               // it: the Resizer publishes within two derivations (MAS §6.20.4.3).
+               wait(dut->params().core_period * 80.0);
+               configured = false;
+            }
             if (!started) {
                start_engines();  // HAS §9.1: profile first, then ISP_EN, then the DMA
             }

@@ -51,6 +51,17 @@ python3 tools/run_regression.py --inventory <plan>/ISP_RAW_INVENTORY.json \
         --write-baseline docs/evidence/raw_regression_baseline.json
 ```
 
-The baseline was generated after the M5 changes (DEC-38/39, M5-A1). Its 308
-frame checksums are identical to those of the M4 run the reviewer approved:
-the M5 changes touch status bits and warnings, not pixels.
+The baseline was regenerated on 2026-10-12 for CSR/MAS 07/10 (milestone U6).
+- **Frames:** its 308 checksums are identical to those of the previous
+  baseline, which was generated after M5.
+- **Statistics:** the readout checksums changed in all 116 runs. The causes
+  are the U2 rules:
+  - AWB results are read under a lease, with drops;
+  - the BPC counters;
+  - untouched AEC zones read min 4095.
+- **Attribution:** every difference is attributed read by read against the
+  run of the previous baseline (decisions log §9.5, §9.9); none is
+  unexplained.
+
+The previous revision's baseline was generated after the M5 changes (DEC-38/39,
+M5-A1), with frames identical to the M4 run the reviewer approved.

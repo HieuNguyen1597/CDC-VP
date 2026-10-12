@@ -167,6 +167,9 @@ struct bench : sc_module {
          write_named(l.reg, l.value);
       }
       write32(FX1_ISP_COMMON_CTRL_OFFSET, FX1_ISP_COMMON_CTRL_ISP_EN_MASK);
+      // Wait for the Resizer to publish the derived set (MAS §6.20.4.3: at most
+      // two derivations, 2 x 36 clocks, after the last change; §11.6 step 5).
+      wait(dut->params().core_period * 80.0);
       // The geometry software reads is the one the frame will have.
       FX1_CHECK_EQ_CTX(read32(FX1_ISP_RESIZER_OUT_W_OFFSET), out_w, name + " RESIZER_OUT_W");
       FX1_CHECK_EQ_CTX(read32(FX1_ISP_RESIZER_OUT_H_OFFSET), out_h, name + " RESIZER_OUT_H");
@@ -241,10 +244,10 @@ struct bench : sc_module {
       for (std::uint32_t off : block_status) {  // DEC-38: idle after the last frame
          FX1_CHECK_EQ_CTX(read32(off) & 1u, 0, name + " block busy after the frames");
       }
-      // Only DEC-28 (BPC dynamic requested) warns, once per frame (review M3-R4).
-      const bool dyn = name.find("bpc_dynamic_requested") != std::string::npos;
-      FX1_CHECK_EQ_CTX(sc_report_handler::get_count("fx1_isp/pipeline") - warnings_before,
-                       dyn ? static_cast<int>(frames) : 0, name + " pipeline warnings");
+      // Nothing in the vectors warns (review M3-R4); BPC dynamic detection
+      // has no effect and no longer warns (MAS §6.9, DEC-28 superseded).
+      FX1_CHECK_EQ_CTX(sc_report_handler::get_count("fx1_isp/pipeline") - warnings_before, 0,
+                       name + " pipeline warnings");
    }
 };
 
