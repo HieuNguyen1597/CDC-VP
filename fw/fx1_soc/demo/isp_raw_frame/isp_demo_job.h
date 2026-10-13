@@ -27,13 +27,14 @@ typedef struct isp_demo_job {
     uint32_t in_addr, in_stride;   /* RAW input, 16-bit samples, stride in bytes */
     uint32_t y_addr, uv_addr, out_stride;
     uint32_t profile_count;        /* {offset, value} pairs at ISP_DEMO_PROFILE_OFFSET */
-    uint32_t frames;               /* the same input processed `frames` times (temporal blocks) */
+    uint32_t frames;               /* total physical frames; auto CLI includes one AWB probe */
     uint32_t reserved[4];
 } isp_demo_job;
 
 typedef struct isp_demo_result {
     uint32_t magic, status; /* status 0 = frames completed */
     uint32_t out_width, out_height, out_stride;
+    /* Completion/counter deltas for this job, including an auto probe. */
     uint32_t frames_done, idma_frames, odma_frames, dma_err;
     uint32_t aec_frame_id, awb_frame_id, af_frame_id;
     uint32_t frame_ticks;   /* mtime ticks (50 ns) from the first queue to the last completion */

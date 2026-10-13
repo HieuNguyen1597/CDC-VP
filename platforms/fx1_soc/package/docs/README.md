@@ -122,7 +122,7 @@ vp/bin/VP_FX1_V3.0/                 fx1_soc + libsystemc.so.2.3
 vp/doc/VP_FX1_V3.0/                 this README, MEMORY_MAP.md, BUILD_MANIFEST.json, SHA256SUMS, licenses/
 sw/bootloader/sources/VP_FX1_V3.0/  FreeRTOS CLI firmware: app/, bsp/, include/, drivers/, kernel subset, Makefile
 sw/bootloader/build/VP_FX1_V3.0/    make outputs (freertos_cli.elf/.dis/.map); not tracked
-sw/bootloader/test/VP_FX1_V3.0/     run_vp.sh, fx1_console.sh, isp_pack.py, cli_smoke.txt, isp/<sample>/
+sw/bootloader/test/VP_FX1_V3.0/     run_vp.sh, fx1_console.sh, isp_pack.py, cli_smoke.txt, isp/<sample>/, profiles/<id>/
 ```
 
 The firmware sources, their structure and how to add a command are described
@@ -160,6 +160,7 @@ in `sw/bootloader/sources/VP_FX1_V3.0/README.md`.
 | `fpu test` | two tasks interleave FP work; results must equal the switch-free value bit for bit |
 | `dma test [BYTES]` | SYS_DMA memory-to-memory copy with completion IRQ, data verified |
 | `isp selftest` | 8 synthetic 64×48 frames through the ISP driver; every NV12 CRC must match the reference |
+| `isp run auto` | one AWB probe, then at least two render frames with FW-selected WB/tone (demo policy) |
 | `isp run` | process the RAW job loaded into DDR (`run_vp.sh isp`), result block for the host |
 | `isp stats` | AEC/AWB/AF statistics of the last frame |
 | `selftest` | hwcheck report + `fpu test` + `dma test` + `isp selftest` |
@@ -210,8 +211,19 @@ device: `fx1_pass()` or `fx1_fail(code)` in the BSP.
 
 **Common to both samples:**
 
-- **Profile:** a 'full' *test* profile computed from the frame itself; it is
-  not a sensor calibration.
+- **Profile:** both samples select `shared_bggr_2688x1520_full` through
+  `PROFILE_ID` in `job.env`. Its CSR list and binary are stored once in
+  `sw/bootloader/test/VP_FX1_V3.0/profiles/shared_bggr_2688x1520_full/`.
+  The shared v2 tuning uses BLC pedestal `0x100`, fixed
+  `WB_GAIN_R=0x1F3`, `WB_GAIN_G=0x100`, `WB_GAIN_B=0x1A6`, a gentler CCM,
+  GTM auto (`KEY=0xA0`, `LWHITE=0x240`) and `EE_ALPHA=0x8000`.
+  It is not a sensor calibration. Reading AWB statistics does not automatically
+  update the WB gains; firmware needs an AWB algorithm for that.
+  Changing a profile requires regenerating the golden for each affected sample.
+- **Frames:** each job processes the same RAW twice from reset. The first frame
+  warms up GTM auto; the delivered image and golden are from the second frame.
+  When preparing a new sample, use `run_isp_demo.py --prepare-only --frames 2`
+  with this shared profile, and generate its standalone golden with `--frames 2`.
 - **Output:** 1920×1080 NV12.
 - **Files:** each sample's `SAMPLE.txt` records the RAW SHA-256, the profile
   and the expected NV12 SHA-256.
@@ -262,3 +274,38 @@ vp/bin/VP_FX1_V3.0/fx1_soc --version
 - FreeRTOS-Kernel (MIT), in the firmware sources.
 
 Keep `licenses/` with the tree whenever it is passed on.
+
+## Adaptive WB/tone demo
+
+```bash
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh isp d65 auto
+sw/bootloader/test/VP_FX1_V3.0/run_vp.sh isp indoor0 auto
+make -j1 -C sw/bootloader/sources/VP_FX1_V3.0 check-isp-auto
+```
+
+Use a sample returned by `run_vp.sh isp list`. The shared base stays in
+`profiles/shared_bggr_2688x1520_full/`; the host never computes WB gains.
+Firmware acquires/releases AWB zones from one completed probe, selects bright
+neutral candidates and applies a bounded WB/tone/EE interpolation. At the
+base/daylight end it keeps the accepted v2 controls; toward the LED end it
+adopts the neutral-zone estimate and the accepted LED tone. No RAW filename or
+indoor/outdoor tag is used. With weak evidence it retains the base controls.
+This is a demo heuristic, not calibrated or universal AWB, illuminant detection,
+AE sensor control, or a continuous video 3A loop. It makes one decision per job.
+
+`auto` creates a transient job in the output directory: one probe plus at least
+2 render frames (a usual 2-frame sample therefore runs 3 physical frames).
+After the probe it restarts the driver, disables GTM for the render warm-up,
+then enables GTM auto. This isolates GTM/NR history for reference comparison.
+The result counters include all physical frames of this job; FRAME_ID also
+includes earlier jobs in an interactive boot. Input sample/profile files stay
+fixed. Auto currently requires WB enabled, GTM auto and EE profile 0.
+
+Outputs include `auto.json`, the exact applied CSR values in
+`resolved_profile.csrw`, and the usual `platform.png`/NV12/log. A delivered
+`expected_auto_nv12.sha256` is checked separately from the fixed-mode golden.
+Without an auto golden the launcher prints **ISP AUTO COMPLETE** (valid output,
+no reference comparison), rather than claiming a golden match. In CDC-VP,
+use `fx1_isp_run_raw` with the same `input.isp16`, the resolved profile and
+`--frames 2` (or the auto.json render count) to independently verify a new sample.
+The regular `run_vp.sh isp SAMPLE` fixed mode and its golden remain supported.

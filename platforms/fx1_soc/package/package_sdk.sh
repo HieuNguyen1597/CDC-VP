@@ -24,7 +24,8 @@
 #                            stand-alone ISP model)
 #
 # Default sample: d65, components/isp_tlm/input/D65_raw_2688x1520_5376.raw
-# (cleared, ASSET_PROVENANCE.md) with a 'full' test profile from make_profile.py.
+# (cleared, ASSET_PROVENANCE.md). All samples use the checked-in shared full
+# test profile by default; profile=FILE selects a different fixed profile.
 #
 # Exit status: 0 the tree is complete and self-consistent, 1 otherwise.
 set -euo pipefail
@@ -56,6 +57,7 @@ done
 sim="${build_dir}/platforms/fx1_soc/fx1_soc"
 ref_tool="${build_dir}/components/FX1_Components/isp/fx1_isp_run_raw"
 isp="${src}/components/FX1_Components/isp"
+shared_profile="${isp}/samples/profiles/shared_bggr_2688x1520_full.csrw"
 fw="${src}/fw/fx1_soc"
 kernel="${src}/third_party/FreeRTOS-Kernel"
 vpp="${src}/third_party/riscv-vp-plusplus"
@@ -83,7 +85,7 @@ doc="${out}/vp/doc/${version}"
 sdk="${out}/sw/bootloader/sources/${version}"
 fwout="${out}/sw/bootloader/build/${version}"
 test="${out}/sw/bootloader/test/${version}"
-mkdir -p "${bin}" "${doc}/licenses" "${sdk}" "${fwout}" "${test}/isp"
+mkdir -p "${bin}" "${doc}/licenses" "${sdk}" "${fwout}" "${test}/isp" "${test}/profiles"
 
 # ── the VP ────────────────────────────────────────────────────────────────────
 log "VP binary and runtime"
@@ -97,9 +99,10 @@ cp -L "${build_dir}/platforms/fx1_soc/${needed}" "${bin}/${needed}"
 # ── firmware sources: the exact files the CDC-VP build compiles ──────────────
 log "firmware sources"
 mkdir -p "${sdk}/app" "${sdk}/bsp" "${sdk}/include/fx1" "${sdk}/include/dma" "${sdk}/include/fx1_isp" \
-         "${sdk}/drivers/isp" "${sdk}/isp_selftest" "${sdk}/demo"
+         "${sdk}/drivers/isp" "${sdk}/isp_selftest" "${sdk}/demo" "${sdk}/tests"
 cp "${here}/sdk/Makefile" "${here}/sdk/README.md" "${sdk}/"
 cp "${fw}"/freertos/*.c "${fw}"/freertos/*.h "${fw}"/freertos/*.S "${sdk}/app/"
+cp "${fw}/freertos/tests/isp_auto_policy_test.c" "${sdk}/tests/"
 cp "${fw}"/common/crt0.S "${fw}"/common/fx1_fw.c "${fw}"/common/fx1_fw.h "${fw}"/common/fx1.ld.S "${sdk}/bsp/"
 cp "${src}/components/FX1_Components/fx1_map/include/fx1/fx1_memory_map.h" "${sdk}/include/fx1/"
 cp "${src}/components/FX1_Components/dma/include/dma/fx1_dma_regs.h" "${sdk}/include/dma/"
@@ -127,6 +130,7 @@ cp "${here}/test/run_vp.sh" "${here}/test/isp_run.txt" "${test}/"
 cp "${fw}/freertos/tests/cli_smoke.txt" "${test}/"
 cp "${src}/platforms/fx1_soc/tools/fx1_console.sh" "${test}/"
 cp "${src}/platforms/fx1_soc/demo/isp_pack.py" "${test}/"
+cp "${here}/test/isp_auto.py" "${test}/"
 chmod +x "${test}/run_vp.sh" "${test}/fx1_console.sh" "${test}/isp_pack.py"
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/fx1_package.XXXXXX")"
@@ -153,26 +157,53 @@ for spec in "${samples[@]}"; do
     log "ISP sample ${name}: $(basename "${raw}")"
     w="${scratch}/${name}"
     mkdir -p "${w}"
-    if [[ -z "${profile}" ]]; then  # a deterministic 'full' test profile computed from this frame
-        python3 "${isp}/tools/raw_fixture.py" convert --in "${raw}" --format le16_raw10_msb --width 2688 \
-            --height 1520 --bayer BGGR --out "${w}/frame.isp16" > "${w}/convert.log"
-        python3 "${isp}/tools/make_profile.py" --input "${w}/frame.isp16" --width 2688 --height 1520 \
-            --bayer BGGR --preset full --out "${w}/${name}_bggr_2688x1520_full.csrw" > "${w}/profile.log"
-        profile="${w}/${name}_bggr_2688x1520_full.csrw"
-    fi
+    [[ -n "${profile}" ]] || profile="${shared_profile}"
+    [[ -f "${profile}" ]] || die "sample ${name}: profile ${profile} not found"
+    profile_id="$(basename "${profile}" .csrw)"
+    [[ "${profile_id}" =~ ^[a-z0-9_]+$ ]] || die "profile ID '${profile_id}': use [a-z0-9_]"
+    profile_dir="${test}/profiles/${profile_id}"
     d="${test}/isp/${name}"
     mkdir -p "${d}"
     python3 "${src}/platforms/fx1_soc/demo/run_isp_demo.py" --raw "${raw}" --profile "${profile}" \
-        --build-dir "${build_dir}" --out "${w}/job" --prepare-only --job-env "${d}/job.env" > "${w}/prepare.log"
-    cp "${w}/job/input.isp16" "${w}/job/job.bin" "${w}/job/profile.bin" "${d}/"
-    cp "${profile}" "${d}/profile.csrw"
+        --build-dir "${build_dir}" --out "${w}/job" --frames 2 --prepare-only --job-env "${d}/job.env" > "${w}/prepare.log"
+    cp "${w}/job/input.isp16" "${w}/job/job.bin" "${d}/"
+    printf '\nPROFILE_ID=%s\n' "${profile_id}" >> "${d}/job.env"
+    if [[ -d "${profile_dir}" ]]; then
+        cmp -s "${profile}" "${profile_dir}/profile.csrw" \
+            && cmp -s "${w}/job/profile.bin" "${profile_dir}/profile.bin" \
+            || die "profile ID '${profile_id}' names different profile contents"
+    else
+        mkdir -p "${profile_dir}"
+        cp "${profile}" "${profile_dir}/profile.csrw"
+        cp "${w}/job/profile.bin" "${profile_dir}/"
+    fi
+    profile_sha="$(sha256sum "${profile_dir}/profile.csrw" | cut -d' ' -f1)"
+    profile_bin_sha="$(sha256sum "${profile_dir}/profile.bin" | cut -d' ' -f1)"
     # Golden: the stand-alone ISP model, same input and profile (not the VP run).
     mkdir -p "${w}/ref"
-    "${ref_tool}" --input "${w}/job/input.isp16" --width 2688 --height 1520 --profile "${profile}" --frames 1 \
+    "${ref_tool}" --input "${w}/job/input.isp16" --width 2688 --height 1520 --profile "${profile}" --frames 2 \
         --out "${w}/ref/frame" > "${w}/ref.log" 2>&1 && [[ -s "${w}/ref/frame.nv12" ]] \
         || { cat "${w}/ref.log" >&2; die "sample ${name}: the reference ISP model produced no NV12"; }
     golden="$(sha256sum "${w}/ref/frame.nv12" | cut -d' ' -f1)"
     echo "${golden}" > "${d}/expected_nv12.sha256"
+    printf '%s, shared profile %s\n' "$(basename "${raw}")" "${profile_id}" > "${d}/SAMPLE.txt"
+    auto_json=""
+    if [[ "${profile_id}" == "shared_bggr_2688x1520_full" ]]; then
+        # Firmware selects controls from AWB on the CPU. Generate a golden
+        # independently with those controls in the stand-alone ISP, two render
+        # frames from cold temporal state. The probe is not in this reference.
+        "${test}/run_vp.sh" isp "${name}" auto > "${w}/auto.log" 2>&1 \
+            || { cat "${w}/auto.log" >&2; die "sample ${name}: auto firmware failed"; }
+        "${ref_tool}" --input "${d}/input.isp16" --width 2688 --height 1520 \
+            --profile "${fwout}/isp/${name}/resolved_profile.csrw" --frames 2 \
+            --out "${w}/ref/auto" > "${w}/auto_ref.log" 2>&1 \
+            || { cat "${w}/auto_ref.log" >&2; die "sample ${name}: auto reference failed"; }
+        auto_golden="$(sha256sum "${w}/ref/auto.nv12" | cut -d' ' -f1)"
+        [[ "$(sha256sum "${fwout}/isp/${name}/platform.nv12" | cut -d' ' -f1)" == "${auto_golden}" ]] \
+            || die "sample ${name}: auto output differs from the stand-alone ISP"
+        echo "${auto_golden}" > "${d}/expected_auto_nv12.sha256"
+        auto_json=", \"auto_policy\": \"neutral-v1\", \"auto_frames\": 3, \"expected_auto_nv12_sha256\": \"${auto_golden}\""
+    fi
     raw_sha="$(sha256sum "${raw}" | cut -d' ' -f1)"
     {
         if [[ ${internal} -eq 1 ]]; then
@@ -182,16 +213,18 @@ for spec in "${samples[@]}"; do
         fi
         echo "RAW SHA-256       ${raw_sha}"
         echo "format            le16_raw10_msb, converted to the ISP 16-bit container (input.isp16)"
-        echo "profile           profile.csrw ($(basename "${profile}"), $(grep -c -v -e '^#' -e '^\s*$' "${profile}") writes),"
-        echo "                  a test profile computed from this frame, not a sensor calibration"
+        echo "profile           profiles/${profile_id}/profile.csrw ($(grep -c -v -e '^#' -e '^\s*$' "${profile}") writes)"
+        echo "                  fixed test profile shared by samples selecting this ID; not a sensor calibration"
+        echo "frames            2 (first frame warms up GTM auto; output is the second frame)"
         echo "expected NV12     ${golden}"
         echo "                  from the stand-alone ISP model (fx1_isp_run_raw), same input and profile"
     } > "${d}/SAMPLE.txt"
     [[ ${first} -eq 1 ]] || echo "," >> "${sample_json}"
     first=0
-    printf '{"name": "%s", "raw": "%s", "raw_sha256": "%s", "profile": "%s", "expected_nv12_sha256": "%s", "internal_only": %s}\n' \
-        "${name}" "$(basename "${raw}")" "${raw_sha}" "$(basename "${profile}")" "${golden}" \
-        "$([[ ${internal} -eq 1 ]] && echo true || echo false)" >> "${sample_json}"
+    printf '{"name": "%s", "raw": "%s", "raw_sha256": "%s", "profile_id": "%s", "profile": "%s", "profile_sha256": "%s", "profile_bin_sha256": "%s", "expected_nv12_sha256": "%s", "frames": 2, "internal_only": %s%s}\n' \
+        "${name}" "$(basename "${raw}")" "${raw_sha}" "${profile_id}" "profiles/${profile_id}/profile.csrw" \
+        "${profile_sha}" "${profile_bin_sha}" "${golden}" \
+        "$([[ ${internal} -eq 1 ]] && echo true || echo false)" "${auto_json}" >> "${sample_json}"
 done
 echo "]" >> "${sample_json}"
 [[ -d "${test}/isp/d65" ]] || die "the default sample d65 is missing (run_vp.sh isp uses it)"

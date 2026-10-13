@@ -16,6 +16,7 @@ Usage:
   ./run_vp.sh smoke                    # default: scripted CLI session, exit status = verdict
   ./run_vp.sh run [VP arguments]       # boot and print the console (default --timeout-ms 2000)
   ./run_vp.sh interactive [port]       # CLI over TCP; connect with ./fx1_console.sh [port]
+  ./run_vp.sh isp [SAMPLE] auto        # FW-selected WB/tone; one probe + >=2 render frames
   ./run_vp.sh isp [SAMPLE]             # RAW frame through `isp run`, NV12 + PNG, golden check
   ./run_vp.sh isp [SAMPLE] interactive [port]   # same job, console in this terminal: isp run, poweroff
   ./run_vp.sh isp list                 # the samples (default d65)
@@ -93,28 +94,42 @@ case "${mode}" in
             sample="$1"
             shift
         fi
+        adaptive=0
+        if [[ "${1:-}" == "auto" ]]; then adaptive=1; shift; fi
         sub="${1:-smoke}"
         isp_in="${samples}/${sample}"
         isp_out="${build}/isp/${sample}"
         [[ -f "${isp_in}/job.env" ]] || die "no ISP sample '${sample}' (./run_vp.sh isp list)"
         # shellcheck source=/dev/null
+        unset PROFILE_ID
         . "${isp_in}/job.env"
+        [[ "${PROFILE_ID:-}" =~ ^[a-z0-9_]+$ ]] || die "sample '${sample}': invalid or missing PROFILE_ID"
+        profile_bin="${here}/profiles/${PROFILE_ID}/profile.bin"
+        [[ -s "${profile_bin}" ]] || die "missing shared profile: ${profile_bin}"
         rm -rf "${isp_out}"
         mkdir -p "${isp_out}"
         cp "${isp_in}/job.bin" "${isp_out}/job.bin"
-        io=(--load "${RAW_ADDR}:${isp_in}/input.isp16" --load "${JOB_ADDR}:${isp_in}/job.bin"
-            --load "${PROFILE_ADDR}:${isp_in}/profile.bin"
+        replay="${here}/isp_run.txt"
+        command="isp run"
+        if [[ ${adaptive} -eq 1 ]]; then
+            python3 "${here}/isp_auto.py" prepare "${isp_out}/job.bin" "${isp_out}/job.bin"
+            command="isp run auto"
+            replay="${isp_out}/auto_run.txt"
+            printf 'isp run auto\risp stats\rpoweroff\r' > "${replay}"
+        fi
+        io=(--load "${RAW_ADDR}:${isp_in}/input.isp16" --load "${JOB_ADDR}:${isp_out}/job.bin"
+            --load "${PROFILE_ADDR}:${profile_bin}"
             --dump "${RESULT_ADDR}:${RESULT_LEN}:${isp_out}/result.bin"
             --dump "${Y_ADDR}:${Y_LEN}:${isp_out}/y.bin" --dump "${UV_ADDR}:${UV_LEN}:${isp_out}/uv.bin")
         case "${sub}" in
             smoke)
                 echo "VP_FX1_V3.0 isp ${sample}: $(head -n 1 "${isp_in}/SAMPLE.txt")"
                 set +e
-                "${vp}" --fw "${fw}" "${io[@]}" --uart0-rx-file "${here}/isp_run.txt" --uart0-rx-delay-us 20000 \
+                "${vp}" --fw "${fw}" "${io[@]}" --uart0-rx-file "${replay}" --uart0-rx-delay-us 20000 \
                     --timeout-ms 5000 > "${isp_out}/platform.log" 2>&1
                 rc=$?
                 set -e
-                grep -a -E "isp run|AEC|AWB|AF |poweroff:|RESULT" "${isp_out}/platform.log" | tr -d '\r' || true
+                grep -a -E "isp run|ISP_AUTO|AEC|AWB|AF |poweroff:|RESULT" "${isp_out}/platform.log" | tr -d '\r' || true
                 [[ ${rc} -eq 0 ]] || { echo "ISP FAIL: the VP run failed, exit ${rc} (${isp_out}/platform.log)"; exit 1; }
                 ;;
             interactive)
@@ -130,7 +145,7 @@ case "${mode}" in
                     sleep 0.1
                 done
                 echo
-                echo "Type 'isp run', 'isp stats', then 'poweroff' (the dumps are written at poweroff)."
+                echo "Type '${command}', 'isp stats', then 'poweroff' (the dumps are written at poweroff)."
                 echo
                 "${here}/fx1_console.sh" "${port}" || true
                 for _ in $(seq 50); do
@@ -154,12 +169,24 @@ case "${mode}" in
                 exit 2
                 ;;
         esac
+        expected="${isp_in}/expected_nv12.sha256"
+        if [[ ${adaptive} -eq 1 ]]; then
+            python3 "${here}/isp_auto.py" capture "${isp_out}" "${here}/profiles/${PROFILE_ID}/profile.csrw"
+            expected="${isp_in}/expected_auto_nv12.sha256"
+        fi
+        expect_args=()
+        if [[ -f "${expected}" ]]; then expect_args=(--expect-sha256 "$(cat "${expected}")"); fi
+        [[ ${adaptive} -eq 1 || -f "${expected}" ]] || die "fixed sample golden missing: ${expected}"
         set +e
-        python3 "${here}/isp_pack.py" "${isp_out}" --expect-sha256 "$(cat "${isp_in}/expected_nv12.sha256")"
+        python3 "${here}/isp_pack.py" "${isp_out}" "${expect_args[@]}"
         rc=$?
         set -e
         case ${rc} in
-            0) echo "ISP PASS: NV12 equals the stand-alone ISP model's output; preview ${isp_out}/platform.png" ;;
+            0) if [[ -f "${expected}" ]]; then
+                   echo "ISP PASS: NV12 equals the stand-alone ISP model's output; preview ${isp_out}/platform.png"
+               else
+                   echo "ISP AUTO COMPLETE: output valid, no adaptive golden; preview ${isp_out}/platform.png"
+               fi ;;
             1) echo "ISP FAIL: NV12 differs from the expected output" ;;
             *) echo "ISP FAIL: the dumps were rejected" ;;
         esac

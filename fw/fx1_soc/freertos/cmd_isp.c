@@ -3,8 +3,10 @@
  *   isp selftest  the 8-frame 64x48 fixture (basic profile); every NV12 must
  *                 match the reference CRC-32 (tests/isp_stream/isp_fixture.h)
  *   isp run       the host-loaded RAW job of the ISP demo (fx1_soc --load, see
- *                 fw/fx1_soc/demo/isp_raw_frame/isp_demo_job.h): one frame,
+ *                 fw/fx1_soc/demo/isp_raw_frame/isp_demo_job.h): fixed frames,
  *                 NV12 left in DDR for --dump, result block written
+ *   isp run auto  one AWB probe + at least two render frames, using a shared
+ *                 base profile and a bounded demo neutral-zone policy
  *   isp stats     AEC/AWB/AF publications of the last frame, captured before
  *                 the stream is stopped (fx1_isp_stop soft-resets the ISP,
  *                 which clears the statistics results; FRAME_IDs survive)
@@ -19,6 +21,7 @@
 #include "task.h"
 
 #include "isp_common.h"
+#include "isp_auto_policy.h"
 #include "isp_demo_job.h"
 #include "rtos_app.h"
 #include "rtos_bsp.h"
@@ -118,13 +121,54 @@ static int selftest(void)
     return report("isp 8-frame fixture", ok && matched == ISP_FX_FRAMES && !isr_fatal);
 }
 
-static int run_job(void)
+
+/* Called between completed frames, with no frame in flight. Release the AWB
+ * bank on every path. One result is measured, then a reset/restart renders
+ * the same RAW with the chosen controls, so fixed-reference comparison is
+ * independent of the probe's GTM/NR state. */
+static isp_auto_choice auto_meter(void)
+{
+    isp_auto_meter meter = {0};
+    fx1_isp_awb_lease lease;
+    isp_auto_choice c;
+    if (fx1_isp_awb_acquire(&dev, &lease) == FX1_ISP_OK) {
+        for (unsigned i=0; i<lease.nx*lease.ny; ++i) {
+            fx1_isp_awb_zone z;
+            if (fx1_isp_awb_read_zones(&dev, i, 1, &z) != FX1_ISP_OK) {
+                memset(&meter, 0, sizeof(meter));
+                break;
+            }
+            isp_auto_add(&meter, z.sum, z.count);
+        }
+        if (fx1_isp_awb_release(&dev) != FX1_ISP_OK) memset(&meter, 0, sizeof(meter));
+    }
+#define AUTO_RD(name) dev.hal.read32(dev.hal.ctx, FX1_ISP_##name##_OFFSET)
+    c=isp_auto_decide(&meter, AUTO_RD(WB_GAIN_R), AUTO_RD(WB_GAIN_G), AUTO_RD(WB_GAIN_B),
+                      AUTO_RD(GTM_KEY), AUTO_RD(GTM_LWHITE), AUTO_RD(EE_BETA));
+#undef AUTO_RD
+    out("ISP_AUTO " ISP_AUTO_POLICY_ID " valid="); out_dec(c.valid);
+    out(" zones="); out_dec(c.zones); out(" blend="); out_dec(c.blend); out_line("");
+    /* Exact applied CSR writes, used by the host's independent reference. */
+    out("ISP_AUTO_CSR WB_GAIN_R "); out_hex(c.r); out_line("");
+    out("ISP_AUTO_CSR WB_GAIN_G "); out_hex(c.g); out_line("");
+    out("ISP_AUTO_CSR WB_GAIN_B "); out_hex(c.b); out_line("");
+    out("ISP_AUTO_CSR GTM_KEY "); out_hex(c.key); out_line("");
+    out("ISP_AUTO_CSR GTM_LWHITE "); out_hex(c.white); out_line("");
+    out("ISP_AUTO_CSR EE_BETA "); out_hex(c.beta); out_line("");
+    return c;
+}
+
+static int run_job(int adaptive)
 {
     const volatile isp_demo_job* job = (const volatile isp_demo_job*)(FX1_FW_SHARED_BASE + ISP_DEMO_JOB_OFFSET);
     volatile isp_demo_result* res = (volatile isp_demo_result*)(FX1_FW_SHARED_BASE + ISP_DEMO_RESULT_OFFSET);
     if (job->magic != ISP_DEMO_JOB_MAGIC || job->version != ISP_DEMO_VERSION) {
         out_line("isp run: no job descriptor in DDR (load one with run_isp_demo.py / fx1_soc --load)");
         return 0;
+    }
+    if (adaptive && job->frames < 3u) {
+        out_line("isp run auto: job needs a probe plus at least 2 render frames");
+        return report("isp run auto", 0);
     }
     fx1_isp_buffers bufs;
     for (unsigned i = 0; i < FX1_ISP_NUM_BUFFERS; ++i) {
@@ -143,6 +187,17 @@ static int run_job(void)
     if (ok) {
         fx1_isp_apply(&dev, (const fx1_isp_reg_write*)(FX1_FW_SHARED_BASE + ISP_DEMO_PROFILE_OFFSET),
                       job->profile_count);
+        if (adaptive) {
+            const uint32_t ctrl=dev.hal.read32(dev.hal.ctx,FX1_ISP_GTM_CTRL_OFFSET);
+            const uint32_t wb=dev.hal.read32(dev.hal.ctx,FX1_ISP_WB_CTRL_OFFSET);
+            const uint32_t ee=dev.hal.read32(dev.hal.ctx,FX1_ISP_EE_CTRL_OFFSET);
+            if (!(wb & FX1_ISP_WB_CTRL_EN_MASK) || !(ctrl & FX1_ISP_GTM_CTRL_EN_MASK) ||
+                (ctrl & FX1_ISP_GTM_CTRL_MANUAL_MASK) ||
+                (ee & (FX1_ISP_EE_CTRL_PROFILE_SEL_MASK | FX1_ISP_EE_CTRL_PROFILE_WR_SEL_MASK))) {
+                out_line("isp run auto: requires WB, GTM auto, EE profile 0 (shared base)");
+                return report("isp run auto",0);
+            }
+        }
         fx1_dma_prepare((const volatile void*)(uintptr_t)job->y_addr, job->out_stride * job->height,
                         FX1_DMA_FROM_DEVICE);
         fx1_dma_prepare((const volatile void*)(uintptr_t)job->uv_addr, job->out_stride * (job->height / 2u),
@@ -150,8 +205,39 @@ static int run_job(void)
         ok = fx1_isp_start(&dev, &bufs) == FX1_ISP_OK;
     }
     dev_ready = ok;
+    fx1_isp_progress initial = {0};
+    if (dev_ready) fx1_isp_get_progress(&dev, &initial);
     const TickType_t t0 = xTaskGetTickCount();
-    for (uint32_t k = 0; ok && k < job->frames; ++k) {
+    uint32_t gtm_enable = 0;
+    if (ok && adaptive) {
+        fx1_dma_prepare((const volatile void*)(uintptr_t)job->in_addr, job->in_stride*job->height, FX1_DMA_TO_DEVICE);
+        ok = one_frame(pdMS_TO_TICKS(1000)) >= 0;
+        if (ok) {
+            const isp_auto_choice c=auto_meter();
+            const uint32_t ctrl=dev.hal.read32(dev.hal.ctx, FX1_ISP_GTM_CTRL_OFFSET);
+            /* Policy only supports enabled WB and automatic GTM. */
+            if ((ctrl & FX1_ISP_GTM_CTRL_MANUAL_MASK) || !(ctrl & FX1_ISP_GTM_CTRL_EN_MASK)) ok=0;
+            taskENTER_CRITICAL();
+            (void)fx1_isp_stop(&dev);
+            const fx1_isp_reg_write writes[]={
+                {FX1_ISP_WB_GAIN_R_OFFSET,c.r},{FX1_ISP_WB_GAIN_G_OFFSET,c.g},{FX1_ISP_WB_GAIN_B_OFFSET,c.b},
+                {FX1_ISP_GTM_KEY_OFFSET,c.key},{FX1_ISP_GTM_LWHITE_OFFSET,c.white},{FX1_ISP_EE_BETA_OFFSET,c.beta},
+                {FX1_ISP_GTM_CTRL_OFFSET,ctrl & ~FX1_ISP_GTM_CTRL_EN_MASK}};
+            fx1_isp_apply(&dev,writes,sizeof(writes)/sizeof(writes[0]));
+            gtm_enable=ctrl;
+            if (ok) ok=fx1_isp_start(&dev,&bufs)==FX1_ISP_OK;
+            taskEXIT_CRITICAL();
+            xSemaphoreTake(done,0);
+            out_line("ISP_AUTO probe=1; render warm-up GTM off, then GTM auto on");
+        }
+    }
+    for (uint32_t k = 0; ok && k < job->frames - (adaptive ? 1u : 0u); ++k) {
+        if (adaptive && k==1u) {
+            taskENTER_CRITICAL();
+            const fx1_isp_reg_write en={FX1_ISP_GTM_CTRL_OFFSET,gtm_enable};
+            fx1_isp_apply(&dev,&en,1);
+            taskEXIT_CRITICAL();
+        }
         fx1_dma_prepare((const volatile void*)(uintptr_t)job->in_addr, job->in_stride * job->height,
                         FX1_DMA_TO_DEVICE);
         ok = one_frame(pdMS_TO_TICKS(1000)) >= 0;
@@ -167,8 +253,8 @@ static int run_job(void)
     res->out_height = dev.out_height;
     res->out_stride = job->out_stride;
     res->frames_done = ok ? job->frames : 0u;
-    res->idma_frames = p.idma_frames;
-    res->odma_frames = p.odma_frames;
+    res->idma_frames = p.idma_frames - initial.idma_frames;
+    res->odma_frames = p.odma_frames - initial.odma_frames;
     res->dma_err = p.dma_err;
     res->frame_ticks = (uint32_t)(xTaskGetTickCount() - t0) * (FX1_MTIME_HZ / configTICK_RATE_HZ);
     if (dev_ready) stop();
@@ -234,9 +320,13 @@ static void stats(void)
 
 int cmd_isp(int argc, char** argv)
 {
+    if (argc == 3 && !strcmp(argv[1], "run") && !strcmp(argv[2], "auto")) {
+        run_job(1);
+        return 0;
+    }
     if (argc != 2) return 1;
     if (!strcmp(argv[1], "selftest")) selftest();
-    else if (!strcmp(argv[1], "run")) run_job();
+    else if (!strcmp(argv[1], "run")) run_job(0);
     else if (!strcmp(argv[1], "stats")) stats();
     else return 1;
     return 0;

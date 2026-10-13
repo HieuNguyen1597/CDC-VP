@@ -175,7 +175,7 @@ get_filename_component(FX1_RISCV_TOOLDIR "${FX1_RISCV_PREFIX}gcc" DIRECTORY)
 set(_fx1_samples --sample "d65=${CMAKE_SOURCE_DIR}/components/isp_tlm/input/D65_raw_2688x1520_5376.raw")
 if(FX1_DEMO_RAW AND EXISTS "${FX1_DEMO_RAW}")
     list(APPEND _fx1_samples --sample
-        "outdoor1=${FX1_DEMO_RAW},profile=${CMAKE_SOURCE_DIR}/components/FX1_Components/isp/samples/profiles/outdoor1_bggr_2688x1520_full.csrw,internal")
+        "outdoor1=${FX1_DEMO_RAW},internal")
 endif()
 add_custom_target(fx1_soc_package
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/package/package_sdk.sh" --build-dir "${CMAKE_BINARY_DIR}"

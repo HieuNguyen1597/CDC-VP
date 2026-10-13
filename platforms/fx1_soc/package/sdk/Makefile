@@ -91,3 +91,11 @@ $(OUT)/freertos_cli.sections.txt: $(ELF)
 clean:
 	rm -rf $(OUT)/obj
 	rm -f $(ELF) $(LDS) $(OUT)/freertos_cli.dis $(OUT)/freertos_cli.map $(OUT)/freertos_cli.sections.txt
+
+# Portable policy checks with the host compiler, no VP or cross compiler needed.
+HOST_CC ?= /usr/bin/gcc
+.PHONY: check-isp-auto
+check-isp-auto:
+	@mkdir -p $(OUT)
+	$(HOST_CC) -std=c99 -Wall -Wextra -Werror -I$(HERE)/app $(HERE)/tests/isp_auto_policy_test.c -o $(OUT)/isp_auto_policy_test
+	$(OUT)/isp_auto_policy_test

@@ -31,10 +31,21 @@ the SDK repository (`fx1`: `vp/{bin,doc}/<ver>`,
 
 | Sample | Source | Profile | Status |
 |---|---|---|---|
-| `d65` (default) | `components/isp_tlm/input/D65_raw_2688x1520_5376.raw` | 'full' test profile from `make_profile.py` | cleared, `ASSET_PROVENANCE.md` |
-| `outdoor1` | the RAW pointed to by `FX1_DEMO_RAW` | `outdoor1_bggr_2688x1520_full.csrw` | **internal only**: not cleared for public release |
+| `d65` (default) | `components/isp_tlm/input/D65_raw_2688x1520_5376.raw` | `shared_bggr_2688x1520_full` | cleared, `ASSET_PROVENANCE.md` |
+| `outdoor1` | the RAW pointed to by `FX1_DEMO_RAW` | `shared_bggr_2688x1520_full` | **internal only**: not cleared for public release |
 
-`outdoor1` is added only when `FX1_DEMO_RAW` is set.
+`outdoor1` is added only when `FX1_DEMO_RAW` is set. The default profile is
+the checked-in `isp/samples/profiles/shared_bggr_2688x1520_full.csrw` under
+`components/FX1_Components/`. It is a fixed test profile derived from the cleared
+D65 baseline, with v2 colour/detail tuning selected on 2026-10-13, not sensor
+calibration or a per-frame AWB algorithm. Packaging
+does not compute WB gains from each input. Both samples refer to one delivered
+`profiles/shared_bggr_2688x1520_full/` directory using `PROFILE_ID` in `job.env`.
+`--sample NAME=RAW,profile=FILE` still supports another fixed profile: each
+distinct profile ID is copied once, and conflicting contents under one ID fail.
+Every sample's job and standalone golden use two frames: the first warms up
+GTM auto, and the second produces the saved image. Its golden is generated
+with the profile it actually selects.
 
 **`SHA256SUMS`** covers what the SDK repository tracks, so it does not cover
 `build/`: that repository ignores `sw/bootloader/build/`, and every user
@@ -77,8 +88,19 @@ together with the commit:
 ## Limits
 
 - **Fixed sample geometry.** Samples are 2688×1520 BGGR `le16_raw10_msb`
-  frames; `package_sdk.sh` assumes that geometry when it computes a profile.
+  frames; `package_sdk.sh` assumes that geometry for the job and reference run.
+  The shared default profile targets this mode; another mode needs a suitable profile.
 - **ELF reproducibility needs the same compiler.** It holds for the same
   cross compiler; the manifest records which one was used.
 - **The package is x86-64 Linux only.** It is validated on AlmaLinux 9 and in
   the `almalinux:9` container.
+
+### Adaptive RAW jobs
+
+The shared default also delivers an independently generated adaptive golden.
+`run_vp.sh isp SAMPLE auto` runs the bounded firmware `neutral-v1` demo policy:
+one AWB probe plus two render frames, with decisions logged as CSR values.
+`package_sdk.sh` compares this output against the stand-alone ISP using those
+resolved controls before recording `expected_auto_nv12.sha256` in the manifest.
+Other/custom profile IDs keep their fixed-mode packaging behavior. See the SDK
+README for prerequisites, fallback behavior and the limits of this demo policy.

@@ -40,12 +40,18 @@ required=(
     "${sdk}/third_party/FreeRTOS-Kernel/LICENSE.md" "${sdk}/third_party/FreeRTOS-Kernel/tasks.c"
     "${sdk}/third_party/FreeRTOS-Kernel/portable/GCC/RISC-V/portASM.S"
     "${build}/freertos_cli.elf" "${build}/freertos_cli.dis" "${build}/freertos_cli.map"
-    "${test}/run_vp.sh" "${test}/fx1_console.sh" "${test}/isp_pack.py" "${test}/cli_smoke.txt" "${test}/isp_run.txt"
+    "${test}/run_vp.sh" "${test}/fx1_console.sh" "${test}/isp_pack.py" "${test}/isp_auto.py" "${test}/cli_smoke.txt" "${test}/isp_run.txt"
 )
 for s in "${test}"/isp/*/; do
-    for f in SAMPLE.txt job.env job.bin profile.bin profile.csrw input.isp16 expected_nv12.sha256; do
+    for f in SAMPLE.txt job.env job.bin input.isp16 expected_nv12.sha256; do
         required+=("${s}${f}")
     done
+    profile_id="$(sed -n 's/^PROFILE_ID=\([a-z0-9_][a-z0-9_]*\)$/\1/p' "${s}job.env" 2>/dev/null)"
+    if [[ "${profile_id}" =~ ^[a-z0-9_]+$ ]]; then
+        required+=("${test}/profiles/${profile_id}/profile.csrw" "${test}/profiles/${profile_id}/profile.bin")
+    else
+        bad "${s}job.env has no valid PROFILE_ID"
+    fi
 done
 missing=0
 for f in "${required[@]}"; do
@@ -97,7 +103,7 @@ fi
 
 # ── manifest agrees with the files and the binary ────────────────────────────
 python3 - "${root}" "${doc}/BUILD_MANIFEST.json" <<'EOF' || failures=$((failures + 1))
-import hashlib, json, os, subprocess, sys
+import hashlib, json, os, re, struct, subprocess, sys
 root, path = sys.argv[1], sys.argv[2]
 try:
     m = json.load(open(path))
@@ -120,6 +126,32 @@ for s in m["isp_samples"]:
     d = os.path.join(root, "sw/bootloader/test/VP_FX1_V3.0/isp", s["name"])
     if open(os.path.join(d, "expected_nv12.sha256")).read().strip() != s["expected_nv12_sha256"]:
         errors.append("sample %s: expected_nv12.sha256 differs from the manifest" % s["name"])
+    if "expected_auto_nv12_sha256" in s:
+        p = os.path.join(d, "expected_auto_nv12.sha256")
+        if not os.path.isfile(p) or open(p).read().strip() != s["expected_auto_nv12_sha256"]:
+            errors.append("sample %s: adaptive golden differs from the manifest" % s["name"])
+        if s.get("auto_policy") != "neutral-v1" or s.get("auto_frames") != max(2,s.get("frames",1))+1:
+            errors.append("sample %s: adaptive policy/frames differs from the contract" % s["name"])
+    env = open(os.path.join(d, "job.env")).read()
+    ids = re.findall(r"^PROFILE_ID=([a-z0-9_]+)$", env, re.M)
+    pid = s.get("profile_id", "")
+    if ids != [pid] or not re.fullmatch(r"[a-z0-9_]+", pid):
+        errors.append("sample %s: PROFILE_ID differs from the manifest or is invalid" % s["name"])
+        continue
+    rel = "profiles/%s/profile.csrw" % pid
+    if s.get("profile") != rel:
+        errors.append("sample %s: profile path differs from its ID" % s["name"])
+    pdir = os.path.join(root, "sw/bootloader/test/VP_FX1_V3.0/profiles", pid)
+    for file, key in (("profile.csrw", "profile_sha256"), ("profile.bin", "profile_bin_sha256")):
+        p = os.path.join(pdir, file)
+        if not os.path.isfile(p) or hashlib.sha256(open(p, "rb").read()).hexdigest() != s.get(key):
+            errors.append("sample %s: shared %s differs from the manifest" % (s["name"], file))
+    job = open(os.path.join(d, "job.bin"), "rb").read()
+    p = os.path.join(pdir, "profile.bin")
+    if len(job) != 64 or not os.path.isfile(p) or os.path.getsize(p) != struct.unpack("<16I", job)[10] * 8:
+        errors.append("sample %s: job profile_count differs from the shared profile" % s["name"])
+    if "frames" in s and (len(job) != 64 or s["frames"] != struct.unpack("<16I", job)[11]):
+        errors.append("sample %s: job frames differs from the manifest" % s["name"])
 for e in errors:
     print("  FAIL " + e)
 if not errors:
