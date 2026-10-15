@@ -252,19 +252,20 @@ cp "${here}/docs/README.md" "${here}/docs/MEMORY_MAP.md" "${doc}/"
 mkdir -p "${doc}/ddr3"
 cp "${here}/docs/DDR3_FW_GUIDE.md" "${doc}/ddr3/README.md"
 ddr3_docs="${src}/components/FX1_Components/ddr3/docs"
-for f in programming_guide.md fault_catalogue.md limitations.md spec_owner_questions.md; do
-    cp "${ddr3_docs}/${f}" "${doc}/ddr3/${f}"
-done
+cp "${ddr3_docs}/programming_guide.md" "${doc}/ddr3/programming_guide.md"
 python3 - "${doc}/ddr3" <<'PYEOF'
 import os, re, sys
 d = sys.argv[1]
 names = set(os.listdir(d))
 for f in names:
     p = os.path.join(d, f)
-    text = open(p).read()
+    original = text = open(p).read()
+    # A parenthesized reference to a document that is not shipped, e.g. "([x.md](x.md) L-14)", goes.
+    text = re.sub(r"\s*\(\[[^\]]+\]\(([^)#\s]+)\)(\s+L-\d+)?\)",
+                  lambda m: m.group(0) if m.group(1) in names else "", text)
     fixed = re.sub(r"\[([^\]]+)\]\(([^)#\s]+)(#[^)]*)?\)",
                    lambda m: m.group(0) if m.group(2) in names or "://" in m.group(2) else m.group(1), text)
-    if fixed != text:
+    if fixed != original:
         open(p, "w").write(fixed)
 PYEOF
 cp "${src}/LICENSE" "${doc}/licenses/Apache-2.0.txt"

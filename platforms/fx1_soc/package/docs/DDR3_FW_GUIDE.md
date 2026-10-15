@@ -8,9 +8,6 @@ Audience: firmware engineers who write or test a DDR3 driver, a boot loader or e
 |---|---|
 | `vp/doc/VP_FX1_V3.0/ddr3/README.md` | This guide |
 | `vp/doc/VP_FX1_V3.0/ddr3/programming_guide.md` | **The register-level guide**: access rules, initialization sequence with the reference values, readiness, region map, runtime operations (quiesce, training, power, refresh), interrupts, error handling and recovery, bring-up checklist |
-| `vp/doc/VP_FX1_V3.0/ddr3/fault_catalogue.md` | Every fault the VP can inject, what firmware observes, how to recover, and the `--ddr3-fault` option (§7) |
-| `vp/doc/VP_FX1_V3.0/ddr3/limitations.md` | What the model does not do or does differently from silicon |
-| `vp/doc/VP_FX1_V3.0/ddr3/spec_owner_questions.md` | Field encodings that the specification leaves open (Part A): the VP implements a proposal for each |
 | `sw/bootloader/sources/VP_FX1_V3.0/include/fx1_ddr3/fx1_ddr3_regs.h` | Register map (C99) |
 | `sw/bootloader/sources/VP_FX1_V3.0/include/fx1_ddr3/provisional_encodings.h` | The provisional codes; use the macros, never the numbers |
 | `sw/bootloader/sources/VP_FX1_V3.0/include/fx1/fx1_ddr_sysctrl.h` | DDR_SYSCTRL (VP only, §4) |
@@ -91,15 +88,29 @@ These are test and reference code, not a driver library.
 
 ## 7. Faults, interrupts and recovery
 
-- Faults are injected only from the host: `--ddr3-fault T_US:KIND[:ARG]` (`fx1_soc --help`), T_US counted from CPU start. [fault_catalogue.md](fault_catalogue.md) lists each kind and what firmware observes.
+- Faults are injected only from the host: `--ddr3-fault T_US:KIND[:ARG]` (repeatable), T_US microseconds after CPU start (time 0 in firmware boot). Addresses are global DDR addresses of the default region map.
+
+  | KIND | Firmware observes |
+  |---|---|
+  | `ce:ADDR` (one stored bit flipped) | Corrected data, CE_COUNT, ECC_LAST_ADDR/INFO; IRQ_RAW[0] when CE_COUNT reaches CE_THRESHOLD |
+  | `ue:ADDR` (two bits of one 8-byte lane) | The read returns SLVERR (load access fault), UE_COUNT, IRQ_RAW[1] |
+  | `check:ADDR` (a check bit) | As a correctable error |
+  | `read-timeout[:N]`, `read-malformed[:N]`, `read-context[:N]`, `read-generation[:N]`, `read-unexpected` | The read fails (access fault) and reads are quarantined: QUARANTINE_STATUS, IRQ_RAW[2] or [3]. Recovery: cold reset + initialization |
+  | `write-result[:N]` | The write returns SLVERR; with ECC also a fatal event (FATAL_STATUS, IRQ_RAW[11]) |
+  | `fatal:dfi\|wdata\|unmatched\|stale\|scrub` | Fatal event: readiness closes, new DDR accesses are held without a response. Recovery: a reset from another agent (core reset aborts held accesses), then cold reset + initialization |
+  | `refresh-block:R`, `refresh-unblock:R` | Refresh debt grows; REFRESH_STATUS, IRQ_RAW[5] at saturation |
+  | `phy-fail`, `phy-recover` | PHY failure: initialization or training fails, IRQ_RAW[9] |
+
+  Each injection is logged as `[fx1_soc] ddr3 fault at <time>: <option>`.
 - Interrupt sources and their handling: programming guide §7. Clear a source at the controller (IRQ_CLEAR) before completing it at the PLIC.
 - Recovery needs DDR_SYSCTRL resets: a quarantine or a fatal event clears only on a cold reset followed by a full initialization. With ECC the new scrub zeroes DDR, so the recovery code must run from BootROM/SRAM. An access held by a fatal event can only be ended by a reset from another agent (another hart).
 - LR/SC and AMOs on DDR: a cold or core reset, a reinitialization or a region commit voids every reservation (the next SC fails). Region aliases name the same storage for reservations, AMOs and DMA writes.
 
 ## 8. Limits to keep in mind
 
-- **Provisional encodings.** Some field codes are not defined by the specification yet (Part A of [spec_owner_questions.md](spec_owner_questions.md)). The VP implements a proposal for each, in `provisional_encodings.h`. These values will change: use the macros.
+- **Provisional encodings.** Some field codes are not defined by the specification yet: initialization stage and error codes, TRAIN_CMD/STATUS, POWER_ERROR, the PSTATE values, PHY_BRIDGE_ERROR, ECC_LAST_INFO, FATAL_STATUS[2:0], the blocker codes 0xE0–0xE6, FE_PORT_CMD op 2, the refresh urgency codes and the QoS class codes. The VP implements a proposal for each, in `provisional_encodings.h`. These values will change: use the macros, never the numbers.
 - **Timing is approximate, and CPU timing is pessimistic.** The harts fetch every instruction from DDR (no cache in the VP). Do not calibrate CPU-versus-DMA races or delays on the VP.
+- **Not modelled:** live DFI updates, the 5-level maintenance priority, the QoS class's effect on service order (the class is stored and counted only), and timeouts on reset requests or quiesce (apply your own watchdogs).
+- **Region aliases.** Every region maps its first byte to user offset 0, so regions of one port alias each other.
+- **Retention.** DRAM contents survive resets on the VP; do not rely on it. With ECC, every initialization scrubs DDR to zero.
 - **The VP-only blocks.** DDR_SYSCTRL and the `--ddr3-fault` option do not exist on silicon.
-
-The full list is in [limitations.md](limitations.md).

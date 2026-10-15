@@ -57,8 +57,8 @@ longer a plain RAM. Every CPU, SYS_DMA and ISP access to the DDR goes through it
 - **Writing a DDR3 driver or boot code:** start with [ddr3/README.md](ddr3/README.md).
   It covers the two boot modes (`--ddr-boot preinit`, the default, and
   `--ddr-boot firmware`, where firmware runs from BootROM/SRAM and initializes
-  the DDR3 itself), DDR_SYSCTRL, the programming guide, the fault catalogue and
-  the limitations. Reference bring-up code and BootROM examples are in
+  the DDR3 itself), DDR_SYSCTRL, fault injection and the limits; register-level
+  details are in [ddr3/programming_guide.md](ddr3/programming_guide.md). Reference bring-up code and BootROM examples are in
   `sw/bootloader/sources/VP_FX1_V3.0/ddr3/`: build them with
   `make -C sw/bootloader/sources/VP_FX1_V3.0 ddr3` and run them with
   `sw/bootloader/test/VP_FX1_V3.0/run_vp.sh ddr3`.
