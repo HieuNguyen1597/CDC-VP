@@ -40,9 +40,11 @@ def memory_map(header):
     text = open(header).read()
     val = lambda name: int(re.search(r"#define\s+%s\s+FX1_U32\((0x[0-9A-Fa-f]+|\d+)\)" % name, text).group(1), 0)
     regions = []
-    for name, size in (("BOOTROM", "FX1_BOOTROM_SIZE"), ("CLINT", "FX1_CLINT_SIZE"), ("PLIC", "FX1_PLIC_SIZE"),
-                       ("UART", "FX1_APB_SLOT_SIZE"), ("SYS_DMA_CSR", "FX1_APB_SLOT_SIZE"),
-                       ("SIM_CTRL", "FX1_APB_SLOT_SIZE"), ("ISP_CSR", "FX1_APB_SLOT_SIZE"), ("DDR", "FX1_DDR_SIZE")):
+    for name, size in (("BOOTROM", "FX1_BOOTROM_SIZE"), ("SRAM", "FX1_SRAM_SIZE"), ("CLINT", "FX1_CLINT_SIZE"),
+                       ("PLIC", "FX1_PLIC_SIZE"), ("UART", "FX1_APB_SLOT_SIZE"), ("SYS_DMA_CSR", "FX1_APB_SLOT_SIZE"),
+                       ("SIM_CTRL", "FX1_APB_SLOT_SIZE"), ("ISP_CSR", "FX1_APB_SLOT_SIZE"),
+                       ("DDR3_CSR", "FX1_DDR3_CSR_APERTURE_SIZE"), ("DDR_SYSCTRL", "FX1_DDR_SYSCTRL_SIZE"),
+                       ("DDR", "FX1_DDR_SIZE")):
         regions.append({"name": name, "base": "0x%08x" % val("FX1_%s_BASE" % name), "size": "0x%08x" % val(size)})
     irqs = {m.group(1): int(m.group(2)) for m in re.finditer(r"#define FX1_IRQ_(\w+)\s+FX1_U32\((\d+)\)", text)}
     return {
@@ -93,7 +95,8 @@ def main():
         "platform": "fx1_soc",
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": "FX1 SoC VP: 2 x RV32IMAFC (VP++) harts, FX1 bus, CLINT, PLIC, PL011-style UART, SYS_DMA, "
-                   "FX1 ISP, sparse DDR. FreeRTOS V11.2.0 CLI on hart 0, boot IP check on hart 1. "
+                   "FX1 ISP, DDR3 controller (ECC, preinitialized by the VP before the harts start). "
+                   "FreeRTOS V11.2.0 CLI on hart 0, boot IP check on hart 1. "
                    "Not a superset of VP_FX1_V2.0: different CPU, ABI and memory map; see README.md.",
         "source": {
             "repository": "CDC-VP",
@@ -124,10 +127,12 @@ def main():
         "memory_map": memory_map(os.path.join(a.source, "components", "FX1_Components", "fx1_map", "include", "fx1",
                                               "fx1_memory_map.h")),
         "modeled": ["2 harts RV32IMAFC M-mode (VP++)", "FX1 bus with exclusive monitor", "CLINT", "PLIC",
-                    "UART (PL011-style) + host TCP bridge", "SYS_DMA", "FX1 ISP", "DDR (sparse)",
+                    "UART (PL011-style) + host TCP bridge", "SYS_DMA", "FX1 ISP",
+                    "DDR3 controller (NATIVE_R2, DDR3-1600, 2 ranks 4 Gb x8, ECC; CSR, init, training, scrub, "
+                    "power, error injection from the host)", "DDR_SYSCTRL sideband glue (VP only)", "boot SRAM",
                     "sim-control finisher (VP only)"],
         "absent": ["NPU", "H.264/H.265", "Ethernet", "MIPI", "I2C", "SPI/QSPI", "timers/WDT/PWM", "GPIO", "RTC",
-                   "ADC", "TRNG", "OTP", "PMU/CMU/clock-reset", "DDR controller CSR/training", "caches", "MMU"],
+                   "ADC", "TRNG", "OTP", "PMU/CMU/clock-reset", "caches", "MMU"],
         "isp_samples": json.load(open(a.samples)),
         "artefacts": artefacts,
     }

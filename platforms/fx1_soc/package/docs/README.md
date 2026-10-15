@@ -20,7 +20,7 @@ one does not run on the other.
 |---|---|---|
 | CPU | 1 hart, Bremen riscv-vp, `rv32imac` / `ilp32` | **2 harts, RISC-V VP++, `rv32imafc` / `ilp32f`** (hardware FP) |
 | Interconnect | generic bus | FX1 bus model with an exclusive monitor (LR/SC and AMOs are correct against DMA) |
-| Peripherals | about 25 IPs (UART×2, I2C, SPI, timers, WDT, PWM, GPIO, …) | **UART, CLINT, PLIC, SYS_DMA, ISP** only |
+| Peripherals | about 25 IPs (UART×2, I2C, SPI, timers, WDT, PWM, GPIO, …) | **UART, CLINT, PLIC, SYS_DMA, ISP, DDR3 controller** only |
 | Accelerators | NPU (functional) | **ISP** (functional, bit-exact to the stand-alone ISP model); no NPU |
 | Memory map | V2.0 map | FX1 placeholder map ([MEMORY_MAP.md](MEMORY_MAP.md)), pending the HAS |
 
@@ -30,8 +30,30 @@ What is not modelled in V3.0:
   reserved only;
 - I2C, SPI/QSPI, timers, WDT, PWM, GPIO, RTC, ADC, TRNG, OTP;
 - PMU, CMU and clock/reset control;
-- the DDR controller's CSRs and training;
 - caches and an MMU.
+
+## What changed in this V3.0 delivery: DDR3 controller
+
+DDR is now a model of the FTEL DDR3 controller (DDR3-1600, 2 ranks, ECC), no
+longer a plain RAM. Every CPU, SYS_DMA and ISP access to the DDR goes through it.
+
+- **Existing firmware runs unchanged.** By default the VP initializes the
+  controller, runs its ECC startup scrub and loads the ELF before the harts
+  start, so DDR is ready at the first instruction. `--timeout-ms` and the
+  console replay delay count from that moment.
+- **New in the map** ([MEMORY_MAP.md](MEMORY_MAP.md)): the DDR3 controller CSR
+  at `0x1200_0000` (`include/fx1_ddr3/fx1_ddr3_regs.h`), DDR_SYSCTRL at
+  `0x1201_0000` (`include/fx1/fx1_ddr_sysctrl.h`, VP only: readiness, power
+  requests, QoS, resets), boot SRAM at `0x0100_0000`, and PLIC source 8 for
+  DDR3 interrupts (masked at reset).
+- **Timing.** The harts fetch every instruction from DDR (the VP models no
+  cache), so code runs about 2× slower in simulated time, and slower still
+  while the ISP streams. Do not calibrate CPU-versus-DMA timing on the VP.
+  Scripted console input should be paced at the real UART rate: `run_vp.sh`
+  uses `--uart0-rx-delay-us 60000 --uart0-rx-byte-us 87`.
+- **Field encodings** of the DDR3 registers that the specification leaves
+  open are provisional (`include/fx1_ddr3/provisional_encodings.h`): use the
+  macros, not the numbers.
 
 ## Quick start
 
