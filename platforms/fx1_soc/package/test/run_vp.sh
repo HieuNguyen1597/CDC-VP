@@ -25,9 +25,11 @@ Usage:
   ./run_vp.sh isp [SAMPLE] interactive [port]   # same job, console in this terminal: isp run, poweroff
   ./run_vp.sh isp list                 # the samples (default d65)
   ./run_vp.sh version                  # VP build identity
+  ./run_vp.sh ddr3                     # DDR3 firmware-init examples (BootROM/SRAM, --ddr-boot firmware)
 
 FX1_FW=<image.elf> runs another firmware image instead of freertos_cli.elf.
 Build the firmware first: make -C sw/bootloader/sources/VP_FX1_V3.0
+DDR3 examples: make -C sw/bootloader/sources/VP_FX1_V3.0 ddr3 (see ddr3/README.md there)
 EOF
 }
 
@@ -53,6 +55,38 @@ case "${mode}" in
         ;;
     version)
         exec "${vp}" --version
+        ;;
+    ddr3)
+        # The examples of sw/bootloader/sources/VP_FX1_V3.0/ddr3: they start from
+        # BootROM and initialize the DDR3 themselves (--ddr-boot firmware). The
+        # fault schedule must equal the FAULT_* defines of the Makefile.
+        d3="${build}/ddr3"
+        [[ -f "${d3}/ddr3_fw_init.elf" ]] \
+            || die "missing ${d3}/ddr3_fw_init.elf; build with: make -C sw/bootloader/sources/${version} ddr3"
+        overall=0
+        example() {
+            local name="$1"
+            shift
+            set +e
+            "${vp}" --fw "${d3}/${name}.elf" --ddr-boot firmware "$@" > "${d3}/${name}.log" 2>&1
+            local rc=$?
+            set -e
+            if [[ ${rc} -eq 0 ]]; then
+                echo "  PASS ${name}"
+            else
+                echo "  FAIL ${name}, exit ${rc} (log ${d3}/${name}.log)"
+                overall=1
+            fi
+        }
+        echo "VP_FX1_V3.0 DDR3 firmware-init examples"
+        example ddr3_fw_init --timeout-ms 3000
+        example ddr3_fault_recovery --timeout-ms 4000 --ddr3-fault 1000000:ce:0x80100000 \
+            --ddr3-fault 1010000:ue:0x80100040 --ddr3-fault 1020000:read-timeout --ddr3-fault 2000000:fatal:dfi
+        example ddr3_power_recovery --timeout-ms 3000
+        example boot_freertos --timeout-ms 5000 --uart0-rx-file "${here}/cli_smoke.txt" \
+            --uart0-rx-delay-us 1000000 --uart0-rx-byte-us 87
+        [[ ${overall} -eq 0 ]] && echo "DDR3 EXAMPLES PASS" || echo "DDR3 EXAMPLES FAIL"
+        exit ${overall}
         ;;
     smoke)
         need_fw

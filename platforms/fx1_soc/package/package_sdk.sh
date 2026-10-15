@@ -99,11 +99,17 @@ cp -L "${build_dir}/platforms/fx1_soc/${needed}" "${bin}/${needed}"
 # ── firmware sources: the exact files the CDC-VP build compiles ──────────────
 log "firmware sources"
 mkdir -p "${sdk}/app" "${sdk}/bsp" "${sdk}/include/fx1" "${sdk}/include/dma" "${sdk}/include/fx1_isp" "${sdk}/include/fx1_ddr3" \
-         "${sdk}/drivers/isp" "${sdk}/isp_selftest" "${sdk}/demo" "${sdk}/tests"
+         "${sdk}/drivers/isp" "${sdk}/isp_selftest" "${sdk}/demo" "${sdk}/tests" "${sdk}/ddr3/examples"
 cp "${here}/sdk/Makefile" "${here}/sdk/README.md" "${sdk}/"
 cp "${fw}"/freertos/*.c "${fw}"/freertos/*.h "${fw}"/freertos/*.S "${sdk}/app/"
 cp "${fw}/freertos/tests/isp_auto_policy_test.c" "${sdk}/tests/"
 cp "${fw}"/common/crt0.S "${fw}"/common/fx1_fw.c "${fw}"/common/fx1_fw.h "${fw}"/common/fx1.ld.S "${sdk}/bsp/"
+# DDR3: BootROM/SRAM start-up, reference bring-up code, firmware-init examples (make ddr3).
+cp "${fw}"/common/crt0_rom.S "${fw}"/common/fx1_rom.ld.S "${sdk}/bsp/"
+cp "${fw}"/ddr3/ddr3_fw.c "${fw}"/ddr3/ddr3_fw.h "${fw}"/ddr3/ddr3_probe.S "${fw}"/ddr3/ddr3_ref_1600.h "${sdk}/ddr3/"
+cp "${here}/sdk/ddr3_README.md" "${sdk}/ddr3/README.md"
+cp "${fw}"/tests/ddr3/fw_init.c "${fw}"/tests/ddr3/fault_recovery.c "${fw}"/tests/ddr3/power_recovery.c \
+   "${fw}"/boot/boot_loader.c "${sdk}/ddr3/examples/"
 cp "${src}/components/FX1_Components/fx1_map/include/fx1/fx1_memory_map.h" "${sdk}/include/fx1/"
 # DDR3 controller register map (provisional encodings included) and the VP DDR_SYSCTRL glue.
 cp "${src}/components/FX1_Components/fx1_map/include/fx1/fx1_ddr_sysctrl.h" "${sdk}/include/fx1/"
@@ -127,6 +133,11 @@ log "firmware build with the SDK Makefile (${tooldir})"
 make -s -C "${sdk}" TOOLDIR="${tooldir}" OUT="${fwout}" all > "${out}/.make.log" 2>&1 \
     || { cat "${out}/.make.log" >&2; die "the SDK Makefile failed"; }
 rm -f "${out}/.make.log"
+# The DDR3 examples must build from the shipped sources too (outputs not shipped).
+d3check="$(mktemp -d "${TMPDIR:-/tmp}/fx1_ddr3_check.XXXXXX")"
+make -s -C "${sdk}" TOOLDIR="${tooldir}" OUT="${d3check}" ddr3 > "${out}/.make.log" 2>&1 \
+    || { cat "${out}/.make.log" >&2; rm -rf "${d3check}"; die "the SDK Makefile failed on the DDR3 examples"; }
+rm -rf "${d3check}" "${out}/.make.log"
 
 # ── test launchers and ISP samples ───────────────────────────────────────────
 log "launchers"
@@ -236,6 +247,26 @@ echo "]" >> "${sample_json}"
 # ── documentation and licences ───────────────────────────────────────────────
 log "documentation and licences"
 cp "${here}/docs/README.md" "${here}/docs/MEMORY_MAP.md" "${doc}/"
+# DDR3 documents for driver developers. Links to documents that stay in the VP
+# source tree become plain text, so the package has no dead link.
+mkdir -p "${doc}/ddr3"
+cp "${here}/docs/DDR3_FW_GUIDE.md" "${doc}/ddr3/README.md"
+ddr3_docs="${src}/components/FX1_Components/ddr3/docs"
+for f in programming_guide.md fault_catalogue.md limitations.md spec_owner_questions.md; do
+    cp "${ddr3_docs}/${f}" "${doc}/ddr3/${f}"
+done
+python3 - "${doc}/ddr3" <<'PYEOF'
+import os, re, sys
+d = sys.argv[1]
+names = set(os.listdir(d))
+for f in names:
+    p = os.path.join(d, f)
+    text = open(p).read()
+    fixed = re.sub(r"\[([^\]]+)\]\(([^)#\s]+)(#[^)]*)?\)",
+                   lambda m: m.group(0) if m.group(2) in names or "://" in m.group(2) else m.group(1), text)
+    if fixed != text:
+        open(p, "w").write(fixed)
+PYEOF
 cp "${src}/LICENSE" "${doc}/licenses/Apache-2.0.txt"
 cp "${src}/NOTICE" "${doc}/licenses/CDC-VP-NOTICE.txt"
 cp "${src}/THIRD_PARTY.md" "${doc}/licenses/THIRD_PARTY.md"

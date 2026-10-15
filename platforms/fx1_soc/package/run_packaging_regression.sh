@@ -112,9 +112,25 @@ if run make -s -C "${pkg}/sw/bootloader/sources/${version}" TOOLDIR="${tooldir}"
         || bad "rebuilt ELF ${got:0:12} differs from the packaged ${want:0:12}"
     run "${test}/run_vp.sh" smoke > "${tmp}/smoke2.log" 2>&1 && pass "smoke PASS with the rebuilt ELF" \
         || bad "smoke with the rebuilt ELF"
+    # Not only the ELF: every packaged firmware output (.dis, .map, .sections.txt)
+    # must come out identical from a rebuild at another path.
+    "${here}/check_package.sh" "${pkg}" > "${tmp}/check_rebuilt.log" 2>&1 \
+        && pass "every firmware output of the rebuild matches the manifest" \
+        || { cat "${tmp}/check_rebuilt.log"; bad "a rebuilt firmware output differs from the manifest"; }
 else
     cat "${tmp}/make.log"
     bad "make with the shipped Makefile failed"
+fi
+
+step "5b. DDR3 firmware-init examples, built and run from the shipped sources"
+if run make -s -C "${pkg}/sw/bootloader/sources/${version}" TOOLDIR="${tooldir}" ddr3 > "${tmp}/make_ddr3.log" 2>&1; then
+    run "${test}/run_vp.sh" ddr3 > "${tmp}/ddr3.log" 2>&1 && grep -q "DDR3 EXAMPLES PASS" "${tmp}/ddr3.log" \
+        && pass "run_vp.sh ddr3: $(grep -c '  PASS ' "${tmp}/ddr3.log") examples PASS" \
+        || { cat "${tmp}/ddr3.log"; bad "run_vp.sh ddr3"; }
+    rm -rf "${pkg}/sw/bootloader/build/${version}/ddr3"
+else
+    cat "${tmp}/make_ddr3.log"
+    bad "make ddr3 with the shipped Makefile failed"
 fi
 
 step "6. SHA256SUMS on a copy without build/ (an SDK repository clone)"

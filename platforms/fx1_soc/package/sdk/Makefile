@@ -10,9 +10,13 @@
 #   OUT      output directory (default sw/bootloader/build/VP_FX1_V3.0)
 #
 # Outputs in $(OUT): freertos_cli.elf, .dis (disassembly), .map, .sections.txt,
-# and the objects in obj/. The image does not depend on where the SDK is
-# checked out (-ffile-prefix-map): a rebuild gives the packaged ELF byte for
-# byte with the same compiler.
+# and the objects in obj/. None of them depends on where the SDK is checked out
+# or where the toolchain is installed (-ffile-prefix-map; link, objdump and size
+# run in $(OUT) on relative names; the toolchain path in the map is normalized):
+# a rebuild gives every packaged output byte for byte with the same compiler.
+#
+#   make ddr3   DDR3 firmware-init examples (BootROM/SRAM images, ddr3/README.md)
+#               in $(OUT)/ddr3; run them with test/VP_FX1_V3.0/run_vp.sh ddr3
 # Same compiler flags, include order and sources as the CDC-VP build that the
 # package was tested with (fw/fx1_soc/CMakeLists.txt). Do not change -march /
 # -mabi: the VP harts are RV32IMAFC and the BSP, the kernel port and every
@@ -48,6 +52,8 @@ CFLAGS  += -ffile-prefix-map=$(HERE)=. -ffile-prefix-map=$(HERE)/=
 # path would otherwise end up in the debug info.
 TOOLROOT := $(patsubst %/bin/,%,$(dir $(realpath $(shell command -v $(CC) 2>/dev/null))))
 CFLAGS  += $(if $(TOOLROOT),-ffile-prefix-map=$(TOOLROOT)=riscv-none-elf-gcc)
+# The linker map names the libraries it searched by their install path.
+MAP_FIX := $(if $(TOOLROOT),sed -i -e 's|$(TOOLROOT)/bin/\.\./|riscv-none-elf-gcc/|g' -e 's|$(TOOLROOT)|riscv-none-elf-gcc|g',true)
 LDFLAGS := -nostdlib -nostartfiles -Wl,--gc-sections -Wl,--no-warn-rwx-segments
 
 SOURCES := $(HERE)/bsp/crt0.S $(HERE)/bsp/fx1_fw.c \
@@ -80,16 +86,58 @@ $(OUT)/obj/%.o: $(HERE)/% $(HEADERS) | toolchain
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(ELF): $(OBJS) $(LDS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -T $(LDS) -Wl,-Map,$(OUT)/freertos_cli.map $(OBJS) -lgcc -o $@
+	cd $(OUT) && $(CC) $(CFLAGS) $(LDFLAGS) -T fx1.ld -Wl,-Map,freertos_cli.map \
+		$(patsubst $(OUT)/%,%,$(OBJS)) -lgcc -o freertos_cli.elf
+	$(MAP_FIX) $(OUT)/freertos_cli.map
 
 $(OUT)/freertos_cli.dis: $(ELF)
-	$(OBJDUMP) -d $< > $@
+	cd $(OUT) && $(OBJDUMP) -d freertos_cli.elf > freertos_cli.dis
 
 $(OUT)/freertos_cli.sections.txt: $(ELF)
-	$(SIZE) -A -x $< > $@
+	cd $(OUT) && $(SIZE) -A -x freertos_cli.elf > freertos_cli.sections.txt
+
+# ── DDR3 firmware-init examples (BootROM/SRAM; ddr3/README.md) ───────────────
+# Code and read-only data in BootROM, data and stacks in SRAM (bsp/crt0_rom.S,
+# bsp/fx1_rom.ld.S); they bring the DDR3 controller up themselves. Run them with
+# `fx1_soc --ddr-boot firmware` (run_vp.sh ddr3). The fault schedule of
+# fault_recovery.c must equal the --ddr3-fault options in run_vp.sh.
+D3OUT    := $(OUT)/ddr3
+ROM_LDS  := $(D3OUT)/fx1_rom.ld
+D3CFLAGS := $(filter-out -Wno-int-to-pointer-cast,$(CFLAGS)) -I$(HERE)/ddr3
+D3COMMON := $(HERE)/bsp/crt0_rom.S $(HERE)/bsp/fx1_fw.c $(HERE)/ddr3/ddr3_fw.c $(HERE)/ddr3/ddr3_probe.S
+D3HDRS   := $(wildcard $(HERE)/bsp/*.h $(HERE)/ddr3/*.h $(HERE)/include/*/*.h)
+D3ELFS   := $(addprefix $(D3OUT)/,ddr3_fw_init.elf ddr3_fault_recovery.elf ddr3_power_recovery.elf boot_freertos.elf)
+
+.PHONY: ddr3
+ddr3: $(D3ELFS)
+
+$(ROM_LDS): $(HERE)/bsp/fx1_rom.ld.S $(HERE)/include/fx1/fx1_memory_map.h | toolchain
+	@mkdir -p $(D3OUT)
+	$(CC) -E -P -x c -DFX1_LINKER_SCRIPT -I$(HERE)/include $< -o $@
+
+# rom_image(<elf>, <sources>, <extra flags>)
+define rom_image
+	cd $(D3OUT) && $(CC) $(D3CFLAGS) $(3) $(LDFLAGS) -T fx1_rom.ld $(D3COMMON) $(2) -lgcc -o $(notdir $(1))
+endef
+
+$(D3OUT)/ddr3_fw_init.elf: $(HERE)/ddr3/examples/fw_init.c $(D3COMMON) $(D3HDRS) $(ROM_LDS)
+	$(call rom_image,$@,$<,)
+$(D3OUT)/ddr3_fault_recovery.elf: $(HERE)/ddr3/examples/fault_recovery.c $(D3COMMON) $(D3HDRS) $(ROM_LDS)
+	$(call rom_image,$@,$<,-DFAULT_CE_MS=1000 -DFAULT_UE_MS=1010 -DFAULT_TIMEOUT_MS=1020 -DFAULT_FATAL_MS=2000)
+$(D3OUT)/ddr3_power_recovery.elf: $(HERE)/ddr3/examples/power_recovery.c $(D3COMMON) $(D3HDRS) $(ROM_LDS)
+	$(call rom_image,$@,$<,)
+# BootROM loader with freertos_cli.elf (stripped) embedded: DDR3 bring-up, copy, start.
+$(D3OUT)/freertos_app.elf: $(ELF) | toolchain
+	@mkdir -p $(D3OUT)
+	$(TOOL)objcopy --strip-all $< $@
+$(D3OUT)/app_image.S: | toolchain
+	@mkdir -p $(D3OUT)
+	printf '    .section .app_image, "a"\n    .balign 8\n    .global fx1_app_image, fx1_app_image_end\nfx1_app_image:\n    .incbin "freertos_app.elf"\nfx1_app_image_end:\n' > $@
+$(D3OUT)/boot_freertos.elf: $(HERE)/ddr3/examples/boot_loader.c $(D3OUT)/app_image.S $(D3OUT)/freertos_app.elf $(D3COMMON) $(D3HDRS) $(ROM_LDS)
+	$(call rom_image,$@,$< app_image.S,)
 
 clean:
-	rm -rf $(OUT)/obj
+	rm -rf $(OUT)/obj $(D3OUT)
 	rm -f $(ELF) $(LDS) $(OUT)/freertos_cli.dis $(OUT)/freertos_cli.map $(OUT)/freertos_cli.sections.txt
 
 # Portable policy checks with the host compiler, no VP or cross compiler needed.
