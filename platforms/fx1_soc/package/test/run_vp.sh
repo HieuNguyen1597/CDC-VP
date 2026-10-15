@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Run the packaged VP_FX1_V3.0 binary (FX1 SoC VP) with its FreeRTOS CLI firmware.
 set -euo pipefail
+# Scripted console input: one byte per 115200 8N1 character time, starting after
+# the FreeRTOS boot (the harts run from the DDR3 controller; a faster replay
+# overruns the 16-byte UART RX FIFO while the CLI prints).
+rx_pacing=(--uart0-rx-delay-us 60000 --uart0-rx-byte-us 87)
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../../../.." && pwd)"
 version="VP_FX1_V3.0"
@@ -55,7 +59,7 @@ case "${mode}" in
         mkdir -p "${build}"
         echo "VP_FX1_V3.0 smoke: scripted CLI session (${here}/cli_smoke.txt)"
         set +e
-        "${vp}" --fw "${fw}" --uart0-rx-file "${here}/cli_smoke.txt" --uart0-rx-delay-us 20000 \
+        "${vp}" --fw "${fw}" --uart0-rx-file "${here}/cli_smoke.txt" "${rx_pacing[@]}" \
             --timeout-ms 3000 --uart-log "${build}/smoke_uart.log" > "${build}/last_run.log" 2>&1
         rc=$?
         set -e
@@ -125,7 +129,7 @@ case "${mode}" in
             smoke)
                 echo "VP_FX1_V3.0 isp ${sample}: $(head -n 1 "${isp_in}/SAMPLE.txt")"
                 set +e
-                "${vp}" --fw "${fw}" "${io[@]}" --uart0-rx-file "${replay}" --uart0-rx-delay-us 20000 \
+                "${vp}" --fw "${fw}" "${io[@]}" --uart0-rx-file "${replay}" "${rx_pacing[@]}" \
                     --timeout-ms 5000 > "${isp_out}/platform.log" 2>&1
                 rc=$?
                 set -e

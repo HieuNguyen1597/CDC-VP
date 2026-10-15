@@ -1,0 +1,75 @@
+# Installs the package into a scratch prefix, then configures (clean build directory),
+# builds and runs the consumer with one documented SystemC discovery method (MODE):
+#   prefix            -DCMAKE_PREFIX_PATH=<SystemC root>               (SYSTEMC_HOME unset)
+#   home_var          -DSYSTEMC_HOME=<SystemC root>                    (environment unset)
+#   home_env          environment SYSTEMC_HOME=<SystemC root>
+#   bare_home         -DSYSTEMC_HOME=<prefix with header + library only, no CMake metadata>
+#   bare_prefix_path  -DCMAKE_PREFIX_PATH=<that bare prefix>
+#   explicit          -DSYSTEMC_INCLUDE_DIR / -DSYSTEMC_LIBRARY into that bare prefix
+# The package itself is located with -Dfx1-ddr3_DIR in every mode. SC_ROOT, SC_INC and SC_LIB
+# describe the SystemC the producer resolved (tests/CMakeLists.txt).
+cmake_minimum_required(VERSION 3.16)
+set(pkg_prefix "${WORK}/install")
+set(cbuild "${WORK}/consumer-build")
+file(REMOVE_RECURSE "${WORK}")
+execute_process(COMMAND ${CMAKE_COMMAND} --install "${BUILD}" --prefix "${pkg_prefix}" RESULT_VARIABLE rc OUTPUT_QUIET)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "install failed")
+endif()
+
+# A SystemC prefix without CMake metadata: links to the real header tree and libraries.
+set(bare "${WORK}/systemc-bare")
+foreach(_v SC_ROOT SC_INC SC_LIB)
+  if(NOT ${_v} OR NOT EXISTS "${${_v}}")
+    message(FATAL_ERROR "fixture input ${_v}='${${_v}}' does not exist")
+  endif()
+endforeach()
+file(MAKE_DIRECTORY "${bare}/lib64")
+file(CREATE_LINK "${SC_INC}" "${bare}/include" SYMBOLIC)
+get_filename_component(_libdir "${SC_LIB}" DIRECTORY)
+file(GLOB _libs "${_libdir}/libsystemc.so*" "${_libdir}/libsystemc.a")
+foreach(_l ${_libs})
+  get_filename_component(_n "${_l}" NAME)
+  file(CREATE_LINK "${_l}" "${bare}/lib64/${_n}" SYMBOLIC)
+endforeach()
+
+set(env_cmd ${CMAKE_COMMAND} -E env --unset=SYSTEMC_HOME)
+set(args -S "${SRC}" -B "${cbuild}" -G "${GEN}" -DCMAKE_CXX_COMPILER=${CXX}
+         "-Dfx1-ddr3_DIR=${pkg_prefix}/lib/cmake/fx1-ddr3")
+if(MODE STREQUAL "prefix")
+  list(APPEND args "-DCMAKE_PREFIX_PATH=${SC_ROOT}")
+elseif(MODE STREQUAL "home_var")
+  list(APPEND args "-DSYSTEMC_HOME=${SC_ROOT}")
+elseif(MODE STREQUAL "home_env")
+  set(env_cmd ${CMAKE_COMMAND} -E env "SYSTEMC_HOME=${SC_ROOT}")
+elseif(MODE STREQUAL "bare_home")
+  list(APPEND args "-DSYSTEMC_HOME=${bare}")
+elseif(MODE STREQUAL "bare_prefix_path")
+  list(APPEND args "-DCMAKE_PREFIX_PATH=${bare}")
+elseif(MODE STREQUAL "explicit")
+  get_filename_component(_libname "${SC_LIB}" NAME)
+  list(APPEND args "-DSYSTEMC_INCLUDE_DIR=${bare}/include" "-DSYSTEMC_LIBRARY=${bare}/lib64/${_libname}")
+else()
+  message(FATAL_ERROR "unknown MODE '${MODE}'")
+endif()
+
+execute_process(COMMAND ${env_cmd} ${CMAKE_COMMAND} ${args} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "consumer configure failed (${MODE}):\n${out}\n${err}")
+endif()
+execute_process(COMMAND ${CMAKE_COMMAND} --build "${cbuild}" RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "consumer build failed (${MODE}):\n${out}\n${err}")
+endif()
+# The run must use the SystemC that was found: the bare modes link through the bare prefix.
+file(STRINGS "${cbuild}/CMakeCache.txt" _lib REGEX "^SYSTEMC_LIBRARY:")
+file(STRINGS "${cbuild}/CMakeCache.txt" _dir REGEX "^SystemCLanguage_DIR:")
+message(STATUS "${MODE}: ${_dir} ${_lib}")
+if(MODE MATCHES "^(bare|explicit)" AND NOT _lib MATCHES "systemc-bare")
+  message(FATAL_ERROR "bare mode did not use the bare prefix: ${_lib}")
+endif()
+execute_process(COMMAND "${cbuild}/consumer" RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+message(STATUS "${out}")
+if(NOT rc EQUAL 0)
+  message(FATAL_ERROR "consumer run failed (${MODE}):\n${out}\n${err}")
+endif()

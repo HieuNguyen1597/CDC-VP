@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <functional>
+#include <utility>
 #include <vector>
 
 #include <systemc>
@@ -25,6 +27,13 @@ namespace fx1 {
 // granule: while it is open, an overlapping write by another master waits, and
 // opening it waits for overlapping writes already in flight.
 //
+// Storage identity. By default an address is its own identity. A platform whose memory
+// has several names for one location (the DDR3 controller's region aliases, L-13) installs
+// a canonicalizer that maps a bus range to the ranges of storage it designates; every
+// reservation, bracket and write is then compared in that canonical space, for every
+// master. A platform also calls invalidate() when the storage behind a range changes
+// outside any bus write (a memory controller reset, reinitialization or remap).
+//
 // Not covered: debug transport (ELF loading, --dump) bypasses the monitor.
 class ExclusiveMonitor final : public cdc::cpu::exclusive_monitor_if {
 public:
@@ -36,7 +45,12 @@ public:
         std::uint64_t cancelled_by_device = 0;// ... by a non-CPU master's write
         std::uint64_t writes_refused = 0;     // try_begin_write refused (each retry counts)
         std::uint64_t brackets_waited = 0;    // atomic_begin had to drain in-flight writes
+        std::uint64_t cancelled_by_platform = 0; // reservation dropped by invalidate()
     };
+    using Range = std::pair<std::uint64_t, std::uint64_t>; // [first, second)
+    // Appends the canonical ranges of bus range [lo, hi) to `out`, in order and with the
+    // same total length. Must not wait.
+    using Canonicalizer = std::function<void(std::uint64_t lo, std::uint64_t hi, std::vector<Range>& out)>;
 
     ExclusiveMonitor(unsigned num_harts, std::uint64_t granule);
 
@@ -50,6 +64,12 @@ public:
     void end_write(std::uint64_t ticket) override;
     void reset_hart(unsigned hart) override;
     const sc_core::sc_event& changed() const override { return changed_; }
+
+    // Install before the simulation starts (identity when empty).
+    void set_canonicalizer(Canonicalizer canonicalizer) { canon_ = std::move(canonicalizer); }
+    // Drops every reservation whose granule overlaps canonical range [lo, hi). Brackets and
+    // writes in flight are not affected; a later SC on a dropped reservation fails.
+    void invalidate(std::uint64_t lo, std::uint64_t hi);
 
     std::uint64_t granule() const noexcept { return granule_; }
     unsigned num_harts() const noexcept { return static_cast<unsigned>(reservations_.size()); }
@@ -67,7 +87,7 @@ private:
     struct Write {
         std::uint64_t ticket;
         unsigned master;
-        std::uint64_t lo, hi; // [lo, hi)
+        std::vector<Range> ranges; // canonical
     };
 
     std::uint64_t base_of(std::uint64_t addr) const { return addr & ~(granule_ - 1); }
@@ -75,6 +95,14 @@ private:
     {
         return lo < base + granule_ && base < hi;
     }
+    bool hits(std::uint64_t base, const std::vector<Range>& ranges) const
+    {
+        for (const Range& r : ranges)
+            if (hits(base, r.first, r.second)) return true;
+        return false;
+    }
+    std::vector<Range> canonical(std::uint64_t lo, std::uint64_t hi) const;
+    std::uint64_t canonical(std::uint64_t addr) const { return canonical(addr, addr + 1).front().first; }
     void check_hart(unsigned hart, const char* what) const;
     bool foreign_write_in_flight(unsigned hart, std::uint64_t base) const;
 
@@ -85,6 +113,7 @@ private:
     std::uint64_t next_ticket_ = 1;
     sc_core::sc_event changed_;
     Stats stats_;
+    Canonicalizer canon_;
 };
 
 // Pass-through in front of a non-CPU master's bus port (SYS_DMA, ISP_ODMA).

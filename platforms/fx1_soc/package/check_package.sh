@@ -36,6 +36,7 @@ required=(
     "${sdk}/app/FreeRTOSConfig.h" "${sdk}/app/freertos_risc_v_chip_specific_extensions.h"
     "${sdk}/bsp/crt0.S" "${sdk}/bsp/fx1_fw.c" "${sdk}/bsp/fx1.ld.S" "${sdk}/include/fx1/fx1_memory_map.h"
     "${sdk}/include/dma/fx1_dma_regs.h" "${sdk}/include/fx1_isp/fx1_isp_csr.h" "${sdk}/include/fx1_isp/fx1_isp_drv.h"
+    "${sdk}/include/fx1/fx1_ddr_sysctrl.h" "${sdk}/include/fx1_ddr3/fx1_ddr3_regs.h" "${sdk}/include/fx1_ddr3/provisional_encodings.h"
     "${sdk}/drivers/isp/fx1_isp_drv.c" "${sdk}/isp_selftest/isp_common.c" "${sdk}/demo/isp_demo_job.h"
     "${sdk}/third_party/FreeRTOS-Kernel/LICENSE.md" "${sdk}/third_party/FreeRTOS-Kernel/tasks.c"
     "${sdk}/third_party/FreeRTOS-Kernel/portable/GCC/RISC-V/portASM.S"

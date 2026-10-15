@@ -1,6 +1,18 @@
 # FX1 SoC platform (CDC_BUILD_FX1_SOC). Host side: the simulator executable.
 # Firmware side: fw/fx1_soc, built with the RISC-V cross toolchain when one is
 # found, and registered as ctest cases that run on this simulator.
+# DDR3 subsystem glue (DDR3 VP subtask 5): controller wiring, DDR_SYSCTRL,
+# boot modes, host image/fault interface. Shared by the simulator and its test.
+add_library(fx1_soc_ddr3 STATIC
+    src/ddr3_subsystem.cpp
+    src/ddr_sysctrl.cpp)
+target_include_directories(fx1_soc_ddr3 PUBLIC src)
+target_compile_options(fx1_soc_ddr3 PRIVATE -Wall -Wextra)
+target_link_libraries(fx1_soc_ddr3 PUBLIC
+    SystemC::systemc
+    cdc::components::fx1_map
+    cdc::components::fx1_ddr3)
+
 add_executable(fx1_soc
     src/main.cpp
     src/fx1_soc_top.cpp)
@@ -45,7 +57,8 @@ target_link_libraries(fx1_soc PRIVATE
     cdc::components::fx1_dma
     cdc::components::fx1_isp_tlm
     cdc::components::uart2_tlm
-    cdc::components::uart_host_tlm)
+    cdc::components::uart_host_tlm
+    fx1_soc_ddr3)
 # Self-contained like the other packaged platforms (cmake/modules/CdcPortable.cmake):
 # RPATH=$ORIGIN, and the SystemC runtime copied beside the binary. The SDK
 # package (package/package_sdk.sh, target fx1_soc_package) ships exactly that.
@@ -76,6 +89,21 @@ target_link_libraries(test_fx1_faulting_lr PRIVATE
 if(CDC_BUILD_TESTS)
     add_test(NAME fx1_faulting_lr COMMAND test_fx1_faulting_lr)
     set_tests_properties(fx1_faulting_lr PROPERTIES TIMEOUT 60 LABELS "fx1;fx1_unit")
+endif()
+
+# DDR3 subtask 5: DDR_SYSCTRL registers, P-channel and reset sequencing, the
+# preinit order (scrub -> preload -> release), firmware-boot staging refusal,
+# dump, the --ddr3-fault parser, and the firmware reference image
+# (fw/fx1_soc/ddr3/ddr3_ref_1600.h) against the model's.
+add_executable(test_fx1_ddr3_subsystem tests/test_ddr3_subsystem.cpp)
+target_compile_options(test_fx1_ddr3_subsystem PRIVATE -Wall -Wextra)
+target_include_directories(test_fx1_ddr3_subsystem PRIVATE ${CMAKE_SOURCE_DIR}/fw/fx1_soc/ddr3)
+target_link_libraries(test_fx1_ddr3_subsystem PRIVATE fx1_soc_ddr3)
+if(CDC_BUILD_TESTS)
+    foreach(_case sysctrl power reset preinit firmware parser refimage wake_recovery wake_busy canonical)
+        add_test(NAME fx1_ddr3_subsystem_${_case} COMMAND test_fx1_ddr3_subsystem ${_case})
+        set_tests_properties(fx1_ddr3_subsystem_${_case} PROPERTIES TIMEOUT 120 LABELS "fx1;fx1_unit;ddr3")
+    endforeach()
 endif()
 
 # ── CI aggregate (plan P5) ─────────────────────────────────────────────────────

@@ -4,6 +4,12 @@
 //           [--quiet-uart] [--trace] [--no-exclusive-monitor] [--load ADDR:FILE ...]
 //           [--dump ADDR:LEN:FILE ...] [--uart0-socket PORT [--uart0-wait]]
 //           [--uart0-rx-file FILE [--uart0-rx-delay-us N]]
+//           [--ddr-boot preinit|firmware] [--ddr3-ecc on|off]
+//           [--ddr3-fault T_US:KIND[:ARG] ...]
+//
+// Simulated time: with --ddr-boot preinit (default) the DDR3 controller is
+// initialized and scrubbed before the CPUs run; --timeout-ms, --uart0-rx-delay-us
+// and --ddr3-fault times count from that CPU release.
 //
 // Exit status: 0 PASS, 1 FAIL (firmware reported a code), 2 timeout (no verdict
 // within the simulated-time budget), 3 simulator or integration error, 4 usage.
@@ -41,24 +47,35 @@ void usage()
                  "[--uart-log FILE] [--quiet-uart] [--trace] [--no-exclusive-monitor]\n"
                  "              [--load ADDR:FILE ...] [--dump ADDR:LEN:FILE ...]\n"
                  "              [--uart0-socket PORT [--uart0-wait]] [--uart0-rx-file FILE [--uart0-rx-delay-us N]]\n"
+                 "              [--uart0-rx-byte-us N]\n"
+                 "              [--ddr-boot preinit|firmware] [--ddr3-ecc on|off] [--ddr3-fault T_US:KIND[:ARG] ...]\n"
                  "  --version           print the build identity (package, CDC-VP revision) and exit\n"
                  "  --uart0-socket      UART console over TCP on 127.0.0.1:PORT (connect with nc)\n"
                  "  --uart0-wait        with --uart0-socket: wait for the client before starting\n"
                  "  --uart0-rx-file     inject FILE into UART RX (deterministic console input)\n"
-                 "  --uart0-rx-delay-us start the injection N us of simulated time after reset\n"
+                 "  --uart0-rx-delay-us start the injection N us of simulated time after CPU release\n"
+                 "  --uart0-rx-byte-us  RX pacing, one byte per N us (default 10, about 1 Mbaud;\n"
+                 "                      87 = 115200 8N1)\n"
                  "  --no-exclusive-monitor  upstream VP++ LR/SC bus-lock model, no DMA\n"
                  "                          participation (negative control only)\n"
-                 "  --timeout-ms  simulated-time budget in ms (default 1000); 0 = no limit\n"
-                 "                (run until the firmware's verdict or Ctrl-C)\n"
+                 "  --timeout-ms  simulated-time budget in ms from CPU release (default 1000);\n"
+                 "                0 = no limit (run until the firmware's verdict or Ctrl-C)\n"
+                 "  --ddr-boot    preinit (default): the platform initializes the DDR3 controller\n"
+                 "                (init, training, ECC scrub), preloads the DDR image and then\n"
+                 "                releases the CPUs. firmware: the CPUs start at once from\n"
+                 "                BootROM/SRAM and the firmware initializes the DDR3 itself\n"
+                 "                (the ELF must not contain DDR segments; --load is refused)\n"
+                 "  --ddr3-ecc    on (default) | off: the controller's ECC build option\n"
                  "  --realtime    never let simulated time run ahead of wall-clock time\n"
                  "                (interactive consoles: an idle system sleeps instead of\n"
                  "                racing through simulated time)\n"
                  "  --quantum-ns  TLM global quantum, a multiple of the 10 ns ISS cycle "
                  "(default 1000)\n"
-                 "  --load        before reset, copy FILE into DDR at ADDR (host data such\n"
-                 "                as a RAW frame); may be repeated\n"
+                 "  --load        before the CPUs run, copy FILE into DDR at ADDR (host data\n"
+                 "                such as a RAW frame; after the DDR3 preinit); may be repeated\n"
                  "  --dump        after the run, write LEN bytes of DDR at ADDR (hex or\n"
-                 "                decimal) to FILE; may be repeated\n";
+                 "                decimal) to FILE; may be repeated\n"
+              << cdc::platforms::fx1_soc::ddr3_fault_usage();
 }
 
 // Finite number of milliseconds, > 0, or exactly 0 for "no limit"; false on
@@ -189,6 +206,14 @@ int sc_main(int argc, char* argv[])
         else if (arg == "--uart0-wait") options.uart_wait = true;
         else if (arg == "--realtime") options.realtime = true;
         else if (arg == "--uart0-rx-file") options.uart_rx_file = value();
+        else if (arg == "--uart0-rx-byte-us") {
+            unsigned long us = 0;
+            if (!parse_uint(value(), 1000000ul, us) || us == 0) {
+                usage();
+                return 4;
+            }
+            options.uart_rx_byte_us = static_cast<unsigned>(us);
+        }
         else if (arg == "--uart0-rx-delay-us") {
             unsigned long us = 0;
             if (!parse_uint(value(), 1000000000ul, us)) {
@@ -213,6 +238,34 @@ int sc_main(int argc, char* argv[])
             }
             dumps.push_back(request);
         }
+        else if (arg == "--ddr-boot") {
+            const std::string mode = value();
+            if (mode == "preinit") options.ddr_boot = cdc::platforms::fx1_soc::DdrBoot::preinit;
+            else if (mode == "firmware") options.ddr_boot = cdc::platforms::fx1_soc::DdrBoot::firmware;
+            else {
+                usage();
+                return 4;
+            }
+        }
+        else if (arg == "--ddr3-ecc") {
+            const std::string mode = value();
+            if (mode == "on") options.ddr3_ecc = true;
+            else if (mode == "off") options.ddr3_ecc = false;
+            else {
+                usage();
+                return 4;
+            }
+        }
+        else if (arg == "--ddr3-fault") {
+            cdc::platforms::fx1_soc::Ddr3Fault fault;
+            std::string why;
+            if (!cdc::platforms::fx1_soc::parse_ddr3_fault(value(), fault, why)) {
+                std::cerr << "fx1_soc: --ddr3-fault: " << why << '\n';
+                usage();
+                return 4;
+            }
+            options.ddr3_faults.push_back(fault);
+        }
         else if (arg == "--uart-log") options.uart_log = value();
         else if (arg == "--quiet-uart") options.uart_stdout = false;
         else if (arg == "--trace") options.bus_trace = true;
@@ -232,8 +285,13 @@ int sc_main(int argc, char* argv[])
         tlm::tlm_global_quantum::instance().set(
             sc_core::sc_time(static_cast<double>(quantum_ns), sc_core::SC_NS));
         fx1_soc_top top("fx1_soc", options);
+        std::cout << top.ddr3_banner() << '\n';
         for (const auto& l : loads) top.load_ddr(l.address, l.path);
         const auto wall_start = std::chrono::steady_clock::now();
+        top.run_until_cpu_release();
+        if (options.ddr_boot == cdc::platforms::fx1_soc::DdrBoot::preinit)
+            std::cout << "[fx1_soc] DDR3 preinit done (init, training, ECC scrub, preload): CPUs released at "
+                      << top.cpu_release_time() << '\n';
         if (timeout_ms > 0)
             sc_core::sc_start(sc_core::sc_time(timeout_ms, sc_core::SC_MS));
         else
@@ -252,6 +310,7 @@ int sc_main(int argc, char* argv[])
         std::cout << "\n[fx1_soc] quantum " << quantum_ns << " ns, host " << wall_s << " s, "
                   << (wall_s > 0 ? instret / wall_s / 1e6 : 0.0) << " MIPS (all harts)\n";
         std::cout << "[fx1_soc] atomics: " << top.atomics_report() << '\n';
+        std::cout << "[fx1_soc] ddr3: " << top.ddr3_report() << '\n';
 
         switch (top.outcome()) {
         case fx1_soc_top::result::pass:
@@ -262,7 +321,7 @@ int sc_main(int argc, char* argv[])
                       << '\n';
             return 1;
         default:
-            std::cout << "[fx1_soc] RESULT TIMEOUT after " << timeout_ms << " ms simulated";
+            std::cout << "[fx1_soc] RESULT TIMEOUT after " << timeout_ms << " ms simulated (from CPU release)";
             for (unsigned hart = 0; hart < top.harts(); ++hart)
                 std::cout << ", hart" << hart << " pc=0x" << std::hex << top.pc(hart) << std::dec;
             std::cout << '\n';

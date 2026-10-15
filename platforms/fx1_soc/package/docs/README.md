@@ -182,12 +182,12 @@ device: `fx1_pass()` or `fx1_fail(code)` in the BSP.
 | Option | Meaning |
 |---|---|
 | `--fw ELF` | image to load into DDR (required) |
-| `--timeout-ms N` | simulated-time budget, default 1000; `0` = no limit |
+| `--timeout-ms N` | simulated-time budget from CPU start, default 1000; `0` = no limit. The platform first initializes and scrubs the DDR3 (about 0.67 s of simulated time, a few ms of wall time) |
 | `--realtime` | never let simulated time run ahead of wall time (interactive use) |
 | `--uart-log FILE`, `--quiet-uart` | copy the console to FILE; do not print it |
 | `--uart0-socket PORT [--uart0-wait]` | console over TCP on 127.0.0.1:PORT; optionally wait for the client before starting |
-| `--uart0-rx-file FILE [--uart0-rx-delay-us N]` | type FILE into the UART after N µs of simulated time (scripted sessions) |
-| `--load ADDR:FILE`, `--dump ADDR:LEN:FILE` | copy host data into DDR before reset; write DDR to a file after the run (at `poweroff`) |
+| `--uart0-rx-file FILE [--uart0-rx-delay-us N] [--uart0-rx-byte-us N]` | type FILE into the UART N µs after CPU start, one byte per `--uart0-rx-byte-us` (use 60000 and 87 for the CLI, as `test/run_vp.sh` does) |
+| `--load ADDR:FILE`, `--dump ADDR:LEN:FILE` | copy host data into DDR before the CPUs start; write DDR to a file after the run (at `poweroff`) |
 | `--quantum-ns N` | TLM quantum, a multiple of 10 ns (default 1000) |
 | `--trace` | bus trace |
 | `--version` | build identity: package, CDC-VP revision, build type, VP++ pin |

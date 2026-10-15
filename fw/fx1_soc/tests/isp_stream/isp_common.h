@@ -23,6 +23,18 @@ extern const fx1_isp_hal isp_hal;
 
 /* 4 inputs at FX1_FW_RAW_BUF_BASE, 4 Y/UV outputs at FX1_FW_YUV_BUF_BASE. */
 void isp_buffers(fx1_isp_buffers* bufs);
+
+/* ISP DMA burst (beats) of the phases that abort a frame while its input is
+ * being read (isp_recovery C/D/E, isp_mas0710 A/B). Those checks need the CPU
+ * to reach the abort point within one 64x48 frame (about 16 us of IDMA
+ * activity). Since DDR3 subtask 5 the hart fetches every instruction from the
+ * DDR3 controller (no cache in the VP), and the FX1 bus serializes all
+ * MEMCTL_DDR traffic in FIFO order, so each CPU fetch waits for the ISP burst
+ * ahead of it (an ECC write burst takes 100-200 ns, MAS companion read). With
+ * 16-beat bursts the CPU needs about 18.5 us for the abort sequence; with 2
+ * beats it needs about 12 us while the input read spans 31-37 us. The burst
+ * length changes no data and no completion order (DDR3 decision log VPL-49). */
+#define ISP_ABORT_MAX_BURST_BEATS 2u
 /* Must match raw_sample() in gen_fixture.py exactly. */
 uint32_t isp_raw_sample(uint32_t frame, uint32_t x, uint32_t y);
 /* CPU writes fixture frame `frame` into the input buffer at `base`, then hands

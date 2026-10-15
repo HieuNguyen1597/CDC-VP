@@ -130,6 +130,7 @@ void uart_host_bridge::drop_client()
 
 void uart_host_bridge::rx_thread()
 {
+    if (hold_ && (!replay_.empty() || listen_fd_ >= 0)) wait(*hold_);
     if (!replay_.empty()) {
         if (replay_delay_ != sc_core::SC_ZERO_TIME) wait(replay_delay_);
         inject(replay_.data(), replay_.size());

@@ -27,6 +27,8 @@ Outputs go to `sw/bootloader/build/VP_FX1_V3.0/`: `freertos_cli.elf`, `.dis`,
 | `bsp/` | bare-metal support: `crt0.S` (both harts), `fx1_fw.c/.h` (MMIO, console, CLINT, PLIC, hart release, locks, traps, sim-control verdict), `fx1.ld.S` (linker script, preprocessed with the map) |
 | `include/fx1/fx1_memory_map.h` | **the** address/IRQ/clock map (VP placeholders pending the HAS) |
 | `include/dma/fx1_dma_regs.h` | SYS_DMA register map |
+| `include/fx1_ddr3/` | DDR3 controller register map (`fx1_ddr3_regs.h`; field codes the specification leaves open are in `provisional_encodings.h`: use the macros). The VP initializes the DDR3 before the harts start |
+| `include/fx1/fx1_ddr_sysctrl.h` | DDR_SYSCTRL, the VP-only glue of the DDR3 sideband: readiness, power requests, QoS, resets |
 | `include/fx1_isp/` | ISP register map (`fx1_isp_csr.h`, generated from the ISP CSR specification) and the ISP driver API (`fx1_isp_drv.h`) |
 | `drivers/isp/fx1_isp_drv.c` | the reference ISP driver (C99, HAL-based, no OS dependency) |
 | `isp_selftest/` | the 8-frame synthetic fixture behind `isp selftest`, with its reference CRCs |

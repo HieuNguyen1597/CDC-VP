@@ -105,13 +105,19 @@ Scripted (deterministic, what CI does). The script is
 
 ```bash
 build-fx1/platforms/fx1_soc/fx1_soc --fw build-fx1/fw/fx1_soc/freertos_cli.elf \
-    --uart0-rx-file fw/fx1_soc/freertos/tests/cli_smoke.txt --uart0-rx-delay-us 20000 \
-    --timeout-ms 3000
+    --uart0-rx-file fw/fx1_soc/freertos/tests/cli_smoke.txt --uart0-rx-delay-us 60000 \
+    --uart0-rx-byte-us 87 --timeout-ms 3000
 ```
 
 The script ends with `poweroff`, so the exit status is the verdict.
-`--uart0-rx-delay-us` starts the input after the boot, once the console is
-listening.
+`--uart0-rx-delay-us` starts the input after the boot (about 26 ms with the
+DDR3 controller), once the console is listening; `--uart0-rx-byte-us 87` types
+at the 115200 8N1 character time. Faster input overruns the 16-byte RX FIFO
+while the CLI prints a line with interrupts masked.
+
+The same image also boots from BootROM through the DDR3 firmware-init loader
+(`boot_freertos.elf`, run with `--ddr-boot firmware` and a replay delay of
+1 s, test `fx1_smoke_ddr3_boot_freertos_cli`).
 
 To process a real camera frame, use `isp run`. The job must already be loaded
 when the VP starts. `run_isp_demo.py --raw FILE --out DIR --interactive` does

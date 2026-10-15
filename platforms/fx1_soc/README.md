@@ -14,12 +14,14 @@ Plan and decisions: `VP_BK/ISP/plan/FX1_PLATFORM_FIX_PLAN.md` section 7 (outside
 |---|---|---|
 | CPU | 2 × RISC-V VP++ RV32 harts (`cpu_models/riscv_vp_plusplus`), hart ID 0/1, CVA6 extension set RV32IMAFC (`misa` D and V removed), M-mode | in |
 | Bus | `components/FX1_Components/bus`, `BusConfig::fx1()` | in |
-| DDR | 512 MiB sparse RAM (`FX1_Components/sparse_ram`) | in |
-| BootROM | 2 MiB read-only sparse RAM, unused by the one-image boot | in |
+| DDR | DDR3 controller VP (`FX1_Components/ddr3`: NATIVE_R2, DDR3-1600, 2 ranks of 4 Gb x8, 4 GiB physical, ECC) behind `GenericAxiBridge`; CPU aperture 512 MiB; CSR at `DDR3_CSR`, IRQ = PLIC source 8; preinitialized (default) or firmware-init boot (`src/ddr3_subsystem.*`) | in (DDR3 subtask 5) |
+| DDR_SYSCTRL | VP SoC glue of the DDR3 sideband (`src/ddr_sysctrl.*`, `fx1/fx1_ddr_sysctrl.h`): readiness mirror, P-channel requests with automatic wake, QoS sideband, cold/core reset | in (DDR3 subtask 5) |
+| BootROM | 2 MiB read-only sparse RAM: code of firmware-init images (`--ddr-boot firmware`) | in |
+| SRAM | 1 MiB boot SRAM (sparse RAM): data and stacks of firmware-init images | in (DDR3 subtask 5) |
 | CLINT | N-hart SiFive layout (`FX1_Components/clint`), `mtime` 20 MHz | in |
 | UART | `components/uart2_tlm` (PL011-style), TX to stdout / log | in |
 | sim-control | VP-only PASS/FAIL finisher plus 4 test interrupt lines (`FX1_Components/sim_control`) | in |
-| PLIC | `FX1_Components/plic`: 7 sources, one M-mode context per hart, MEIP per hart | in (G2) |
+| PLIC | `FX1_Components/plic`: 8 sources, one M-mode context per hart, MEIP per hart | in (G2; source 8 DDR3) |
 | CPU port | `FX1_Components/cpu_port`: CPU payload contract check, completion, and bus-error → access-fault mapping; integration errors are kept loud | in (G2) |
 | SYS_DMA | `FX1_Components/dma` (8 channels): CSR at `SYS_DMA_CSR`, master port `SYS_DMA`, IRQ = PLIC source 2, 20 ns power-on reset; request inputs tied to 0 (M2M only on the platform) | in (G3) |
 | ISP | `FX1_Components/isp` TLM model: CSR at `ISP_CSR` (PERIBUS_1), masters `ISP_IDMA`/`ISP_ODMA`, IRQ = PLIC source 3, 20 ns power-on reset; driven by the reference C99 driver from firmware | in (G4a) |
@@ -36,16 +38,19 @@ differs from `platforms/VP_FX1_Full_SoC`, where 0x1001_0000 is I2C0 and
 | Region | Base | Size | Path |
 |---|---|---|---|
 | BootROM | 0x0000_0000 | 2 MiB | SYSBUS_1 |
+| SRAM | 0x0100_0000 | 1 MiB | SYSBUS_1 |
 | CLINT | 0x0200_0000 | 64 KiB | PERIBUS_0 (APB) |
 | PLIC | 0x0C00_0000 | 16 MiB | PERIBUS_0 (APB) |
 | UART | 0x1000_0000 | 64 KiB | PERIBUS_0 (APB) |
 | SYS_DMA_CSR | 0x1001_0000 | 64 KiB | PERIBUS_0 (APB); DMA registers occupy 0x0000–0x10FF |
 | SIM_CTRL (VP only) | 0x1002_0000 | 64 KiB | PERIBUS_0 (APB) |
 | ISP_CSR | 0x1100_0000 | 64 KiB | PERIBUS_1 (APB) |
-| DDR | 0x8000_0000 | 512 MiB | SYSBUS_1 |
+| DDR3_CSR | 0x1200_0000 | 64 KiB | SYSBUS_0 (AXI4-Lite) |
+| DDR_SYSCTRL (VP only) | 0x1201_0000 | 64 KiB | SYSBUS_0 |
+| DDR | 0x8000_0000 | 512 MiB | SYSBUS_1 → DDR3 controller port 0 |
 
 PLIC source IDs:
-- UART = 1, SYS_DMA = 2, ISP = 3.
+- UART = 1, SYS_DMA = 2, ISP = 3, DDR3 = 8.
 - IDs 4–7 are reserved for NPU/H.264/ETH/MIPI. Until those IPs exist, they are
   driven by the four **VP-only test lines** of sim-control (`FX1_SIM_CTRL_IRQ_OFF`,
   bit i → source 4 + i).
@@ -116,20 +121,39 @@ build-fx1/platforms/fx1_soc/fx1_soc --fw build-fx1/fw/fx1_soc/hello_2hart.elf \
     [--no-exclusive-monitor] [--load ADDR:FILE ...] \
     [--uart0-socket PORT [--uart0-wait]] [--uart0-rx-file FILE [--uart0-rx-delay-us N]] [--realtime] \
     [--dump ADDR:LEN:FILE ...]   # e.g. --dump 0x88006000:3072:y.bin (DDR bytes after the run)
+    [--ddr-boot preinit|firmware] [--ddr3-ecc on|off] [--ddr3-fault T_US:KIND[:ARG] ...] \
+    [--uart0-rx-byte-us N]
 ```
+
+**DDR3 boot modes.** With `--ddr-boot preinit` (default) the platform
+initializes the DDR3 controller, runs the ECC startup scrub (about 0.67 s of
+simulated time), preloads the ELF's DDR segments and every `--load` file, and
+only then releases the harts. `--timeout-ms`, `--uart0-rx-delay-us` and
+`--ddr3-fault` count from that release, so a DDR image behaves as before. With
+`--ddr-boot firmware` the harts start at time 0 from BootROM and firmware
+initializes the DDR3 (an image with DDR segments is refused). The first output
+line names the boot mode and DDR3 configuration; the last lines include DDR3
+counters. Details: [DDR3 integration guide §9](../../components/FX1_Components/ddr3/docs/integration_guide.md).
+
+`--ddr3-fault T_US:KIND[:ARG]` injects a DDR3 fault from the host (stored-bit
+flips, read-return and write-result faults, fatal events, refresh blocking, PHY
+failure; `fx1_soc --help` lists them). `--uart0-rx-byte-us N` paces injected
+console bytes (default 10 µs, about 1 Mbaud; 87 is the 115200 8N1 character
+time).
 
 UART input from the host (`components/uart_host_tlm`): `--uart0-socket PORT`
 serves the console on 127.0.0.1:PORT only (connect with `tools/fx1_console.sh PORT` on the same host or in the same container;
 `--uart0-wait` holds the simulation until the client connects), and
 `--uart0-rx-file FILE` injects a file into RX, starting `--uart0-rx-delay-us`
-of simulated time after reset (deterministic, for CI). For an interactive
+of simulated time after the CPU release (deterministic, for CI). For an interactive
 console use `--timeout-ms 0` (no simulated-time limit) and `--realtime`
 (simulated time never runs ahead of wall-clock time; an idle system otherwise
 races about 7× ahead and a finite budget ends the session within minutes), and
 connect with `tools/fx1_console.sh PORT` (raw terminal, no doubled echo). The FreeRTOS CLI
 firmware uses both: [`../../fw/fx1_soc/freertos/README.md`](../../fw/fx1_soc/freertos/README.md).
 
-`--load` copies a host file into DDR before reset (the ISP RAW-frame demo,
+`--load` copies a host file into DDR before the harts run, after the DDR3
+preinitialization (the ISP RAW-frame demo,
 [`demo/README.md`](demo/README.md), uses it to process a real camera frame on
 the whole platform).
 
@@ -152,13 +176,20 @@ Exit status:
 
 - **ABI:** `-march=rv32imafc_zicsr_zifencei -mabi=ilp32f`. The xPack GCC 15
   toolchain has no rv32imafc/ilp32 multilib.
-- **Boot:**
-  - One ELF is linked at 0x8000_0000 and loaded into DDR through the bus
-    backdoor; every hart resets at its entry.
+- **Boot (default, `--ddr-boot preinit`):**
+  - One ELF is linked at 0x8000_0000. The platform writes its segments into
+    DDR through the controller's debug port after the DDR3 initialization and
+    scrub; every hart resets at its entry.
   - `crt0.S` gives each hart a 64 KiB stack from `FX1_FW_STACK_BASE`.
   - Hart 0 clears `.bss` and calls `main()`; its return value becomes the verdict.
   - Other harts wait in WFI until hart 0 calls `fx1_release_secondaries()`,
     then enter `secondary_main(hartid)`.
+- **Boot from BootROM (`--ddr-boot firmware`):** images built with
+  `fx1_rom_firmware()` (`common/crt0_rom.S`, `common/fx1_rom.ld.S`) run from
+  BootROM with data and stacks in SRAM and bring the DDR3 up themselves
+  (`fw/fx1_soc/ddr3`). `fx1_boot_image()` builds the BootROM loader
+  (`fw/fx1_soc/boot`) with a DDR image embedded; it starts that image on both
+  harts after readiness.
 - **Ordering (RVWMO):** `volatile` is not a synchronisation primitive. Use the
   HAL barriers:
   - `fx1_mb` = `fence iorw,iorw`;
@@ -309,7 +340,15 @@ Exit status:
 | `fx1_smoke_bus_fault` | Fetch, load and store faults with exact `mcause`/`mepc`/`mtval`; a store to BootROM faults and leaves the ROM unchanged |
 | `fx1_packaging` | The SDK distribution gate (`package/run_packaging_regression.sh`, label `fx1_packaging`, not in `run_ci.sh`). A fresh Release build is packaged and moved; the build tree is made unreadable; it runs with an empty environment (smoke, every ISP sample against its golden, a wrong golden must fail). The firmware is rebuilt from the shipped sources and must be byte-identical. Also checks `sha256sum -c` on a clone without `build/` and the one-terminal interactive flow |
 | `*_q10us` | Every smoke image is run again with a 10 µs quantum and must give the same verdict (plan C11) |
-| `fx1_regression_perf_loop_q*ns` | Two-hart integer and memory loop. Checksums must equal independently computed references (0x1762a79a, 0x124d31b2). Prints host MIPS: about 3.5 MIPS with both harts in a Release build (about half that unoptimised), either quantum, depending on host load |
+| `fx1_regression_perf_loop_q*ns` | Two-hart integer and memory loop. Checksums must equal independently computed references (0x1762a79a, 0x124d31b2). Prints host MIPS: about 0.8 MIPS with both harts in a Release build with the DDR3 controller (3.5 with the former RAM DDR), either quantum, depending on host load |
+| `fx1_ddr3_subsystem_*` | DDR_SYSCTRL registers and access rules, P-channel requests with automatic wake (and its back-off when denied), cold/core reset sequences (held traffic aborted, launched traffic completes), preinit order and ECC-consistent preload, firmware boot refusing DDR images, `--ddr3-fault` syntax, firmware reference image = model reference, canonical DDR names for the exclusive monitor |
+| `fx1_smoke_ddr3_fw_init_q*ns` | BootROM image, `--ddr-boot firmware`: identity, a rejected TIMING_COMMIT (SLVERR, blocker 0x04, IRQ_RAW[4]), initialization and readiness, memory, region decode miss → load access fault + PLIC source 8, self-refresh with automatic wake, two harts with a DDR AMO counter |
+| `fx1_smoke_ddr3_fault_recovery` | BootROM image with a host fault schedule: CE (corrected, counted, IRQ), UE (access fault), read timeout → quarantine → cold reset + re-initialization, fatal hold → core reset by hart 1 → cold reset |
+| `fx1_smoke_ddr3_preinit_q*ns`, `fx1_smoke_ddr3_release_order` | Preinitialized boot: the active images equal the firmware reference, two-hart traffic, CE/UE with PLIC interrupts, self-refresh while executing from DDR; a BootROM entry starts only after scrub and preload |
+| `fx1_smoke_ddr3_boot_hello`, `fx1_smoke_ddr3_boot_freertos_cli` | BootROM loader: DDR3 bring-up, application copied to DDR, both harts started (hello; FreeRTOS CLI session) |
+| `fx1_smoke_ddr3_boot_ready_timeout`, `_init_failure`, `_scrub_fatal`, `_ddr_image_refused` | Bring-up failures reported from BootROM/SRAM (codes 0xD304/0xD305/0xD306); a DDR image refused in firmware boot |
+| `fx1_smoke_ddr3_power_recovery`, `fx1_smoke_ddr3_wake_watchdog` | A failed self-refresh exit: the denied automatic wake is retried with back-off, simulated time advances (the watchdog ends the run at `--timeout-ms`), and hart 1 recovers with a cold reset |
+| `fx1_smoke_ddr3_atomic_lifecycle`, `fx1_smoke_ddr3_atomic_alias_q*ns` | CPU reservations follow DDR storage: voided by a cold/core reset, a reinitialization or a region commit, and shared by region aliases for hart stores, DMA writes and AMO brackets |
 
 ## SDK package (VP_FX1_V3.0)
 
@@ -348,10 +387,12 @@ simulated time within a few ns. The cost is speed: the perf loop runs at about
 - **Streaming width:** VP++ never sets the payload streaming width.
   `fx1::CpuPortAdapter` completes it for every CPU access. The shared wrapper is
   left unchanged for TPU_V3.
-- **Performance:** about 3.5 MIPS with both harts in a Release build (about
-  1.5 unoptimised), because every access syncs (see Time model). A CPU memory
-  access costs about 100 ns of simulated time; the ISP processes a 64x48
-  frame in a few microseconds. `mcycle` uses the VP++ 10 ns cycle on both harts and does
+- **Performance:** about 0.8 MIPS with both harts in a Release build (3.5
+  with the former RAM DDR), because every access syncs (see Time model) and
+  goes through the DDR3 controller model. A DDR fetch or load costs about 36 ns
+  of simulated time, much more behind a DMA burst: the bus serializes DDR
+  traffic and the VP has no cache, so CPU-versus-DMA timing is pessimistic
+  compared with silicon (DDR3 limitation L-19). `mcycle` uses the VP++ 10 ns cycle on both harts and does
   not reflect the silicon frequencies (600/300 MHz in the HAS).
 - **Atomics:** the exclusive monitor covers both harts, SYS_DMA and ISP ODMA
   (ISP IDMA only reads). A future writing master needs its own `WriteGuard`.
@@ -372,11 +413,11 @@ simulated time within a few ns. The cost is speed: the perf loop runs at about
   spurious interrupt.
 - **Scope:**
   - Not modelled: caches, PMP enforcement, S-mode/Sv32, and B and Zicbom.
-  - DDR is a functional RAM, not a DDR3 controller (no CSRs, init or training).
 - **Reset and abort:** the map has no reset controller (CRG) yet, so the
   platform tests recover with the drivers' soft reset / stop / recover only.
+  The DDR3 controller's resets are reachable through DDR_SYSCTRL RST_CTRL.
   SYS_DMA has no channel abort: `CH_ENABLE = 0` pauses a command (accepted
   transactions drain, re-enabling continues); only the IP reset, at power-on
   here, cancels one. ISP AXI errors are produced with unmapped buffer
-  addresses and made transient by the firmware repairing the address; error
-  injection inside DDR (ECC-like, mid-burst) is not modelled.
+  addresses and made transient by the firmware repairing the address. DDR
+  errors (ECC, read-return, fatal) are injected with `--ddr3-fault`.

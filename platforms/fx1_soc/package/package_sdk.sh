@@ -98,13 +98,17 @@ cp -L "${build_dir}/platforms/fx1_soc/${needed}" "${bin}/${needed}"
 
 # ── firmware sources: the exact files the CDC-VP build compiles ──────────────
 log "firmware sources"
-mkdir -p "${sdk}/app" "${sdk}/bsp" "${sdk}/include/fx1" "${sdk}/include/dma" "${sdk}/include/fx1_isp" \
+mkdir -p "${sdk}/app" "${sdk}/bsp" "${sdk}/include/fx1" "${sdk}/include/dma" "${sdk}/include/fx1_isp" "${sdk}/include/fx1_ddr3" \
          "${sdk}/drivers/isp" "${sdk}/isp_selftest" "${sdk}/demo" "${sdk}/tests"
 cp "${here}/sdk/Makefile" "${here}/sdk/README.md" "${sdk}/"
 cp "${fw}"/freertos/*.c "${fw}"/freertos/*.h "${fw}"/freertos/*.S "${sdk}/app/"
 cp "${fw}/freertos/tests/isp_auto_policy_test.c" "${sdk}/tests/"
 cp "${fw}"/common/crt0.S "${fw}"/common/fx1_fw.c "${fw}"/common/fx1_fw.h "${fw}"/common/fx1.ld.S "${sdk}/bsp/"
 cp "${src}/components/FX1_Components/fx1_map/include/fx1/fx1_memory_map.h" "${sdk}/include/fx1/"
+# DDR3 controller register map (provisional encodings included) and the VP DDR_SYSCTRL glue.
+cp "${src}/components/FX1_Components/fx1_map/include/fx1/fx1_ddr_sysctrl.h" "${sdk}/include/fx1/"
+cp "${src}/components/FX1_Components/ddr3/include/fx1_ddr3/fx1_ddr3_regs.h" \
+   "${src}/components/FX1_Components/ddr3/include/fx1_ddr3/provisional_encodings.h" "${sdk}/include/fx1_ddr3/"
 cp "${src}/components/FX1_Components/dma/include/dma/fx1_dma_regs.h" "${sdk}/include/dma/"
 cp "${isp}/include/fx1_isp/fx1_isp_csr.h" "${isp}/driver/include/fx1_isp/fx1_isp_drv.h" "${sdk}/include/fx1_isp/"
 cp "${isp}/driver/src/fx1_isp_drv.c" "${sdk}/drivers/isp/"

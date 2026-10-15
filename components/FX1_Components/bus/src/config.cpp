@@ -10,7 +10,7 @@ BusConfig BusConfig::fx1() {
     c.initiators = {{"CPU1"},{"CPU2"},{"SYS_DMA"},{"ISP_IDMA"},{"ISP_ODMA"},
                     {"NPU_DMA"},{"H264_H265_DMA"},{"ETH_DMA"}};
     // Addresses come from fx1_memory_map.h (VP placeholders pending the HAS).
-    // ISP_CSR and SYS_DMA_CSR have a placeholder base but stay disabled: a
+    // ISP_CSR, SYS_DMA_CSR, SRAM, DDR3_CSR and DDR_SYSCTRL have a placeholder base but stay disabled: a
     // platform enables a target only once it instantiates and binds the IP.
     c.targets = {
         {"BootROM",FX1_BOOTROM_BASE,FX1_BOOTROM_SIZE,TargetPath::SysBus1Axi,true},
@@ -18,7 +18,7 @@ BusConfig BusConfig::fx1() {
         {"PLIC",FX1_PLIC_BASE,FX1_PLIC_SIZE,TargetPath::Peribus0Apb,true},
         {"UART",FX1_UART_BASE,FX1_APB_SLOT_SIZE,TargetPath::Peribus0Apb,true},
         {"MEMCTL_DDR",FX1_DDR_BASE,FX1_DDR_SIZE,TargetPath::SysBus1Axi,true},
-        {"SRAM",0,0,TargetPath::SysBus1Axi,false},
+        {"SRAM",FX1_SRAM_BASE,FX1_SRAM_SIZE,TargetPath::SysBus1Axi,false},
         {"CPU1_IRAM",0,0,TargetPath::SysBus1Axi,false},
         {"CPU2_IRAM",0,0,TargetPath::SysBus1Axi,false},
         {"ISP_CSR",FX1_ISP_CSR_BASE,FX1_APB_SLOT_SIZE,TargetPath::Peribus1Apb,false},
@@ -26,7 +26,10 @@ BusConfig BusConfig::fx1() {
         {"H264_H265_CSR",0,0,TargetPath::Peribus1Apb,false},
         {"ETH_CSR",0,0,TargetPath::Peribus1Apb,false},
         {"MIPI_CSR",0,0,TargetPath::Peribus1Apb,false},
-        {"SYS_DMA_CSR",FX1_SYS_DMA_CSR_BASE,FX1_APB_SLOT_SIZE,TargetPath::Peribus0Apb,false}
+        {"SYS_DMA_CSR",FX1_SYS_DMA_CSR_BASE,FX1_APB_SLOT_SIZE,TargetPath::Peribus0Apb,false},
+        // DDR3 controller CSR (AXI4-Lite) and its SoC glue DDR_SYSCTRL, on SYSBUS_0.
+        {"DDR3_CSR",FX1_DDR3_CSR_BASE,FX1_DDR3_CSR_APERTURE_SIZE,TargetPath::SysBus0Axi,false},
+        {"DDR_SYSCTRL",FX1_DDR_SYSCTRL_BASE,FX1_DDR_SYSCTRL_SIZE,TargetPath::SysBus0Axi,false}
     };
     return c;
 }

@@ -19,17 +19,35 @@ void ExclusiveMonitor::check_hart(unsigned hart, const char* what) const
                         (std::string(what) + ": hart " + std::to_string(hart) + " out of range").c_str());
 }
 
+std::vector<ExclusiveMonitor::Range> ExclusiveMonitor::canonical(std::uint64_t lo, std::uint64_t hi) const
+{
+    std::vector<Range> out;
+    if (canon_) canon_(lo, hi, out);
+    if (out.empty()) out.push_back({lo, hi});
+    return out;
+}
+
 bool ExclusiveMonitor::foreign_write_in_flight(unsigned hart, std::uint64_t base) const
 {
     return std::any_of(writes_.begin(), writes_.end(),
-                       [&](const Write& w) { return w.master != hart && hits(base, w.lo, w.hi); });
+                       [&](const Write& w) { return w.master != hart && hits(base, w.ranges); });
 }
 
 void ExclusiveMonitor::load_reserved(unsigned hart, std::uint64_t addr, unsigned)
 {
     check_hart(hart, "load_reserved");
-    reservations_[hart] = {true, base_of(addr)};
+    reservations_[hart] = {true, base_of(canonical(addr))};
     ++stats_.reservations;
+}
+
+void ExclusiveMonitor::invalidate(std::uint64_t lo, std::uint64_t hi)
+{
+    for (Slot& r : reservations_) {
+        if (r.valid && hits(r.base, lo, hi)) {
+            r.valid = false;
+            ++stats_.cancelled_by_platform;
+        }
+    }
 }
 
 void ExclusiveMonitor::drop_reservation(unsigned hart)
@@ -41,7 +59,7 @@ void ExclusiveMonitor::drop_reservation(unsigned hart)
 void ExclusiveMonitor::atomic_begin(unsigned hart, std::uint64_t addr, unsigned)
 {
     check_hart(hart, "atomic_begin");
-    const std::uint64_t base = base_of(addr);
+    const std::uint64_t base = base_of(canonical(addr));
     brackets_[hart] = {true, base}; // new overlapping writes are refused from here on
     if (foreign_write_in_flight(hart, base)) {
         ++stats_.brackets_waited;
@@ -55,7 +73,8 @@ bool ExclusiveMonitor::take_reservation(unsigned hart, std::uint64_t addr, unsig
 {
     check_hart(hart, "take_reservation");
     Slot& r = reservations_[hart];
-    const bool ok = r.valid && r.base == base_of(addr) && base_of(addr + size - 1) == r.base;
+    const std::uint64_t first = canonical(addr), last = canonical(addr + (size ? size : 1u) - 1);
+    const bool ok = r.valid && r.base == base_of(first) && base_of(last) == r.base;
     r.valid = false;
     ++(ok ? stats_.sc_succeeded : stats_.sc_failed);
     return ok;
@@ -71,15 +90,15 @@ void ExclusiveMonitor::atomic_end(unsigned hart)
 bool ExclusiveMonitor::try_begin_write(unsigned master, std::uint64_t addr, unsigned size,
                                        std::uint64_t& ticket)
 {
-    const std::uint64_t lo = addr, hi = addr + (size ? size : 1u);
+    std::vector<Range> ranges = canonical(addr, addr + (size ? size : 1u));
     for (unsigned h = 0; h < brackets_.size(); ++h) {
-        if (h != master && brackets_[h].valid && hits(brackets_[h].base, lo, hi)) {
+        if (h != master && brackets_[h].valid && hits(brackets_[h].base, ranges)) {
             ++stats_.writes_refused;
             return false;
         }
     }
     ticket = next_ticket_++;
-    writes_.push_back({ticket, master, lo, hi});
+    writes_.push_back({ticket, master, std::move(ranges)});
     return true;
 }
 
@@ -91,12 +110,12 @@ void ExclusiveMonitor::end_write(std::uint64_t ticket)
         SC_REPORT_FATAL("fx1::ExclusiveMonitor", "end_write: unknown ticket");
         return;
     }
-    const Write w = *it;
+    const Write w = std::move(*it);
     writes_.erase(it);
     const bool from_cpu = w.master < reservations_.size();
     for (unsigned h = 0; h < reservations_.size(); ++h) {
         Slot& r = reservations_[h];
-        if (h != w.master && r.valid && hits(r.base, w.lo, w.hi)) {
+        if (h != w.master && r.valid && hits(r.base, w.ranges)) {
             r.valid = false;
             ++(from_cpu ? stats_.cancelled_by_cpu : stats_.cancelled_by_device);
         }

@@ -356,6 +356,8 @@ int main(void)
 {
     fx1_isp_buffers bufs;
     isp_buffers(&bufs);
+    /* Phase B aborts frames in flight within this stream (isp_common.h). */
+    bufs.max_burst_beats = ISP_ABORT_MAX_BURST_BEATS;
     fx1_check(fx1_isp_init(&dev, &isp_hal) == FX1_ISP_OK, 0x01, "driver init");
     fx1_check(fx1_isp_set_geometry(&dev, ISP_FX_WIDTH, ISP_FX_HEIGHT, ISP_FX_BAYER) == FX1_ISP_OK, 0x02,
               "geometry 64x48 RGGB");

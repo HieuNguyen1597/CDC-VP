@@ -87,7 +87,7 @@ stage configure cmake -S "${ROOT}" -B "${BUILD}" -G Ninja \
     || { log "configure failed: no build, no tests"; exit 1; }
 
 SMOKE_SEL=(-L "fx1_unit|fx1_smoke")
-COMPONENTS_SEL=(-R '^(bus_behavior|bus_config|bus_arbitration|uart2_tlm|uart_host_bridge)$')
+COMPONENTS_SEL=(-R '^(bus_behavior|bus_config|bus_arbitration|uart2_tlm|uart_host_bridge|uart_host_bridge_hold)$')
 REGRESSION_SEL=(-L fx1_regression)
 MANIFEST="${FX1_CI_MANIFEST:-${ROOT}/platforms/fx1_soc/ci/required_tests.txt}" # override: tests of the gate itself
 # Fails (nonzero) whenever it cannot prove that every required test of the

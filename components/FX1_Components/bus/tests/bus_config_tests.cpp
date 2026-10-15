@@ -25,7 +25,14 @@ int sc_main(int, char**) {
     bad([](auto& x){x.targets[0].name.clear();},"empty target name");
     bad([](auto& x){x.targets[1].base=0;},"overlap across different paths");
     bad([](auto& x){x.targets[0].size=0;},"zero-sized enabled target");
-    bad([](auto& x){x.targets[5].enabled=true;},"enabled TBD");
+    // CPU1_IRAM has no address yet (TBD); SRAM (index 5) got one in DDR3 subtask 5.
+    bad([](auto& x){x.targets[6].enabled=true;},"enabled TBD");
+    {   // The fx1_soc DDR3 integration enables these placeholders (fx1_memory_map.h).
+        auto x=bus::BusConfig::fx1();
+        for(auto& t:x.targets)
+            if(t.name=="SRAM"||t.name=="DDR3_CSR"||t.name=="DDR_SYSCTRL") t.enabled=true;
+        c.expect(valid(x),"SRAM, DDR3_CSR and DDR_SYSCTRL placeholders enabled");
+    }
     bad([](auto& x){for(auto& t:x.targets)t.enabled=false;},"no active targets");
     bad([](auto& x){x.axi_address_width=64;x.targets[0].base=UINT64_MAX-1;x.targets[0].size=4;},"end overflow");
     bad([](auto& x){x.targets[0].base=0xFFFFF000ULL;x.targets[0].size=0x2000;},"range extends beyond address width");

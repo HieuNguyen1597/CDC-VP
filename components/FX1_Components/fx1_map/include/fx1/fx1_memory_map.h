@@ -25,6 +25,9 @@
 /* ---- Address map: [BASE, BASE + SIZE) ------------------------------------ */
 #define FX1_BOOTROM_BASE        FX1_U32(0x00000000)
 #define FX1_BOOTROM_SIZE        FX1_U32(0x00200000) /* 2 MiB, unused at bring-up      */
+#define FX1_SRAM_BASE           FX1_U32(0x01000000)
+#define FX1_SRAM_SIZE           FX1_U32(0x00100000) /* 1 MiB boot SRAM: bootstrap
+                                                       stack/data before DDR ready */
 #define FX1_CLINT_BASE          FX1_U32(0x02000000)
 #define FX1_CLINT_SIZE          FX1_U32(0x00010000) /* 64 KiB                         */
 #define FX1_PLIC_BASE           FX1_U32(0x0C000000)
@@ -37,6 +40,13 @@
 #define FX1_SYS_DMA_CSR_BASE    FX1_U32(0x10010000)
 #define FX1_SIM_CTRL_BASE       FX1_U32(0x10020000) /* VP only, not on silicon        */
 #define FX1_ISP_CSR_BASE        FX1_U32(0x11000000)
+/* DDR3 controller CSR (AXI4-Lite, 64 KiB, SYSBUS_0, offsets as in fx1_ddr3/fx1_ddr3_regs.h)
+ * and DDR_SYSCTRL, the VP SoC glue for the controller's sideband (DEC-04,
+ * fx1/fx1_ddr_sysctrl.h). */
+#define FX1_DDR3_CSR_BASE       FX1_U32(0x12000000)
+#define FX1_DDR3_CSR_APERTURE_SIZE FX1_U32(0x00010000) /* == FX1_DDR3_CSR_SIZE (IP) */
+#define FX1_DDR_SYSCTRL_BASE    FX1_U32(0x12010000)
+#define FX1_DDR_SYSCTRL_SIZE    FX1_U32(0x00010000)
 #define FX1_NPU_CSR_BASE        FX1_U32(0x11010000) /* reserved                       */
 #define FX1_H264_H265_CSR_BASE  FX1_U32(0x11020000) /* reserved                       */
 #define FX1_ETH_CSR_BASE        FX1_U32(0x11030000) /* reserved                       */
@@ -66,7 +76,7 @@
 #define FX1_PLIC_ENABLE_STRIDE  FX1_U32(0x80)
 #define FX1_PLIC_CONTEXT_OFF    FX1_U32(0x200000) /* + 0x1000 * context               */
 #define FX1_PLIC_CONTEXT_STRIDE FX1_U32(0x1000)   /* +0 threshold, +4 claim/complete  */
-#define FX1_PLIC_NUM_SOURCES    FX1_U32(8)        /* IDs 1..7 used/reserved; 0 = none */
+#define FX1_PLIC_NUM_SOURCES    FX1_U32(9)        /* IDs 1..8 used/reserved; 0 = none */
 #define FX1_PLIC_PRIORITY_MAX   FX1_U32(7)
 /* Context n is hart n in M-mode. */
 #define FX1_PLIC_CONTEXT_HART_M(hart) (hart)
@@ -79,6 +89,7 @@
 #define FX1_IRQ_H264_H265       FX1_U32(5) /* reserved */
 #define FX1_IRQ_ETH             FX1_U32(6) /* reserved */
 #define FX1_IRQ_MIPI            FX1_U32(7) /* reserved */
+#define FX1_IRQ_DDR             FX1_U32(8) /* DDR3 controller level interrupt */
 
 /* ---- VP sim-control (finisher) ---------------------------------------------- */
 #define FX1_SIM_CTRL_FINISH_OFF FX1_U32(0x0)
@@ -98,5 +109,29 @@
 #define FX1_FW_RAW_BUF_BASE     FX1_U32(0x81000000)
 #define FX1_FW_YUV_BUF_BASE     FX1_U32(0x88000000)
 #define FX1_FW_TEST_AREA_BASE   FX1_U32(0x90000000)
+
+/* ---- Map consistency (C and C++ only) ------------------------------------- */
+#if !defined(__ASSEMBLER__) && !defined(FX1_LINKER_SCRIPT)
+#define FX1_MAP_END(b, s) ((unsigned long long)(b) + (unsigned long long)(s))
+#define FX1_MAP_DISJOINT(b1, s1, b2, s2) (FX1_MAP_END(b1, s1) <= (b2) || FX1_MAP_END(b2, s2) <= (b1))
+#if defined(__cplusplus)
+#define FX1_MAP_ASSERT(c, m) static_assert(c, m)
+#else
+#define FX1_MAP_ASSERT(c, m) _Static_assert(c, m)
+#endif
+FX1_MAP_ASSERT(FX1_MAP_END(FX1_DDR_BASE, FX1_DDR_SIZE) <= 0x100000000ull, "DDR aperture overflows 32 bits");
+FX1_MAP_ASSERT(FX1_MAP_DISJOINT(FX1_BOOTROM_BASE, FX1_BOOTROM_SIZE, FX1_SRAM_BASE, FX1_SRAM_SIZE), "ROM/SRAM overlap");
+FX1_MAP_ASSERT(FX1_MAP_DISJOINT(FX1_SRAM_BASE, FX1_SRAM_SIZE, FX1_CLINT_BASE, FX1_CLINT_SIZE), "SRAM/CLINT overlap");
+FX1_MAP_ASSERT(FX1_MAP_DISJOINT(FX1_DDR3_CSR_BASE, FX1_DDR3_CSR_APERTURE_SIZE, FX1_DDR_SYSCTRL_BASE, FX1_DDR_SYSCTRL_SIZE),
+               "DDR3 CSR/DDR_SYSCTRL overlap");
+FX1_MAP_ASSERT(FX1_MAP_DISJOINT(FX1_DDR3_CSR_BASE, FX1_DDR3_CSR_APERTURE_SIZE, FX1_ISP_CSR_BASE, 0x00050000u),
+               "DDR3 CSR overlaps the PERIBUS_1 slots");
+FX1_MAP_ASSERT(FX1_MAP_DISJOINT(FX1_DDR_SYSCTRL_BASE, FX1_DDR_SYSCTRL_SIZE, FX1_DDR_BASE, FX1_DDR_SIZE),
+               "DDR_SYSCTRL overlaps DDR");
+FX1_MAP_ASSERT(FX1_IRQ_DDR < FX1_PLIC_NUM_SOURCES, "DDR IRQ source outside the PLIC");
+FX1_MAP_ASSERT(FX1_SIM_CTRL_IRQ_FIRST_SOURCE + FX1_SIM_CTRL_IRQ_LINES <= FX1_IRQ_DDR,
+               "sim-control test lines overlap the DDR IRQ source");
+#undef FX1_MAP_ASSERT
+#endif
 
 #endif /* FX1_MEMORY_MAP_H */

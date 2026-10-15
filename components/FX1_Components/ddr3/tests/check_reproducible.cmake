@@ -1,0 +1,12 @@
+# Runs a seeded case twice and requires identical "digest=" lines (deterministic soak).
+foreach(run 1 2)
+  execute_process(COMMAND ${EXE} ${CASE} ${SEED} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "run ${run} failed (${rc}):\n${out}\n${err}")
+  endif()
+  string(REGEX MATCH "digest=[0-9a-f]+ events=[0-9]+ sim_time=[^\n]*" line${run} "${out}")
+endforeach()
+if(NOT line1 OR NOT line1 STREQUAL line2)
+  message(FATAL_ERROR "soak not reproducible:\n  ${line1}\n  ${line2}")
+endif()
+message(STATUS "reproducible: ${line1}")

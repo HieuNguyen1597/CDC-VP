@@ -2,6 +2,7 @@
 // hand-driven SystemC threads standing in for the harts and a DMA master, so
 // every interleaving is fixed in simulated time.
 #include <cstdint>
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 
@@ -172,10 +173,61 @@ struct Bench : sc_module {
         monitor.end_write(t);
     }
 
+    // Storage identity (DDR3 region aliases, review S5-R3): bus [0x2000, 0x3000) is a
+    // second name of [0x1000, 0x2000). Every comparison happens on the canonical address.
+    // Then invalidate() (storage changed outside a bus write, review S5-R2).
+    void aliases()
+    {
+        monitor.set_canonicalizer([](std::uint64_t lo, std::uint64_t hi, std::vector<fx1::ExclusiveMonitor::Range>& out) {
+            while (lo < hi) {
+                const std::uint64_t end = std::min<std::uint64_t>(hi, (lo & ~0xFFFull) + 0x1000);
+                const std::uint64_t shift = (lo >= 0x2000 && lo < 0x3000) ? 0x1000 : 0;
+                out.push_back({lo - shift, end - shift});
+                lo = end;
+            }
+        });
+        std::uint64_t t = 0;
+        // A write through the alias cancels a reservation taken through the other name.
+        monitor.load_reserved(0, kWord, 4);
+        CHECK(monitor.try_begin_write(kDma, kWord + 0x1000 + 8, 4, t));
+        monitor.end_write(t);
+        CHECK(!monitor.reserved(0));
+        monitor.load_reserved(0, kWord + 0x1000, 4);
+        CHECK(monitor.try_begin_write(1, kWord + 4, 4, t));
+        monitor.end_write(t);
+        CHECK(!monitor.reserved(0));
+        // LR and SC through different names of one location pair up.
+        monitor.load_reserved(1, kWord, 4);
+        CHECK(monitor.take_reservation(1, kWord + 0x1000, 4));
+        // A bracket opened through one name holds off writes through the other.
+        monitor.atomic_begin(0, kWord + 0x1000 + 16, 4);
+        CHECK(!monitor.try_begin_write(kDma, kWord, 4, t));
+        CHECK(!monitor.try_begin_write(1, kWord + 32, 4, t));
+        CHECK(monitor.try_begin_write(kDma, kWord + kGranule, 4, t)); // other granule
+        monitor.end_write(t);
+        monitor.atomic_end(0);
+        // A write range that crosses into the alias is split; each piece cancels.
+        monitor.load_reserved(0, kWord, 4);
+        CHECK(monitor.try_begin_write(kDma, 0x1FFC, 8, t)); // [0x1FFC, 0x2000) + [0x1000, 0x1004)
+        monitor.end_write(t);
+        CHECK(!monitor.reserved(0));
+        // invalidate(): reservations overlapping the range drop, others stay.
+        monitor.load_reserved(0, kWord, 4);
+        monitor.load_reserved(1, 0x3800, 4);
+        const auto before = monitor.stats().cancelled_by_platform;
+        monitor.invalidate(0x1000, 0x2000);
+        CHECK(!monitor.reserved(0) && monitor.reserved(1));
+        CHECK(monitor.stats().cancelled_by_platform == before + 1);
+        CHECK(!monitor.take_reservation(0, kWord, 4));
+        monitor.set_canonicalizer({});
+        monitor.drop_reservation(1);
+    }
+
     void run()
     {
         reservations();
         brackets();
+        aliases();
         wait(10, SC_NS);
 
         // atomic_begin drains an overlapping write already in flight: hart 1

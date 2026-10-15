@@ -12,7 +12,8 @@ rebuild. `BUILD_MANIFEST.json` lists the values this binary was built with.
 
 | Region | Base | Size | Macro | Notes |
 |---|---|---|---|---|
-| BootROM | `0x0000_0000` | 2 MiB | `FX1_BOOTROM_BASE` | read-only; a store faults. Not used at bring-up (the ELF is loaded into DDR) |
+| BootROM | `0x0000_0000` | 2 MiB | `FX1_BOOTROM_BASE` | read-only; a store faults. Not used by the delivered firmware (the ELF is loaded into DDR) |
+| SRAM | `0x0100_0000` | 1 MiB | `FX1_SRAM_BASE` | boot SRAM |
 | CLINT | `0x0200_0000` | 64 KiB | `FX1_CLINT_BASE` | SiFive layout: `msip` +0x0000, `mtimecmp` +0x4000, `mtime` +0xBFF8; `mtime` at 20 MHz (`FX1_MTIME_HZ`) |
 | PLIC | `0x0C00_0000` | 16 MiB | `FX1_PLIC_BASE` | SiFive layout; context 0 = hart 0 M-mode, context 1 = hart 1 M-mode |
 | UART | `0x1000_0000` | 64 KiB slot | `FX1_UART_BASE` | PL011-style: DR, FR, IBRD/FBRD, LCR_H, CR, IFLS, IMSC/RIS/MIS/ICR; 16-entry FIFOs |
@@ -20,7 +21,9 @@ rebuild. `BUILD_MANIFEST.json` lists the values this binary was built with.
 | sim-control | `0x1002_0000` | 64 KiB slot | `FX1_SIM_CTRL_BASE` | **VP only, not on silicon**: PASS/FAIL verdict ends the simulation (`fx1_pass`, `fx1_fail`) |
 | ISP CSR | `0x1100_0000` | 64 KiB | `FX1_ISP_CSR_BASE` | register map in `include/fx1_isp/fx1_isp_csr.h` (generated from the ISP CSR specification) |
 | NPU, H.264/H.265, Ethernet, MIPI CSR | `0x1101_0000` … `0x1104_0000` | 64 KiB each | `FX1_*_CSR_BASE` | reserved: not modelled, an access faults |
-| DDR | `0x8000_0000` | 512 MiB | `FX1_DDR_BASE` | sparse model; the DDR controller's CSRs and training are not modelled |
+| DDR3 controller CSR | `0x1200_0000` | 64 KiB | `FX1_DDR3_CSR_BASE` | AXI4-Lite, 32-bit accesses. The VP initializes the controller before the harts start, so firmware need not touch it |
+| DDR_SYSCTRL | `0x1201_0000` | 64 KiB | `FX1_DDR_SYSCTRL_BASE` | **VP only**: DDR3 readiness, power requests, QoS sideband, resets |
+| DDR | `0x8000_0000` | 512 MiB | `FX1_DDR_BASE` | DDR3 controller model (ECC on). Initialized and scrubbed before the harts start; then normal memory |
 
 The CPU sees an access fault (load mcause 5, store mcause 7) on:
 
@@ -39,6 +42,7 @@ contract.
 | 2 | `FX1_IRQ_SYS_DMA` | SYS_DMA channel completion/error |
 | 3 | `FX1_IRQ_ISP` | ISP (frame done, DMA events, statistics) |
 | 4–7 | `FX1_IRQ_NPU`, `_H264_H265`, `_ETH`, `_MIPI` | reserved |
+| 8 | `FX1_IRQ_DDR` | DDR3 controller (ECC, quarantine, fatal; masked at reset) |
 
 Interrupt delivery:
 

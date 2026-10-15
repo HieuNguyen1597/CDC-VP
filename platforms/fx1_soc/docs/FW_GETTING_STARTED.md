@@ -15,8 +15,10 @@ contract, the test list and the limitations, is
 
 - **CPUs:** two independent RV32IMAFC harts (the CVA6 extension set) on the
   RISC-V VP++ ISS, M-mode only, one ELF for both.
-- **Interconnect and memory:** the FX1 bus, 512 MiB DDR (a functional RAM),
-  and a BootROM.
+- **Interconnect and memory:** the FX1 bus, 512 MiB of DDR behind a DDR3
+  controller model (CSRs, initialization, ECC, power states, error injection),
+  a BootROM and a 1 MiB boot SRAM. By default the platform initializes the
+  DDR3 before the harts start, so an ordinary image runs from DDR at once.
 - **Interrupts and timer:** CLINT (`mtime` at 20 MHz) and PLIC (one M-mode
   context per hart).
 - **Console:** a PL011-style UART.
@@ -109,15 +111,18 @@ Expected output, between the SystemC banner and the summary:
 | Option | Meaning |
 |---|---|
 | `--fw <elf>` | Image to load into DDR (required). Every hart starts at its entry |
-| `--timeout-ms N` | Simulated-time budget, default 1000; `0` = no limit |
+| `--timeout-ms N` | Simulated-time budget from CPU release, default 1000; `0` = no limit |
+| `--ddr-boot preinit\|firmware` | `preinit` (default): the platform initializes and scrubs the DDR3 (about 0.67 s of simulated time before the harts start), then loads the image. `firmware`: the harts start from BootROM at once and firmware brings the DDR3 up (BootROM images only) |
+| `--ddr3-fault T_US:KIND[:ARG]` | Host DDR3 fault T_US µs after CPU release, e.g. `20000:ce:0x90000100` (repeatable; `--help` lists the kinds) |
+| `--ddr3-ecc on\|off` | DDR3 ECC build option, default on |
 | `--realtime` | Simulated time never runs ahead of wall-clock time (interactive consoles) |
 | `--quantum-ns N` | TLM quantum, multiple of 10 ns, default 1000. Results must not depend on it; the smoke tests run 1 µs and 10 µs |
 | `--uart-log FILE` | Copy of the console |
 | `--quiet-uart` | No console on stdout |
 | `--trace` | Print every bus transaction (time, port, initiator, address, target) |
-| `--load ADDR:FILE` | Before reset, copy `FILE` into DDR at `ADDR` (repeatable): host data such as a RAW frame |
+| `--load ADDR:FILE` | Before the harts start, copy `FILE` into DDR at `ADDR` (repeatable): host data such as a RAW frame. Preinit boot only |
 | `--uart0-socket PORT` (`--uart0-wait`) | UART console on TCP 127.0.0.1:PORT; connect with `nc`. With `--uart0-wait` the run waits for the client |
-| `--uart0-rx-file FILE` (`--uart0-rx-delay-us N`) | Inject `FILE` into UART RX, starting N µs of simulated time after reset (scripted console input) |
+| `--uart0-rx-file FILE` (`--uart0-rx-delay-us N`, `--uart0-rx-byte-us N`) | Inject `FILE` into UART RX, starting N µs of simulated time after CPU release, one byte per `--uart0-rx-byte-us` (default 10; use 87, the 115200 8N1 character time, for the FreeRTOS CLI) |
 | `--dump ADDR:LEN:FILE` | After the run, write `LEN` bytes of DDR at `ADDR` to `FILE` (repeatable) |
 | `--no-exclusive-monitor` | Upstream VP++ LR/SC model. Negative controls only |
 
@@ -177,13 +182,16 @@ What the build gives every image:
 
 | Region | Base | Size |
 |---|---|---|
-| BootROM | 0x0000_0000 | 2 MiB (unused: one-image boot) |
+| BootROM | 0x0000_0000 | 2 MiB (code of `--ddr-boot firmware` images) |
+| SRAM | 0x0100_0000 | 1 MiB (data/stacks of `--ddr-boot firmware` images) |
 | CLINT | 0x0200_0000 | SiFive layout |
 | PLIC | 0x0C00_0000 | SiFive layout, context n = hart n M-mode |
 | UART | 0x1000_0000 | 32-bit access only |
 | SYS_DMA CSR | 0x1001_0000 | 32-bit access only |
 | sim-control (VP only) | 0x1002_0000 | |
 | ISP CSR | 0x1100_0000 | 64 KiB |
+| DDR3 CSR | 0x1200_0000 | 64 KiB, `fx1_ddr3/fx1_ddr3_regs.h` |
+| DDR_SYSCTRL (VP only) | 0x1201_0000 | `fx1/fx1_ddr_sysctrl.h` |
 | DDR | 0x8000_0000 | 512 MiB |
 
 | DDR firmware region | Base | Use |
@@ -195,7 +203,7 @@ What the build gives every image:
 | `FX1_FW_YUV_BUF_BASE` | 0x8800_0000 | ISP NV12 outputs |
 | `FX1_FW_TEST_AREA_BASE` | 0x9000_0000 | Scratch for tests |
 
-PLIC sources: UART = 1, SYS_DMA = 2, ISP = 3. Sources 4 to 7 are VP test lines
+PLIC sources: UART = 1, SYS_DMA = 2, ISP = 3, DDR3 = 8. Sources 4 to 7 are VP test lines
 driven by sim-control. All sources are level-triggered, so clear the source at
 the device before `fx1_plic_complete()`.
 
@@ -318,7 +326,7 @@ used twice. A preview that looks right is not a pass criterion; the CRCs are.
 ### A real RAW frame through the whole platform
 
 `--load ADDR:FILE` is the other direction of `--dump`: the simulator copies a
-host file into DDR before reset. The ISP demo uses it to process a real camera
+host file into DDR before the harts start. The ISP demo uses it to process a real camera
 frame. The host loads the RAW, a register profile and a job descriptor; the
 firmware on hart 0 drives the ISP through the driver; the host takes the NV12
 back and compares it with the stand-alone ISP model:
@@ -352,11 +360,15 @@ The authoritative list is [`../README.md`](../README.md), "Limitations". In
 short:
 
 - No caches, PMP, S-mode or Zicbom (cache-maintenance instructions).
-- DDR is a functional RAM, not a DDR3 controller.
+- The harts run every instruction from DDR (no cache) through a bus that
+  serializes DDR traffic: CPU timing is pessimistic, especially next to DMA
+  traffic. Do not calibrate CPU-versus-device races on the VP.
+- DDR_SYSCTRL (DDR3 sideband glue) is VP-only; DDR3 field encodings that the
+  specification leaves open are provisional (use the macros).
 - SYS_DMA runs M2M only: no peripheral handshake partner is integrated yet.
-- There is no reset controller in the map. IP-level recovery uses the drivers'
-  soft reset; a SYS_DMA command cannot be cancelled, only paused
-  (`CH_ENABLE = 0`).
+- There is no reset controller in the map (except the DDR3 resets in
+  DDR_SYSCTRL). IP-level recovery uses the drivers' soft reset; a SYS_DMA
+  command cannot be cancelled, only paused (`CH_ENABLE = 0`).
 - The exclusive monitor's granule and SC/AMO stall behaviour are VP
   abstractions.
 - Every address and IRQ number is a placeholder pending the HAS.

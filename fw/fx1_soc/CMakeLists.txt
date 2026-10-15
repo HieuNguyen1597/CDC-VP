@@ -57,6 +57,79 @@ function(fx1_firmware name)
     add_custom_target(fx1_fw_${name} ALL DEPENDS ${elf})
 endfunction()
 
+# ── DDR3 (DDR3 VP subtask 5) ────────────────────────────────────────────────
+# ddr3/: reference bring-up and test helpers (not a driver); the C register
+# headers come from the DDR3 IP (components/FX1_Components/ddr3/include) and
+# fx1_map (fx1_ddr_sysctrl.h).
+set(FX1_FW_DDR3 "${CMAKE_CURRENT_SOURCE_DIR}/ddr3")
+set(FX1_FW_DDR3_REGS "${CMAKE_SOURCE_DIR}/components/FX1_Components/ddr3/include")
+set(FX1_FW_DDR3_INCLUDES ${FX1_FW_DDR3} ${FX1_FW_DDR3_REGS})
+set(FX1_FW_DDR3_SOURCES ${FX1_FW_DDR3}/ddr3_fw.c ${FX1_FW_DDR3}/ddr3_probe.S)
+set(FX1_FW_DDR3_DEPENDS ${FX1_FW_DDR3}/ddr3_fw.h ${FX1_FW_DDR3}/ddr3_ref_1600.h
+    ${FX1_FW_DDR3_REGS}/fx1_ddr3/fx1_ddr3_regs.h ${FX1_FW_DDR3_REGS}/fx1_ddr3/provisional_encodings.h
+    ${FX1_FW_MAP_INCLUDE}/fx1/fx1_ddr_sysctrl.h)
+
+# BootROM images (--ddr-boot firmware): crt0_rom.S + fx1_rom.ld put code and
+# read-only data in BootROM and data/stacks in SRAM; nothing in DDR.
+set(FX1_FW_ROM_LDS "${CMAKE_CURRENT_BINARY_DIR}/fx1_rom.ld")
+add_custom_command(
+    OUTPUT ${FX1_FW_ROM_LDS}
+    COMMAND ${FX1_FW_CC} -E -P -x c -DFX1_LINKER_SCRIPT -I${FX1_FW_MAP_INCLUDE}
+            ${FX1_FW_COMMON}/fx1_rom.ld.S -o ${FX1_FW_ROM_LDS}
+    DEPENDS ${FX1_FW_COMMON}/fx1_rom.ld.S ${FX1_FW_MAP_INCLUDE}/fx1/fx1_memory_map.h
+    COMMENT "fx1 fw: BootROM linker script"
+    VERBATIM)
+
+# fx1_rom_firmware(<name> SOURCES <files...> [DEFINES d...] [DEPENDS f...])
+#   -> ${CMAKE_CURRENT_BINARY_DIR}/<name>.elf, a BootROM image with the DDR3 helpers.
+#   An image that does not fit BootROM (2 MiB) or SRAM (1 MiB) fails to link.
+function(fx1_rom_firmware name)
+    cmake_parse_arguments(FW "" "" "SOURCES;DEFINES;DEPENDS" ${ARGN})
+    set(elf "${CMAKE_CURRENT_BINARY_DIR}/${name}.elf")
+    set(extra "")
+    foreach(d ${FW_DEFINES})
+        list(APPEND extra -D${d})
+    endforeach()
+    foreach(i ${FX1_FW_DDR3_INCLUDES})
+        list(APPEND extra -I${i})
+    endforeach()
+    add_custom_command(
+        OUTPUT ${elf}
+        COMMAND ${FX1_FW_CC} ${FX1_FW_CFLAGS} ${extra} -nostdlib -nostartfiles
+                -T ${FX1_FW_ROM_LDS} -Wl,--gc-sections -Wl,--no-warn-rwx-segments
+                ${FX1_FW_COMMON}/crt0_rom.S ${FX1_FW_COMMON}/fx1_fw.c ${FX1_FW_DDR3_SOURCES}
+                ${FW_SOURCES} -lgcc -o ${elf}
+        DEPENDS ${FX1_FW_COMMON}/crt0_rom.S ${FX1_FW_COMMON}/fx1_fw.c ${FX1_FW_COMMON}/fx1_fw.h
+                ${FX1_FW_ROM_LDS} ${FX1_FW_MAP_INCLUDE}/fx1/fx1_memory_map.h ${FX1_FW_DDR3_SOURCES}
+                ${FX1_FW_DDR3_DEPENDS} ${FW_SOURCES} ${FW_DEPENDS}
+        COMMENT "fx1 fw: ${name}.elf (BootROM)"
+        VERBATIM)
+    add_custom_target(fx1_fw_${name} ALL DEPENDS ${elf})
+endfunction()
+
+# fx1_boot_image(<name> APP <image> [DEFINES d...]): the BootROM loader
+# (boot/boot_loader.c) with the stripped DDR image <image>.elf embedded in
+# BootROM. The loader initializes the DDR3 controller and starts the image.
+function(fx1_boot_image name)
+    cmake_parse_arguments(B "" "APP" "DEFINES" ${ARGN})
+    set(app "${CMAKE_CURRENT_BINARY_DIR}/${B_APP}.elf")
+    set(stripped "${CMAKE_CURRENT_BINARY_DIR}/${name}.app.elf")
+    add_custom_command(
+        OUTPUT ${stripped}
+        COMMAND ${FX1_RISCV_PREFIX}objcopy --strip-all ${app} ${stripped}
+        DEPENDS ${app}
+        COMMENT "fx1 fw: ${B_APP}.elf stripped for ${name}"
+        VERBATIM)
+    set(blob "${CMAKE_CURRENT_BINARY_DIR}/${name}_app_image.S")
+    file(WRITE ${blob}
+        "/* Generated: ${B_APP}.elf embedded in BootROM for boot_loader.c. */\n"
+        "    .section .app_image, \"a\"\n    .balign 8\n"
+        "    .global fx1_app_image, fx1_app_image_end\n"
+        "fx1_app_image:\n    .incbin \"${stripped}\"\nfx1_app_image_end:\n")
+    fx1_rom_firmware(${name} SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boot/boot_loader.c ${blob}
+                     DEFINES ${B_DEFINES} DEPENDS ${stripped})
+endfunction()
+
 # fx1_smoke_test(<name> [TIMEOUT_MS ms]): build tests/<name>/main.c and run it
 # twice, with the default 1 us TLM quantum and with 10 us (plan C11: results
 # must not depend on how the hart's time is batched).
@@ -246,17 +319,23 @@ if(CDC_BUILD_TESTS)
         INCLUDES ${_rtos_includes} DEPENDS ${_rtos_depends})
     fx1_firmware(freertos_cli_hwfail SOURCES ${_rtos_sources} DEFINES HWCHECK_INJECT_FAILURE
         CFLAGS ${_rtos_cflags} INCLUDES ${_rtos_includes} DEPENDS ${_rtos_depends})
+    # Console input at the 115200 8N1 character time (87 us), starting 60 ms
+    # after CPU release. Since the harts fetch from the DDR3 controller, the
+    # boot (hart 1's IP check) takes about 26 ms and a CLI line printed with
+    # interrupts masked outlasts 16 RX characters at the default 10 us pacing:
+    # the 16-entry RX FIFO overruns (DDR3 decision log VPL-49).
+    set(_rtos_rx --uart0-rx-byte-us 87)
     foreach(quantum 1000 10000)
         fx1_expect_test(freertos_cli_q${quantum}ns IMAGE freertos_cli RC 0 TIMEOUT_MS 3000
             ARGS --quantum-ns ${quantum} --uart0-rx-file ${_rtos_dir}/tests/cli_smoke.txt
-                 --uart0-rx-delay-us 20000
+                 --uart0-rx-delay-us 60000 ${_rtos_rx}
             REGEX "total: [0-9]+ checks, 0 failures -> PASS.*root@fx1:~# .*fpu context switch: PASS.*dma copy: PASS.*isp 8-frame fixture: PASS.*nosuchcommand: unknown command.*selftest: PASS.*poweroff: 0 failed.*RESULT PASS")
     endforeach()
     # Bad md/mw input: out-of-range numbers, ranges that wrap past 4 GiB or a
     # region end, and register holes that fault on the bus must all be
     # reported by the CLI, which then keeps working (no trap, no halt).
     fx1_expect_test(freertos_cli_bad_input IMAGE freertos_cli RC 0 TIMEOUT_MS 1000
-        ARGS --uart0-rx-file ${_rtos_dir}/tests/cli_bad_input.txt --uart0-rx-delay-us 20000
+        ARGS --uart0-rx-file ${_rtos_dir}/tests/cli_bad_input.txt --uart0-rx-delay-us 60000 ${_rtos_rx}
         REGEX "md 0xfffffffc 1[\r\n]+md: address range not mapped.*md 0xfffffff0 4[\r\n]+md: address range not mapped.*md 0x100000000 1[\r\n]+usage: md.*md 99999999999 1[\r\n]+usage: md.*0x100000000[\r\n]+usage: mw.*md 0x001ffffc 2[\r\n]+md: address range not mapped.*md: bus error at 0x02008000.*md: bus error at 0x0200fffc.*md: bus error at 0x0c3ffffc.*mw: bus error at 0x02008000.*0x80000000: 0x.*0x90000000 <- 0xa5a5a5a5, reads back 0xa5a5a5a5.*0x90000000: 0xa5a5a5a5.*MTIME_LO.*poweroff: 0 failed.*RESULT PASS")
     # The boot gate: a failing IP check must stop the boot before the scheduler.
     fx1_expect_test(freertos_cli_hwcheck_fail IMAGE freertos_cli_hwfail RC 1 TIMEOUT_MS 300
@@ -319,6 +398,85 @@ if(CDC_BUILD_TESTS)
     set_tests_properties(fx1_smoke_silent_target PROPERTIES TIMEOUT 120 LABELS "fx1;fx1_smoke")
     # A fault while holding the console lock must still give FAIL 0xE005.
     fx1_expect_test(trap_in_log RC 1 REGEX "RESULT FAIL code=0xe005")
+
+    # ── DDR3 on the CPU (DDR3 VP subtask 5) ──
+    set(_ddr3_dir ${CMAKE_CURRENT_SOURCE_DIR}/tests/ddr3)
+    # Firmware-init boot from BootROM/SRAM: identity, commit reject, init, memory,
+    # region decode miss -> fault + PLIC, power, two harts.
+    fx1_rom_firmware(ddr3_fw_init SOURCES ${_ddr3_dir}/fw_init.c)
+    foreach(quantum 1000 10000)
+        fx1_expect_test(ddr3_fw_init_q${quantum}ns IMAGE ddr3_fw_init RC 0 TIMEOUT_MS 3000
+            ARGS --ddr-boot firmware --quantum-ns ${quantum}
+            REGEX "A: identity.*B: commit reject, recommit, ready.*C: word/half/byte.*D: region decode miss.*E: self-refresh.*F: two harts.*RESULT PASS")
+    endforeach()
+    # Errors and recovery with a host fault schedule (simulated time from CPU
+    # release; the firmware gets the same schedule as defines).
+    fx1_rom_firmware(ddr3_fault_recovery SOURCES ${_ddr3_dir}/fault_recovery.c
+        DEFINES FAULT_CE_MS=1000 FAULT_UE_MS=1010 FAULT_TIMEOUT_MS=1020 FAULT_FATAL_MS=2000)
+    fx1_expect_test(ddr3_fault_recovery IMAGE ddr3_fault_recovery RC 0 TIMEOUT_MS 4000
+        ARGS --ddr-boot firmware --ddr3-fault 1000000:ce:0x80100000 --ddr3-fault 1010000:ue:0x80100040
+             --ddr3-fault 1020000:read-timeout --ddr3-fault 2000000:fatal:dfi
+        REGEX "B: correctable error corrected.*C: uncorrectable error -> access fault.*D: read timeout -> quarantine.*E: cold reset \\+ re-initialization.*F: fatal hold -> core reset by hart 1 -> cold reset -> re-initialization.*RESULT PASS")
+    # The preinitialized boot (default) as firmware sees it.
+    fx1_firmware(ddr3_preinit SOURCES ${_ddr3_dir}/preinit.c ${FX1_FW_DDR3_SOURCES}
+        INCLUDES ${FX1_FW_DDR3_INCLUDES} DEFINES FAULT_CE_US=20000 FAULT_UE_US=21000
+        DEPENDS ${FX1_FW_DDR3_DEPENDS})
+    foreach(quantum 1000 10000)
+        fx1_expect_test(ddr3_preinit_q${quantum}ns IMAGE ddr3_preinit RC 0 TIMEOUT_MS 200
+            ARGS --quantum-ns ${quantum} --ddr3-fault 20000:ce:0x90000100 --ddr3-fault 21000:ue:0x90000140
+            REGEX "DDR3 preinit done.*A: platform-initialized DDR3 matches.*B: both harts.*C: correctable.*D: uncorrectable.*E: self-refresh and automatic wake.*RESULT PASS")
+    endforeach()
+    # Review S5-R1: a failed wake must not stop simulated time; recovery by the other hart.
+    fx1_rom_firmware(ddr3_power_recovery SOURCES ${_ddr3_dir}/power_recovery.c)
+    fx1_expect_test(ddr3_power_recovery IMAGE ddr3_power_recovery RC 0 TIMEOUT_MS 3000
+        ARGS --ddr-boot firmware
+        REGEX "wake timeout -> automatic wake denied, retried with back-off -> cold reset by hart 1.*re-initialized after the failed wake.*RESULT PASS")
+    fx1_rom_firmware(ddr3_wake_watchdog SOURCES ${_ddr3_dir}/wake_watchdog.c)
+    fx1_expect_test(ddr3_wake_watchdog IMAGE ddr3_wake_watchdog RC 2 TIMEOUT_MS 2000
+        ARGS --ddr-boot firmware
+        REGEX "wake watchdog: DDR read with a failing wake.*RESULT TIMEOUT after 2000 ms")
+    # Review S5-R2/R3: CPU reservations follow DDR storage, not bus names.
+    fx1_rom_firmware(ddr3_atomic_lifecycle SOURCES ${_ddr3_dir}/atomic_lifecycle.c)
+    fx1_expect_test(ddr3_atomic_lifecycle IMAGE ddr3_atomic_lifecycle RC 0 TIMEOUT_MS 4000
+        ARGS --ddr-boot firmware
+        REGEX "B: cold reset \\+ initialization voids.*C: core reset \\+ reinitialization voids.*D: CSR-driven reinitialization voids.*E: a region commit voids.*by DDR3 reset/remap [1-9].*RESULT PASS")
+    fx1_firmware(ddr3_atomic_alias SOURCES ${_ddr3_dir}/atomic_alias.c ${_at_dir}/atomic_common.c
+        ${FX1_FW_DDR3_SOURCES} INCLUDES ${_at_dir} ${FX1_FW_DDR3_INCLUDES}
+        DEPENDS ${_at_dir}/atomic_common.h ${FX1_FW_DDR3_DEPENDS})
+    foreach(quantum 1000 10000)
+        fx1_expect_test(ddr3_atomic_alias_q${quantum}ns IMAGE ddr3_atomic_alias RC 0 TIMEOUT_MS 500
+            ARGS --quantum-ns ${quantum}
+            REGEX "A: aliases share data.*B: hart store through the alias -> SC fails.*C: DMA write through the alias -> SC fails.*D: no DMA write through the alias lost.*device writes held [1-9][0-9]*.*RESULT PASS")
+    endforeach()
+    # Preinit order from a BootROM entry: the CPU starts after scrub and preload.
+    fx1_rom_firmware(ddr3_release_order SOURCES ${_ddr3_dir}/release_order.c)
+    set(_ddr3_preload ${CMAKE_CURRENT_BINARY_DIR}/ddr3_preload.txt)
+    file(WRITE ${_ddr3_preload} "FX1 DDR3 preload check: scrub -> preload -> CPU\n")
+    fx1_expect_test(ddr3_release_order IMAGE ddr3_release_order RC 0 TIMEOUT_MS 200
+        ARGS --load 0x80600000:${_ddr3_preload}
+        REGEX "CPUs released at .*preinit order: scrub -> preload -> CPU.*RESULT PASS")
+    # BootROM loader + an application copied to DDR after readiness.
+    fx1_boot_image(boot_hello APP hello_2hart)
+    fx1_expect_test(ddr3_boot_hello IMAGE boot_hello RC 0 TIMEOUT_MS 3000 ARGS --ddr-boot firmware
+        REGEX "boot: DDR3 ready.*boot: starting the application.*Hello from FX1 hart 0.*hart 1 up.*RESULT PASS")
+    fx1_boot_image(boot_freertos APP freertos_cli)
+    fx1_expect_test(ddr3_boot_freertos_cli IMAGE boot_freertos RC 0 TIMEOUT_MS 5000
+        ARGS --ddr-boot firmware --uart0-rx-file ${_rtos_dir}/tests/cli_smoke.txt
+             --uart0-rx-delay-us 1000000 ${_rtos_rx}
+        REGEX "boot: DDR3 ready.*boot: starting the application.*total: [0-9]+ checks, 0 failures -> PASS.*root@fx1:~# .*selftest: PASS.*poweroff: 0 failed.*RESULT PASS")
+    # Bring-up failures are reported from BootROM/SRAM (UART + sim-control).
+    fx1_boot_image(boot_hello_short_wait APP hello_2hart DEFINES BOOT_READY_TIMEOUT_MS=100)
+    fx1_expect_test(ddr3_boot_ready_timeout IMAGE boot_hello_short_wait RC 1 TIMEOUT_MS 3000
+        ARGS --ddr-boot firmware REGEX "DDR3 bring-up failed:.*readiness timeout.*RESULT FAIL code=0xd304")
+    fx1_expect_test(ddr3_boot_init_failure IMAGE boot_hello RC 1 TIMEOUT_MS 3000
+        ARGS --ddr-boot firmware --ddr3-fault 0:phy-fail
+        REGEX "DDR3 bring-up failed:.*initialization failed.*RESULT FAIL code=0xd305")
+    fx1_expect_test(ddr3_boot_scrub_fatal IMAGE boot_hello RC 1 TIMEOUT_MS 3000
+        ARGS --ddr-boot firmware --ddr3-fault 0:fatal:scrub
+        REGEX "DDR3 bring-up failed:.*fatal event.*RESULT FAIL code=0xd306")
+    # A DDR image cannot be booted with --ddr-boot firmware (nothing would load it).
+    fx1_expect_test(ddr3_boot_ddr_image_refused IMAGE hello_2hart RC 3 TIMEOUT_MS 200
+        ARGS --ddr-boot firmware REGEX "ERROR .*with --ddr-boot firmware the DDR is not initialized")
 else()
     fx1_firmware(hello_2hart SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/hello_2hart/main.c)
 endif()

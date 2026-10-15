@@ -304,7 +304,9 @@ int main(void)
     fx1_check(fx1_isp_stop(&dev) == 0, 0x2D, "B: stop with nothing in flight");
     fx1_log("B: IDMA AXI error -> recover, frame retried from the same input, 8 frames correct");
 
-    /* C: soft reset in the middle of a frame */
+    /* C: soft reset in the middle of a frame. C, D and E abort frames in
+     * flight: short ISP bursts keep the abort window open (isp_common.h). */
+    good.max_burst_beats = ISP_ABORT_MAX_BURST_BEATS;
     phase_result c = {0};
     uint32_t odma_before = 0;
     isp_outputs_to_device(&good);

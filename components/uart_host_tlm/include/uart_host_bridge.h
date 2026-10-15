@@ -50,6 +50,11 @@ public:
     void replay_file(const std::string& path,
                      sc_core::sc_time start_delay = sc_core::SC_ZERO_TIME);
 
+    // Optional: both backends start only once `start` is notified (a platform that
+    // releases its CPUs after a boot phase, e.g. fx1_soc DDR preinit). The replay delay
+    // then counts from that notification. Configure before sc_start().
+    void hold_until(const sc_core::sc_event& start) { hold_ = &start; }
+
     // Actual listening port (differs from the request when port 0 was asked
     // for); 0 when the TCP backend is off. For tests.
     std::uint16_t listen_port() const { return listen_port_; }
@@ -66,6 +71,7 @@ private:
 
     std::vector<unsigned char> replay_;
     sc_core::sc_time replay_delay_ = sc_core::SC_ZERO_TIME;
+    const sc_core::sc_event* hold_ = nullptr;
 
     int listen_fd_ = -1;
     int client_fd_ = -1;
