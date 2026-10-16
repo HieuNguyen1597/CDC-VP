@@ -1,0 +1,11 @@
+{
+  "source": "/home/vinhnt/Documents/CDC-VP/components/FU3_Components/DMA0/AP_DMA/src/ap_dma.cpp",
+  "lines_total": 315,
+  "lines_executed": 314,
+  "branch_directions_total": 526,
+  "branch_directions_taken": 418,
+  "uncovered_lines": [
+    15
+  ],
+  "scope": "Implementation coverage; does not measure missing spec features. Branch directions include compiler-generated exception paths."
+}

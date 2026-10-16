@@ -1,0 +1,12 @@
+{
+  "source": "/home/vinhnt/Documents/CDC-VP/components/FU3_Components/DMA0/AP_DMA/src/ap_dma.cpp",
+  "lines_total": 437,
+  "lines_executed": 435,
+  "branch_directions_total": 1002,
+  "branch_directions_taken": 774,
+  "uncovered_lines": [
+    16,
+    20
+  ],
+  "scope": "Implementation code coverage, not percentage of HDS requirements verified."
+}

@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Linux-c++"
+	tests="13"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname="hw-machine"
+	time="0"
+	timestamp="2026-10-16T16:51:17"
+	>
+	<testcase name="fu3_ap_dma_registers" classname="fu3_ap_dma_registers" time="0.00391029" status="run">
+		<properties/>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+Register/reset errors: 0
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_m2m" classname="fu3_ap_dma_m2m" time="0.00542254" status="run">
+		<properties/>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+M2M errors: 0
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_peripheral" classname="fu3_ap_dma_peripheral" time="0.00664408" status="run">
+		<properties/>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+Peripheral errors: 0
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_endian" classname="fu3_ap_dma_endian" time="0.0209521" status="run">
+		<properties/>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+Endian errors: 0
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_matrix" classname="fu3_ap_dma_matrix" time="0.0846873" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;functional"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+matrix: checks=404042 transfers=544 bus_calls=23598 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_errors" classname="fu3_ap_dma_errors" time="0.00422126" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;functional"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+errors: checks=2547 transfers=14 bus_calls=125 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_decode" classname="fu3_ap_dma_decode" time="0.00445702" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;functional"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+decode: checks=4358 transfers=0 bus_calls=0 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_ids" classname="fu3_ap_dma_ids" time="0.00755366" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;functional"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+ids: checks=9127 transfers=124 bus_calls=434 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_channels" classname="fu3_ap_dma_channels" time="0.00653633" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;functional"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+channels: checks=15759 transfers=8 bus_calls=768 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_handshake" classname="fu3_ap_dma_handshake" time="0.00476083" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;functional"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+handshake: checks=2566 transfers=34 bus_calls=116 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_random_61443" classname="fu3_ap_dma_random_61443" time="0.18058" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;random"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=61443
+random: checks=845923 transfers=600 bus_calls=50791 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_random_24301" classname="fu3_ap_dma_random_24301" time="0.156586" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;random"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=24301
+random: checks=759993 transfers=600 bus_calls=45483 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_random_20261016" classname="fu3_ap_dma_random_20261016" time="0.174261" status="run">
+		<properties>
+			<property name="cmake_labels" value="fu3;random"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+SystemC=SystemC 2.3.4-Accellera --- Oct 16 2026 16:07:36 seed=20261016
+random: checks=886176 transfers=600 bus_calls=53655 errors=0
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+</testsuite>

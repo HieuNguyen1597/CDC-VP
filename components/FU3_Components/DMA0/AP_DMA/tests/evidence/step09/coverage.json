@@ -1,0 +1,31 @@
+{
+  "scope": "Instrumented model and functional adapter code, not HDS conformance or RTL coverage.",
+  "files": {
+    "core": {
+      "source": "/home/vinhnt/Documents/CDC-VP/components/FU3_Components/DMA0/AP_DMA/src/ap_dma.cpp",
+      "lines_total": 530,
+      "lines_executed": 525,
+      "branch_directions_total": 1211,
+      "branch_directions_taken": 946,
+      "uncovered_lines": [
+        16,
+        20,
+        28,
+        241,
+        251
+      ],
+      "line_percent": 99.06,
+      "branch_direction_percent": 78.12
+    },
+    "adapter": {
+      "source": "/home/vinhnt/Documents/CDC-VP/components/FU3_Components/DMA0/AP_DMA/include/fu3/dma/peripheral_adapter.h",
+      "lines_total": 22,
+      "lines_executed": 22,
+      "branch_directions_total": 120,
+      "branch_directions_taken": 79,
+      "uncovered_lines": [],
+      "line_percent": 100.0,
+      "branch_direction_percent": 65.83
+    }
+  }
+}

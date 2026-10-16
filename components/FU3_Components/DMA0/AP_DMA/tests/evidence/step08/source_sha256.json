@@ -1,0 +1,8 @@
+{
+  "src/ap_dma.cpp": "7378e89cfa036ec255afd43ed268816c50148db33d2591aae3990da6092c2687",
+  "include/fu3/dma/ap_dma.h": "ad587a719f4396d740211f394b46657a7602c425de625b70c42382a0fc5cb23b",
+  "include/fu3/dma/transfer_extension.h": "408d7b8ee21b50098d4797fc258db137a09b7dcf85edc7052cc7dab86185fe54",
+  "tests/test_engines.cpp": "a2482f2452d3b4959b3cc7b52e0f055283ee8dfd9b03a775c7eb81d232a87b0c",
+  "tests/regression_bench.h": "b08636a004399a121819238fe036b79e465d4b021132df080e854dc598fb8a0e",
+  "CMakeLists.txt": "4debdef43de88c2efa3e70f67e3d6e5ec303210e405abd8231edc6ee9ebbe28b"
+}

@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-16",
+  "systemc": "2.3.4",
+  "compiler": "GCC 13.3.0",
+  "language": "C++17",
+  "results": {
+    "functional": {
+      "tests": 33,
+      "failures": 0,
+      "skipped": 0
+    },
+    "ubsan": {
+      "tests": 33,
+      "failures": 0,
+      "skipped": 0
+    },
+    "coverage_run": {
+      "tests": 33,
+      "failures": 0,
+      "skipped": 0
+    }
+  }
+}

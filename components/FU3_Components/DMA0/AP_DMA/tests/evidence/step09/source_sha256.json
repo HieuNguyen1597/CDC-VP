@@ -1,0 +1,16 @@
+{
+  "CMakeLists.txt": "5ab65c6d57dddcba52a5288bd83eb53fa8ed312ca5819b650defc2e75ed58cbf",
+  "include/fu3/dma/ap_dma.h": "677b1b0ac057a7958747e81ad10b68ccbb797856ba035761c294ba8399cbfbad",
+  "include/fu3/dma/peripheral_adapter.h": "a118b4529395b20a4f9077c4b3177376039b1a24851e29c02b150ebcc9678dda",
+  "include/fu3/dma/transfer_extension.h": "9ad95503607d387261369c6083a760f8b3ed45abee16c5a3db5e9aac297f2be0",
+  "src/ap_dma.cpp": "8e9f5ba0c91d392224f688166fe28e444aa1e7fad0c9e185a7fd9ba5292f239f",
+  "tests/regression_bench.h": "c0210751942098d7346a87d208018f905abfbcc8ddc2fa98c48e98a15a29d57d",
+  "tests/test_adapter.cpp": "70c732314be5608677259bd46e099e9289998464ba1e29cf55f65fbda301373d",
+  "tests/test_endian.cpp": "5be173a5f7163f4ddfedd32d0ff373c6e07cdfb0c551e1b8aafb4f24b0b689ab",
+  "tests/test_engines.cpp": "ad76ff1ccfaa927f37c3b292f2efb6badf5ef544d0f6df64b46a60e97d71a6b6",
+  "tests/test_m2m.cpp": "2a94128523124e22897b6fafe89c409fb33e99a577e3ac5bb5db6d44fd50d49e",
+  "tests/test_peripheral.cpp": "64d9d6cc3c9e4c81f89c8c36b7b6d8a95d1778d194db1ad509fa8f14db7fbed9",
+  "tests/test_registers.cpp": "ea81a71b383843be1a2de674a7494ce21c73e1bfeec06da548d48fe61f55e108",
+  "tests/test_regression.cpp": "7c24f7a325bbfceb388b209737b2a315454314a6c9f643d75f532e4ef4fde7e6",
+  "tests/test_review.cpp": "fe392a71145d65e4bb8b823f946c791f4a8f2935c19173cc5148a88d24eae9cf"
+}
