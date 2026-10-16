@@ -4,7 +4,13 @@
  * Writing a byte to TXDATA emits one character through uart_tlm.
  */
 
-#define UART_TX (*(volatile unsigned char *)0x10000000u)
+
+// Default: UART của riscv_cpu_eval
+// FU3: build với -DUART_BASE=0x440D0000u (UART0)
+#ifndef UART_BASE
+#define UART_BASE 0x10000000u
+#endif
+#define UART_TX (*(volatile unsigned char *)UART_BASE)
 
 static void uart_puts(const char *s)
 {

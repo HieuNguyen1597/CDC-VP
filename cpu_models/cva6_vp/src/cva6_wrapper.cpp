@@ -19,6 +19,34 @@ struct stub_clint : public clint_if {
     }
 };
 
+// Đổi chữ cái extension cần bỏ thành mask misa của ISS (mặc định IMACF + NUS).
+// Bitmanip (Bảng 8-1 dòng 8, RVB = 1) không có trong ISS Bremen nên không bật được.
+static std::uint32_t misa_mask_from_letters(const std::string& letters) {
+    std::uint32_t mask = 0;
+    for (char c : letters) {
+        switch (c) {
+            case 'A': mask |= rv32::csr_misa::A; 
+                break;
+            case 'C': mask |= rv32::csr_misa::C; 
+                break;
+            case 'D': mask |= rv32::csr_misa::D; 
+                break;
+            case 'F': mask |= rv32::csr_misa::F; 
+                break;
+            case 'M': mask |= rv32::csr_misa::M; 
+                break;
+            case 'N': mask |= rv32::csr_misa::N; 
+                break;
+            case 'S': mask |= rv32::csr_misa::S; break;
+            case 'U': mask |= rv32::csr_misa::U; 
+                break;
+            default:
+                throw std::invalid_argument(std::string("Cannot disable extension '") + c + "'");
+        }
+    }
+    return mask;
+}
+
 struct CVA6_InstrAdapter : public rv32::instr_memory_if {
     tlm_utils::simple_initiator_socket<cva6_wrapper, 32>& i_socket;
 
@@ -43,7 +71,9 @@ struct CVA6_InstrAdapter : public rv32::instr_memory_if {
 
         if (trans.is_response_error()) {
             // Nếu Bus báo lỗi, ném ngoại lệ để ISS bắt thành trap Access Fault
-            throw std::runtime_error("Bus error luc fetch lenh tai dia chi: " + std::to_string(addr));
+            // throw std::runtime_error("Bus error luc fetch lenh tai dia chi: " + std::to_string(addr));
+            // ISS chỉ bắt SimulationTrap, runtime_error làm dừng cả VP thay vì sinh trap.
+            raise_trap(EXC_INSTR_ACCESS_FAULT, addr);   // mcause 1
         }
         return instruction;
     }
@@ -85,7 +115,11 @@ struct CVA6_DataAdapter : public rv32::data_memory_if {
         d_socket->b_transport(trans, delay);
 
         if (trans.is_response_error()) {
-            throw std::runtime_error("Data Bus error tai dia chi: " + std::to_string(addr));
+            // throw std::runtime_error("Data Bus error tai dia chi: " + std::to_string(addr));
+            // ISS chỉ bắt SimulationTrap, runtime_error làm dừng cả VP thay vì sinh trap.
+            raise_trap(cmd == tlm::TLM_READ_COMMAND ? EXC_LOAD_ACCESS_FAULT        // mcause 5
+                                                    : EXC_STORE_AMO_ACCESS_FAULT,  // mcause 7
+                       addr);
         }
     }
 
@@ -149,7 +183,8 @@ struct CVA6_DataAdapter : public rv32::data_memory_if {
     }
     bool atomic_store_conditional_word(uint64_t addr, uint32_t value) override {
         tlm_access(addr, (uint8_t*)&value, 4, tlm::TLM_WRITE_COMMAND);
-        return true; // VP chạy single-core nên SC luôn báo thành công
+        return true;    // VP chạy single-core nên SC luôn báo thành công
+                        // FU3: RVA = 0 nên LR/SC/AMO báo illegal => hàm này không được gọi.
     }
     void atomic_unlock() override {}
     
@@ -178,26 +213,31 @@ struct cva6_wrapper::impl {
     // Con trỏ chứa ISS
     std::unique_ptr<rv32::ISS> iss_core;
 
-    impl(const cpu_config& config) : i_socket("i_socket"), 
-                                   d_socket("d_socket"),
-                                   instr_adapter(i_socket),  // i_socket cho Fetch
-                                   data_adapter(d_socket)    // d_socket cho Data
+    impl(const cpu_config& config, const std::string& disable_extensions) : i_socket("i_socket"), 
+                                                                            d_socket("d_socket"),
+                                                                            instr_adapter(i_socket),  // i_socket cho Fetch
+                                                                            data_adapter(d_socket)    // d_socket cho Data
     {
         // VP++ đòi hỏi truyền hart_id vào constructor
         // Truyền giá trị hart_id từ cfg vào, tham số thứ 2 (use_E_base_isa) để mặc định là false
         iss_core = std::make_unique<rv32::ISS>(config.hart_id, false);
+        // ISS kiểm tra bit misa khi Decode => Extension bị bỏ sẽ báo Illegal Instruction.
+        iss_core->csrs.misa.fields.extensions &= ~misa_mask_from_letters(disable_extensions);
     }
 };
 
-cva6_wrapper::cva6_wrapper(sc_core::sc_module_name name, const cpu_config& config)
-    : cpu_base(name, config), impl_(std::make_unique<impl>(config)) {
+cva6_wrapper::cva6_wrapper(sc_core::sc_module_name name, const cpu_config& config,
+                           const std::string& disable_extensions)
+    : cpu_base(name, config), impl_(std::make_unique<impl>(config, disable_extensions)) {
 
     if (config.xlen != 32) {
         throw std::runtime_error("Invalid XLEN value. Must be 32.");
     } 
-    if (!config.has_mmu) {
-        throw std::runtime_error("Boot Linux requires MMU support.");
-    }
+    /* if (!config.has_mmu) {
+          throw std::runtime_error("Boot Linux requires MMU support.");
+        } */ 
+    //   FU3 có MmuPresent = 0 nên phải chạy được khi has_mmu = false
+    //   Wrapper cũng chưa nối page-table walker => has_mmu = true trước đây chưa có tác dụng.
 
     SC_HAS_PROCESS(cva6_wrapper);
     SC_THREAD(run);
@@ -218,6 +258,12 @@ void cva6_wrapper::set_irq(unsigned cause, bool level) {
         impl_->iss_core->trigger_timer_interrupt(level);
     } else if (cause == 3) {
         impl_->iss_core->trigger_software_interrupt(level);
+    } else if (cause == 11) {
+        if (level) {
+            impl_->iss_core->trigger_external_interrupt(MachineMode);
+        } else {
+            impl_->iss_core->clear_external_interrupt(MachineMode);
+        }
     }
 }
 
@@ -228,7 +274,10 @@ void cva6_wrapper::load_elf(const std::string& path) {
 }
 
 void cva6_wrapper::reset_cpu() {
-    uint64_t start_pc = cfg.reset_pc_specified() ? cfg.reset_pc : 0x80000000;
+    // uint64_t start_pc = cfg.reset_pc_specified() ? cfg.reset_pc : 0x80000000;
+    // Dòng code trên chỉ đúng khi start_of_simulation ghi đè cfg.reset_pc (C8). Do nay không ghi đè nữa => Không dùng
+    uint64_t start_pc = cfg.reset_pc_specified() ? cfg.reset_pc
+                      : (elf_loaded_ ? elf_entry_pc_ : 0x80000000);   
 
     std::cout << "[CVA6] reset PC = 0x" << std::hex << start_pc << std::dec << std::endl;
     
@@ -237,7 +286,8 @@ void cva6_wrapper::reset_cpu() {
         &(impl_->data_adapter),
         &(impl_->clint),
         start_pc,
-        0x80010000 
+        0x80010000  // Spec FU3 không định nghĩa sp lúc reset (CPU thật không khởi tạo x2).
+                    // FW FU3 phải tự đặt sp trong crt0 (fu3_cva6_smoke làm: la sp, _stack_top).
     );
 }
 
@@ -259,23 +309,49 @@ void cva6_wrapper::start_of_simulation() {
     /* if (elf_path_.empty()) {
         // elf_path_ = "../fw/hello_baremetal_riscv/hello.elf";
         // elf_path_ = "../fw/uart_test_riscv/uart_test.elf";
+        // elf_path_ = "..fw/timer_irq_riscv/timer_irq.elf";
         
     } */
     
     if (!elf_path_.empty()) {
         std::cout << "Loading Firmware from: " << elf_path_ << std::endl;
         // Lúc này cáp Bus đã nối xong, ta mới bơm dữ liệu và lấy entry_pc chuẩn
-        cfg.reset_pc = cdc::cpu::load_elf(impl_->d_socket, elf_path_);
+        // cfg.reset_pc = cdc::cpu::load_elf(impl_->d_socket, elf_path_);
+        // Dòng trên không dùng vì ghi đè vector reset do platform đặt (FU3 boot_addr_i = 0x0001_0000)
+        elf_entry_pc_ = cdc::cpu::load_elf(impl_->d_socket, elf_path_);
+        elf_loaded_ = true;
     }
     // Gọi reset 1 lần duy nhất ở đây
     reset_cpu();
     initialised_ = true;
 }
 
+void cva6_wrapper::set_reset(bool asserted) {
+    if (asserted) {
+        in_reset_ = true;             // CPU dừng ở ranh giới vòng 1000 lệnh kế tiếp
+        return;
+    }
+    if (!in_reset_) {
+        return;
+    }
+    if (initialised_) {               // Trước start_of_simulation thì để nó tự reset sau khi nạp ELF
+        reset_cpu();
+    }
+    in_reset_ = false;
+    if (sc_core::sc_is_running()) {
+        reset_released_.notify(sc_core::SC_ZERO_TIME);
+    }
+}
+
+
 void cva6_wrapper::run() {
     sc_core::wait(sc_core::SC_ZERO_TIME); 
     while (true) {
-        for (int i = 0; i < 1000; i++) {
+        if (in_reset_) {                      // FU3: chờ Ibex nhả reset 
+            sc_core::wait(reset_released_);
+            continue;
+        }
+        for (int i = 0; i < 1000 && !in_reset_; i++) {
             impl_->iss_core->run_step();
         }
         sc_core::wait(10, sc_core::SC_US); 

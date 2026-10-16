@@ -1,4 +1,10 @@
+// Default: UART của riscv_cpu_eval
+// FU3: build với -DUART_BASE=0x440D0000u (UART0)
+
+#ifndef UART_BASE
 #define UART_BASE             0x10000000u
+#endif
+
 #define UART_DR_ADDR          (UART_BASE + 0x000u)
 #define UART_FR_ADDR          (UART_BASE + 0x018u)
 

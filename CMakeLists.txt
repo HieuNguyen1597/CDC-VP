@@ -57,6 +57,8 @@ option(CDC_BUILD_RISCV_VPP_COMPILER_VP
 # components/FX1_Components. Off by default so existing builds are untouched;
 # see platforms/fx1_soc/README.md.
 option(CDC_BUILD_FX1_SOC "Build the FX1 SoC platform (VP++ harts + FX1 bus)" OFF)
+# FU3: CVA6 trên ISS Bremen (cpu_models/cva6_vp). Platform FU3 sẽ dùng chung switch này.
+option(CDC_BUILD_FU3_SOC "Build the FU3 SoC components (CVA6 on the Bremen ISS)" OFF)
 
 # The matrix-engine geometry this binary is built for. It replaces the retired
 # TPU_V3_MXU_BACKEND: after D14 the selectable property is not which of two
@@ -142,7 +144,7 @@ endif()
 # composition silently never built. Nothing in components/ depended on
 # cpu_models/ before this, so moving it earlier changes no existing build.
 if(CDC_BUILD_CPU_EVAL OR CDC_BUILD_CUSTOM_SOC OR CDC_BUILD_TPU_V3_SOC
-   OR CDC_BUILD_RISCV_VPP_COMPILER_VP OR CDC_BUILD_FX1_SOC)
+   OR CDC_BUILD_RISCV_VPP_COMPILER_VP OR CDC_BUILD_FX1_SOC OR CDC_BUILD_FU3_SOC)
     add_subdirectory(cpu_models)
 endif()
 add_subdirectory(components)

@@ -9,10 +9,19 @@
  * drops before mret and the interrupt is taken once per timer event.
  */
 
-#define UART_TX     (*(volatile unsigned char *)0x10000000u)
-#define TIMER_CTRL      (*(volatile unsigned int  *)0x10010000u)
-#define TIMER_RELOAD    (*(volatile unsigned int  *)0x10010008u)
-#define TIMER_INTSTATUS (*(volatile unsigned int  *)0x1001000Cu)
+// Default: riscv_cpu_eval.
+// FU3: -DUART_BASE=0x440D0000u -DTIMER_BASE=0x44060000u (TIMER0)
+#ifndef UART_BASE
+#define UART_BASE 0x10000000u
+#endif
+#ifndef TIMER_BASE
+#define TIMER_BASE 0x10010000u
+#endif
+
+#define UART_TX         (*(volatile unsigned char *)UART_BASE)
+#define TIMER_CTRL      (*(volatile unsigned int  *)(TIMER_BASE + 0x0u))
+#define TIMER_RELOAD    (*(volatile unsigned int  *)(TIMER_BASE + 0x8u))
+#define TIMER_INTSTATUS (*(volatile unsigned int  *)(TIMER_BASE + 0xCu))
 #define TIMER_ENABLE    0x1u
 #define TIMER_INTR_EN   0x8u
 
@@ -29,7 +38,7 @@ static void uart_puts(const char *s)
 static volatile int fired = 0;
 
 /* The "interrupt" attribute makes GCC emit the register save/restore and mret. */
-void __attribute__((interrupt("machine"))) trap_handler(void)
+void __attribute__((interrupt("machine"), aligned(4))) trap_handler(void)
 {
     TIMER_INTSTATUS = 1u;     /* clear at the device first (timer_tlm acts on a
                                  clear only while enabled): MTIP drops */

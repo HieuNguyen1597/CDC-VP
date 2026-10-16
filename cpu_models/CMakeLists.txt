@@ -14,7 +14,7 @@ target_link_libraries(cdc_cpu_base INTERFACE SystemC::systemc)
 # absent. TPU_V3 uses its own backend, so a TPU_V3-only build must not be made
 # to require a checkout it never links.
 if(CDC_BUILD_CPU_EVAL OR CDC_BUILD_CUSTOM_SOC OR CDC_BUILD_NOC_SOC
-   OR CDC_BUILD_MINI_TLM)
+   OR CDC_BUILD_MINI_TLM OR CDC_BUILD_FU3_SOC)
     if(CDC_CPU_BACKEND STREQUAL "riscv_vp")
         add_subdirectory(riscv_vp)
     else()
@@ -51,8 +51,8 @@ if(CDC_BUILD_TPU_V3_SOC OR CDC_BUILD_RISCV_VPP_COMPILER_VP OR CDC_BUILD_FX1_SOC)
     endif()
 endif()
 
-# The CVA6 wrapper is built on the Bremen `riscv_vp` target and is only used by
-# riscv_cpu_eval, so it follows the same guard; a VP++-only build (TPU_V3, FX1)
+# The CVA6 wrapper is built on the Bremen `riscv_vp` target and is used by
+# riscv_cpu_eval and FU3, so it follows the same guard; a VP++-only build (TPU_V3, FX1)
 # must not need the Bremen checkout.
 if(TARGET riscv_vp)
     add_subdirectory(cva6_vp)

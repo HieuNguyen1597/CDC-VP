@@ -1,21 +1,40 @@
+# Cross-compile the UART TX test.
+#   PLATFORM=cpu_eval (mặc định): riscv_cpu_eval, RAM 0x8000_0000, UART 0x1000_0000.
+#   PLATFORM=fu3: CVA6_ISRAM 0x0001_0000, UART0 0x440D_0000 (Bảng 10-1), RV32IMC (RVA = 0, Bảng 8-1).
+# Requires the RISC-V toolchain on PATH (source tools/setup_env.sh).
+
 CROSS   ?= riscv-none-elf-
 CC      := $(CROSS)gcc
 OBJDUMP := $(CROSS)objdump
 
-ARCH    := -march=rv32imac_zicsr -mabi=ilp32
-CFLAGS  := $(ARCH) -Os -ffreestanding -nostdlib -fno-pic -Wall -Wextra
-LDFLAGS := -T linker.ld -Wl,--gc-sections
+PLATFORM ?= cpu_eval
+NAME     := uart_test
+
+ifeq ($(PLATFORM),fu3)
+ARCH    := -march=rv32imc_zicsr -mabi=ilp32
+LDSCRIPT := ../fu3_cva6_smoke/linker.ld
+DEFS     := -DUART_BASE=0x440D0000u
+TARGET   := $(NAME)_fu3.elf
+else
+ARCH     := -march=rv32imac_zicsr -mabi=ilp32
+LDSCRIPT := linker.ld
+DEFS     :=
+TARGET   := $(NAME).elf
+endif
+
+CFLAGS  := $(ARCH) -Os -ffreestanding -nostdlib -fno-pic -Wall -Wextra $(DEFS)
+
+LDFLAGS := -T $(LDSCRIPT) -Wl,--gc-sections
 
 SRCS   := startup.S src/main.c
-TARGET := uart_test.elf
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) linker.ld
-	$(CC) $(CFLAGS) $(LDFLAGS) startup.S src/main.c -o $@
-	$(OBJDUMP) -d $@ > uart_test.dis
+$(TARGET): $(SRCS) $(LDSCRIPT) Makefile
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@
+	$(OBJDUMP) -d $@ > $(basename $@).dis
 
 clean:
-	rm -f $(TARGET) uart_test.dis
+	rm -f $(NAME).elf $(NAME).dis $(NAME)_fu3.elf $(NAME)_fu3.dis
 
 .PHONY: all clean
