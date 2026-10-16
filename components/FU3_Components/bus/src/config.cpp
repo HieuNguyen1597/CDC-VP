@@ -1,0 +1,101 @@
+#include "fu3_bus/config.h"
+#include <limits>
+#include <stdexcept>
+#include <unordered_set>
+
+namespace fu3_bus {
+BusConfig BusConfig::fu3() {
+    BusConfig c;
+    c.initiators = {{"CVA6",2,false,true,256}, {"IBEX",2,false,true,256},
+                    {"DBG",1,false,true,256,true}, {"DMA0",4,true,true,16}};
+    using P = TargetPath;
+    c.targets = {
+        {"ROM",0x00000000,0x1000,P::SysBus1Axi,true},
+        {"CVA6_ISRAM",0x00010000,0x10000,P::SysBus1Axi,true},
+        {"IBEX_ISRAM",0x00020000,0x10000,P::SysBus1Axi,true},
+        {"DSRAM",0x01000000,0x10000,P::SysBus1Axi,true},
+        {"IBEX_DBG",0x1A110000,0x1000,P::SysBus1Axi,true},
+        {"QSPI_XIP",0x30000000,0x20000,P::SysBus0Axi,true},
+        {"EDHOC_OSCORE",0x30100000,0x10000,P::SysBus0Axi,true},
+        {"AES",0x40000000,0x10000,P::SysBus0Axi,true},
+        {"AP_PLIC",0x40100000,0x10000,P::Peribus1Apb,true},
+        {"HYPERBUS",0x60000000,0x2000000,P::SysBus1Axi,true}
+    };
+    const char* p0[] = {"AP_QSPIC","SYSCSR","AP_DMA","RNG","MAILBOX_IBEX",
+        "WDT0","TIMER0","TIMER1","WDT1",nullptr,nullptr,"SPI1","SPI0","UART0","UART1","GPIOC"};
+    for(unsigned i=0;i<16;++i) if(p0[i])
+        c.targets.push_back({p0[i],0x44000000ULL+i*0x10000ULL,0x10000,P::Peribus0Apb,true});
+    const char* p1[] = {"CRM","MAILBOX_CVA6","GPIOA","GPIOB","UART2","TIMER2",
+        "TIMER3","I2C","SPI2","ADC","AP_HBCTRL","SPI3"};
+    for(unsigned i=0;i<12;++i)
+        c.targets.push_back({p1[i],0x50010000ULL+i*0x10000ULL,0x10000,P::Peribus1Apb,true});
+    for (auto& t : c.targets) {
+        if (t.name=="CVA6_ISRAM" || t.name=="IBEX_ISRAM" || t.name=="DSRAM" || t.name=="AES")
+            t.outstanding=4;
+        t.word_interface=t.name=="ROM" || t.name=="CVA6_ISRAM" || t.name=="IBEX_ISRAM" ||
+            t.name=="DSRAM" || t.name=="AES" || t.name=="QSPI_XIP" || t.name=="HYPERBUS" || t.name=="AP_PLIC";
+        if (t.name == "ROM") t.access = AccessPolicy::BootRom;
+        if (t.name == "CVA6_ISRAM") t.access = AccessPolicy::Cva6Program;
+        if (t.name == "DSRAM") t.access = AccessPolicy::DataOnly;
+    }
+    return c;
+}
+void BusConfig::validate() const {
+    if (axi_data_width != 32)
+        throw std::invalid_argument("This bus supports 32-bit data only");
+    if (arbitration != ArbitrationPolicy::Fifo)
+        throw std::invalid_argument("Only FIFO arbitration is supported");
+    if (axi_address_width != 32)
+        throw std::invalid_argument("FU3 requires a 32-bit address map");
+    if (initiators.empty())
+        throw std::invalid_argument("At least one initiator is required");
+
+    std::unordered_set<std::string> names;
+    for (const auto& initiator : initiators) {
+        if (!initiator.outstanding || !initiator.max_beats)
+            throw std::invalid_argument("Zero admission limit: " + initiator.name);
+        if (initiator.name.empty() || !names.insert(initiator.name).second)
+            throw std::invalid_argument("Empty or duplicate initiator: " + initiator.name);
+    }
+    names.clear();
+    std::vector<const TargetConfig*> active;
+    // end is exclusive; an interval ending at 2^64 cannot be represented.
+    const auto max_address = std::numeric_limits<std::uint64_t>::max();
+    const auto limit = axi_address_width == 64 ? max_address
+                                               : (std::uint64_t{1} << axi_address_width);
+    for (const auto& target : targets) {
+        if (target.name.empty() || !names.insert(target.name).second)
+            throw std::invalid_argument("Empty or duplicate target: " + target.name);
+        switch (target.path) {
+        case TargetPath::SysBus1Axi:
+        case TargetPath::SysBus0Axi:
+        case TargetPath::Peribus0Apb:
+        case TargetPath::Peribus1Apb: break;
+        default: throw std::invalid_argument("Invalid target path: " + target.name);
+        }
+        if (!target.outstanding) throw std::invalid_argument("Zero target admission limit: " + target.name);
+        if (target.word_interface && (target.base%4 || target.size%4))
+            throw std::invalid_argument("Word interface must have aligned boundaries: " + target.name);
+        if (!target.enabled) continue;
+        if (target.access != AccessPolicy::Open && target.access != AccessPolicy::BootRom &&
+            target.access != AccessPolicy::Cva6Program && target.access != AccessPolicy::DataOnly)
+            throw std::invalid_argument("Invalid access policy: " + target.name);
+        if (!target.size || target.base > max_address - target.size)
+            throw std::invalid_argument("Invalid target range: " + target.name);
+        const auto end = target.base + target.size;
+        const bool apb = target.path == TargetPath::Peribus0Apb ||
+                         target.path == TargetPath::Peribus1Apb;
+        if (apb && target.base % 4)
+            throw std::invalid_argument("APB target base must be word aligned: " + target.name);
+        if (axi_address_width < 64 && end > limit)
+            throw std::invalid_argument("Target exceeds address width: " + target.name);
+        for (const auto* other : active) {
+            if (target.base < other->base + other->size && other->base < end)
+                throw std::invalid_argument("Overlapping target: " + target.name);
+        }
+        active.push_back(&target);
+    }
+    if (active.empty())
+        throw std::invalid_argument("At least one enabled target is required");
+}
+} // namespace fu3_bus

@@ -45,3 +45,6 @@ output/
 # to; the screening tools set `dont_write_bytecode`, and this covers the rest.
 __pycache__/
 *.pyc
+
+# Local FU3 hardware architecture documentation.
+/components/FU3_Components/FU3_Hardware_Architecture_Specification_v2.0.pdf
