@@ -25,8 +25,15 @@ struct TransferExtension : tlm::tlm_extension<TransferExtension> {
     std::uint32_t faults = NoFault;
     BusPhase phase = BusPhase::ReadData;
     sc_core::sc_time phase_started = sc_core::SC_ZERO_TIME;
+    // Longest completed interval for each phase in this payload. Keep these
+    // observations when a transition precedes the scheduler at the same time.
+    std::array<sc_core::sc_time, 5> completed_phase_durations{};
     sc_core::sc_event* phase_changed = nullptr;
     void enter_phase(BusPhase next) {
+        const auto index = static_cast<unsigned>(phase);
+        const auto elapsed = sc_core::sc_time_stamp() - phase_started;
+        if (index < completed_phase_durations.size() && elapsed > completed_phase_durations[index])
+            completed_phase_durations[index] = elapsed;
         phase = next;
         phase_started = sc_core::sc_time_stamp();
         if (phase_changed) phase_changed->notify(sc_core::SC_ZERO_TIME);

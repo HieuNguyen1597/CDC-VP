@@ -52,8 +52,6 @@ private:
         bool active = false, fault = false, need_command = false, fetching = false;
         unsigned read_pending = 0, write_pending = 0;
         sc_core::sc_time progress = sc_core::SC_ZERO_TIME;
-        sc_core::sc_time read_ready = sc_core::SC_ZERO_TIME;
-        sc_core::sc_time write_ready = sc_core::SC_ZERO_TIME;
     };
     struct Job {
         bool busy = false, done = false, descriptor = false, timed_out = false;
@@ -83,6 +81,7 @@ private:
     sc_core::sc_time peripheral_cycle_;
     std::uint32_t rx_blocked_ = 0, tx_blocked_ = 0;
     std::array<sc_core::sc_time, 32> rx_until_{}, tx_until_{};
+    std::array<sc_core::sc_time, 32> rx_ready_{}, tx_ready_{};
     void requests_changed();
     bool request_ready(unsigned id, bool read) const;
     void acknowledge(unsigned channel, unsigned id, bool read);
@@ -92,6 +91,7 @@ private:
     unsigned select(bool read);
     bool issue(bool read);
     bool retire(bool read);
+    void check_timeout(bool read, Job& job);
     void worker(bool read, unsigned slot);
     void read0(); void read1(); void read2(); void read3();
     void write0(); void write1(); void write2(); void write3();

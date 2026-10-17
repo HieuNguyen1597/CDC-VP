@@ -56,6 +56,8 @@ void ApDma::reset_registers() {
     rx_blocked_ = tx_blocked_ = 0;
     rx_until_.fill(sc_core::SC_ZERO_TIME);
     tx_until_.fill(sc_core::SC_ZERO_TIME);
+    rx_ready_.fill(sc_core::SC_ZERO_TIME);
+    tx_ready_.fill(sc_core::SC_ZERO_TIME);
     pulse_changed_.cancel();
     state_changed_.notify(sc_core::SC_ZERO_TIME);
 }
@@ -92,8 +94,10 @@ bool ApDma::request_ready(unsigned id, bool read) const {
     const auto blocked = read ? rx_blocked_ : tx_blocked_;
     const auto software = read ? software_rx_ : software_tx_;
     const auto until = read ? rx_until_[id] : tx_until_[id];
+    const auto ready = read ? rx_ready_[id] : tx_ready_[id];
     return !((read ? rx_owned_ : tx_owned_) & (1u << id)) &&
-           until <= sc_core::sc_time_stamp() && (((external & ~blocked) | software) & (1u << id));
+           std::max(until, ready) <= sc_core::sc_time_stamp() &&
+           (((external & ~blocked) | software) & (1u << id));
 }
 void ApDma::acknowledge(unsigned n, unsigned id, bool read) {
     const auto bit = 1u << id;
@@ -106,7 +110,9 @@ void ApDma::acknowledge(unsigned n, unsigned id, bool read) {
     until = sc_core::sc_time_stamp() + peripheral_cycle_;
     const auto pc = channels_[n].words[0x20/4];
     const auto delay = (pc >> (read ? 8 : 24)) & 7;
-    (read ? channels_[n].read_ready : channels_[n].write_ready) =
+    // Recovery belongs to the endpoint, including when the next service uses
+    // another channel or a new command. Clear pulse width remains one cycle.
+    (read ? rx_ready_[id] : tx_ready_[id]) =
         sc_core::sc_time_stamp() + peripheral_cycle_ * double(delay);
     state_changed_.notify(sc_core::SC_ZERO_TIME);
 }
@@ -286,7 +292,6 @@ void ApDma::load_command(unsigned n) {
     ch.used = ch.read_reserved = ch.write_reserved = ch.swap_count = 0;
     ch.need_command = ch.fetching = false;
     ch.progress = sc_core::sc_time_stamp();
-    ch.read_ready = ch.write_ready = ch.progress;
     update_restriction(n);
     const auto mode = (w[0x18/4] >> 28) & 3;
     if (!w[2] || mode == 3 || w[2] % (1u << mode) ||
@@ -342,7 +347,6 @@ bool ApDma::eligible(unsigned n, bool read) const {
     if (read && ch.need_command) return !ch.fetching && !ch.read_pending && !ch.write_pending;
     if (ch.need_command || ch.fetching) return false;
     if ((read ? ch.read_pending : ch.write_pending) >= pending_limit(n,read)) return false;
-    if (sc_core::sc_time_stamp() < (read ? ch.read_ready : ch.write_ready)) return false;
     if (!request_ready((w[0x20/4] >> (read ? 0 : 16)) & 31,read)) return false;
     const auto capacity = read ? 32-ch.used-ch.swap_count-ch.read_reserved-ch.write_reserved : ch.used;
     return capacity && (read ? ch.read_remaining : ch.write_remaining);
@@ -440,6 +444,9 @@ void ApDma::worker(bool read,unsigned slot) {
             sc_core::sc_time delay=sc_core::SC_ZERO_TIME;
             master_socket->b_transport(tx,delay);
             if(delay!=sc_core::SC_ZERO_TIME) wait(delay);
+            // Check the actual completion time before done/retirement can hide
+            // a late response from a scheduler waking at the same timestamp.
+            check_timeout(read,job);
             tx.clear_extension<TransferExtension>();
             job.live_metadata=nullptr;
             job.response=tx.get_response_status();
@@ -459,6 +466,24 @@ void ApDma::worker(bool read,unsigned slot) {
 FU3_WORKER(read0,true,0) FU3_WORKER(read1,true,1) FU3_WORKER(read2,true,2) FU3_WORKER(read3,true,3)
 FU3_WORKER(write0,false,0) FU3_WORKER(write1,false,1) FU3_WORKER(write2,false,2) FU3_WORKER(write3,false,3)
 #undef FU3_WORKER
+void ApDma::check_timeout(bool read, Job& job) {
+    if (!reset_n.read() || !job.busy || job.done || job.timed_out || job.epoch!=reset_epoch_) return;
+    const auto now=sc_core::sc_time_stamp();
+    std::uint32_t bits=0;
+    if (config_.transaction_timeout!=sc_core::SC_ZERO_TIME && now-job.issued>config_.transaction_timeout)
+        bits=1u<<(read?7:9);
+    else if (job.live_metadata) {
+        const auto& meta=*job.live_metadata;
+        for (unsigned index=0;index<config_.phase_timeouts.size();++index) {
+            const auto threshold=config_.phase_timeouts[index];
+            if (threshold==sc_core::SC_ZERO_TIME) continue;
+            auto elapsed=meta.completed_phase_durations[index];
+            if (index==static_cast<unsigned>(meta.phase)) elapsed=std::max(elapsed,now-meta.phase_started);
+            if (elapsed>threshold) { bits=phase_interrupt(static_cast<BusPhase>(index)); break; }
+        }
+    }
+    if (bits) { job.timed_out=true; fail(job.channel,bits); }
+}
 bool ApDma::retire(bool read) {
     bool changed=false; auto& slots=read?reads_:writes_; auto& order=read?read_order_:write_order_;
     for(auto& job:slots) if(job.busy && job.done && job.epoch!=reset_epoch_) { job=Job{}; changed=true; }
@@ -506,10 +531,12 @@ bool ApDma::retire(bool read) {
 sc_core::sc_time ApDma::next_deadline() const {
     const auto now=sc_core::sc_time_stamp(); auto result=sc_core::sc_max_time();
     const auto consider=[&](sc_core::sc_time t) { if(t>now) result=std::min(result,t); };
-    for(unsigned id=1;id<32;++id) { consider(rx_until_[id]); consider(tx_until_[id]); }
+    for(unsigned id=1;id<32;++id) {
+        consider(rx_until_[id]); consider(tx_until_[id]);
+        consider(rx_ready_[id]); consider(tx_ready_[id]);
+    }
     if (reset_n.read()) consider(next_dispatch_);
     for(const auto& ch:channels_) if(ch.active && !ch.fault && ch.words[0x40/4]) {
-        consider(ch.read_ready); consider(ch.write_ready);
         if(config_.watchdog_timeout!=sc_core::SC_ZERO_TIME) consider(ch.progress+config_.watchdog_timeout+sc_core::sc_get_time_resolution());
     }
     if(config_.transaction_timeout!=sc_core::SC_ZERO_TIME)
@@ -531,21 +558,8 @@ void ApDma::engine() {
         bool changed=retire(true); changed=retire(false)||changed;
         if(reset_n.read()) {
             const auto now=sc_core::sc_time_stamp();
-            if(config_.transaction_timeout!=sc_core::SC_ZERO_TIME)
-                for(bool read:{true,false}) for(auto& job:read?reads_:writes_)
-                    if(job.busy && job.epoch==reset_epoch_ && !job.done && !job.timed_out &&
-                       now-job.issued>config_.transaction_timeout) {
-                        job.timed_out=true; fail(job.channel,1u<<(read?7:9));
-                    }
             for (bool read : {true,false}) for (auto& job : read?reads_:writes_)
-                if (job.busy && job.epoch==reset_epoch_ && !job.done && !job.timed_out && job.live_metadata) {
-                    const auto& meta=*job.live_metadata;
-                    const auto index=static_cast<unsigned>(meta.phase);
-                    if (index<config_.phase_timeouts.size() && config_.phase_timeouts[index]!=sc_core::SC_ZERO_TIME &&
-                        now-meta.phase_started>config_.phase_timeouts[index]) {
-                        job.timed_out=true; fail(job.channel,phase_interrupt(meta.phase));
-                    }
-                }
+                check_timeout(read,job);
             for(unsigned n=0;n<8;++n) {
                 auto& ch=channels_[n];
                 if(!ch.active || ch.fault) continue;

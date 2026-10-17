@@ -1,0 +1,30 @@
+{
+    "date":  "2026-10-17",
+    "systemc":  "2.3.4",
+    "compiler":  "GCC 15.2.0",
+    "language":  "C++17",
+    "environment":  "WSL Ubuntu",
+    "results":  {
+                    "before_fix":  {
+                                       "tests":  3,
+                                       "failures":  3,
+                                       "skipped":  0
+                                   },
+                    "functional":  {
+                                       "tests":  36,
+                                       "failures":  0,
+                                       "skipped":  0
+                                   },
+                    "ubsan":  {
+                                  "tests":  36,
+                                  "failures":  0,
+                                  "skipped":  0
+                              }
+                },
+    "sanitizers":  {
+                       "flags":  "-fsanitize=undefined",
+                       "UBSAN_OPTIONS":  "halt_on_error=1:print_stacktrace=1",
+                       "external_systemc_instrumented":  false
+                   },
+    "coverage_remeasured":  false
+}

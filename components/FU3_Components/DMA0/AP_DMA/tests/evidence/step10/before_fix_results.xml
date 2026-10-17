@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Linux-c++"
+	tests="3"
+	failures="3"
+	disabled="0"
+	skipped="0"
+	hostname="Thinkbook"
+	time="0"
+	timestamp="2026-10-17T11:28:55"
+	>
+	<testcase name="fu3_ap_dma_transaction_boundary" classname="fu3_ap_dma_transaction_boundary" time="0.0104958" status="fail">
+		<failure message="Failed"/>
+		<properties>
+			<property name="cmake_labels" value="fu3;regression;timing"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct  5 2026 16:59:19
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+FAIL: deadline result independent of MMIO wake order and target timing style at 777 ns
+FAIL: late response cannot generate successful command completion at 777 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 883 ns
+FAIL: late response cannot generate successful command completion at 883 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 2115 ns
+FAIL: late response cannot generate successful command completion at 2115 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 2221 ns
+FAIL: late response cannot generate successful command completion at 2221 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 3522 ns
+FAIL: late response cannot generate successful command completion at 3522 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 3630 ns
+FAIL: late response cannot generate successful command completion at 3630 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 4884 ns
+FAIL: late response cannot generate successful command completion at 4884 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 4992 ns
+FAIL: late response cannot generate successful command completion at 4992 ns
+transaction_boundary: checks=8412 errors=16
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_phase_boundary" classname="fu3_ap_dma_phase_boundary" time="0.0148846" status="fail">
+		<failure message="Failed"/>
+		<properties>
+			<property name="cmake_labels" value="fu3;regression;timing"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct  5 2026 16:59:19
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+FAIL: deadline result independent of MMIO wake order and target timing style at 777 ns
+FAIL: late response cannot generate successful command completion at 777 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 883 ns
+FAIL: late response cannot generate successful command completion at 883 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 2115 ns
+FAIL: late response cannot generate successful command completion at 2115 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 2221 ns
+FAIL: late response cannot generate successful command completion at 2221 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 3453 ns
+FAIL: late response cannot generate successful command completion at 3453 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 3559 ns
+FAIL: late response cannot generate successful command completion at 3559 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 4791 ns
+FAIL: late response cannot generate successful command completion at 4791 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 4897 ns
+FAIL: late response cannot generate successful command completion at 4897 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 6129 ns
+FAIL: late response cannot generate successful command completion at 6129 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 6235 ns
+FAIL: late response cannot generate successful command completion at 6235 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 7467 ns
+FAIL: late response cannot generate successful command completion at 7467 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 7573 ns
+FAIL: late response cannot generate successful command completion at 7573 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 8874 ns
+FAIL: late response cannot generate successful command completion at 8874 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 8982 ns
+FAIL: late response cannot generate successful command completion at 8982 ns
+FAIL: deadline result independent of MMIO wake order and target timing style at 10236 ns
+phase_boundary: checks=31866 errors=60
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+	<testcase name="fu3_ap_dma_peripheral_recovery" classname="fu3_ap_dma_peripheral_recovery" time="0.0085149" status="fail">
+		<failure message="Failed"/>
+		<properties>
+			<property name="cmake_labels" value="fu3;regression;timing"/>
+		</properties>
+		<system-out>
+        SystemC 2.3.4-Accellera --- Oct  5 2026 16:59:19
+        Copyright (c) 1996-2022 by all Contributors,
+        ALL RIGHTS RESERVED
+FAIL: endpoint recovery survives channel changes, starts and config writes at 342 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 380 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 418 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 456 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 494 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 532 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 570 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 608 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 959 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 998 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 1037 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 1076 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 1115 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 1154 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 1193 ns
+FAIL: endpoint recovery survives channel changes, starts and config writes at 1232 ns
+peripheral_recovery: checks=4370 errors=16
+
+Info: /OSCI/SystemC: Simulation stopped by user.
+</system-out>
+	</testcase>
+</testsuite>
