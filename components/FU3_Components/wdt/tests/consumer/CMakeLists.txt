@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(wdt_consumer LANGUAGES CXX)
+find_package(fu3-wdt CONFIG REQUIRED)
+add_executable(wdt_consumer ../behavior.cpp)
+target_link_libraries(wdt_consumer PRIVATE fu3::wdt)
+enable_testing()
+add_test(NAME wdt_installed_consumer COMMAND wdt_consumer)
+set_tests_properties(wdt_installed_consumer PROPERTIES TIMEOUT 30)
