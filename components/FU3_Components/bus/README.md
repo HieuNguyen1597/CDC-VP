@@ -110,6 +110,10 @@ silently guesses instruction/data or beat width. `transport_dbg` is for loaders.
   Both PERIBUS_0 and PERIBUS_1 use APB4: the user requires matching versions,
   using the explicit APB4 version of PERIBUS_1 for both. This clarifies the PDF
   label on PERIBUS_0. Transfer-size adaptation remains a separate question.
+- Timer0/1/2/3 are an endpoint exception: their Timer HDS excludes partial
+  writes. The bus preserves byte enables; the Timer VP adapter accepts aligned
+  full-word accesses and rejects partial requests without read-modify-write.
+  See the [Timer contract](../timer/docs/MODEL_CONTRACT.md) for adapter diagnostics.
 - Downstream error stops the request; completed beats are not rolled back.
   Exceptions restore payload fields and release admission, order and pipeline leases.
 - Custom initiators in `BusConfig{}` default to `require_access=false` for legacy

@@ -48,3 +48,6 @@ __pycache__/
 
 # Local FU3 hardware architecture documentation.
 /components/FU3_Components/FU3_Hardware_Architecture_Specification_v2.0.pdf
+
+# Private FU3 specifications and supporting documents; keep local only.
+/components/FU3_Components/Secret-Docs/

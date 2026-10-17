@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(timer_consumer LANGUAGES CXX)
+find_package(fu3-timer CONFIG REQUIRED)
+add_executable(timer_consumer ../behavior.cpp)
+target_link_libraries(timer_consumer PRIVATE fu3::timer)
+enable_testing()
+add_test(NAME installed_timer_behavior COMMAND timer_consumer)
+set_tests_properties(installed_timer_behavior PROPERTIES TIMEOUT 30)
