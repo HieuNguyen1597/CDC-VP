@@ -1,23 +1,23 @@
-# FU3 bus — SystemC / TLM-2.0
+# FU3 bus - SystemC / TLM-2.0
 
-Bus chức năng cho VP FU3, C++17 và SystemC 2.3.4. Phạm vi là routing,
-arbitration, chuyển giao dịch tới ngoại vi, kiểm tra lỗi và policy cơ bản.
-CPU, bộ nhớ, CSR và firmware loader thật do platform sở hữu; thư viện không
-tạo IP giả. Fixture chỉ nằm trong `tests/`.
+Functional bus for the FU3 virtual platform, using C++17 and SystemC 2.3.4.
+It provides routing, arbitration, peripheral transfers, validation and basic
+access control. CPU, memory, CSR and loader implementations belong to the platform.
+Fake IPs are test fixtures only.
 
-## Cấu trúc
+## Directory layout
 
 ```text
-include/fu3_bus/       API public, config, router, A2P, access metadata
-src/                  implementation và memory map FU3
-tests/                behavior, config, contention; mọi executable dùng sc_main
-tests/support/        master và sparse target giả cho test
-tests/installed_consumer/  kiểm chứng find_package sau install
-tests/coexist/         link cùng bus FX1, không sửa FX1
-cmake/                package export
-scripts/              build/test static + shared
-docs/                 hợp đồng model và kết quả kiểm chứng
-build/                output cục bộ, Git ignore
+include/fu3_bus/           Public API and transaction metadata
+src/                      Implementation and FU3 address map
+tests/                    Configuration, behavior, contention and contract tests
+tests/support/            Fake masters and sparse targets
+tests/installed_consumer/  Installed package tests
+tests/coexist/             FX1/FU3 link test
+cmake/                    CMake package configuration
+docs/                     Model contract and validation results
+scripts/                  Optional local helpers, ignored by Git
+build/                    Generated files, ignored by Git
 ```
 
 ## Topology
@@ -34,19 +34,19 @@ flowchart LR
   A1 --> P1[PERIBUS_1 APB4]
 ```
 
-Kết hợp Hình 4-1 và 7-1 của HAS v2.0: **cả hai A2P ở dưới SYSBUS_0**.
-Giữ địa chỉ tr. 46–47; cột SYS của PERIBUS_1 trong bảng còn không nhất quán
-với hình và được diễn giải theo topology đã thống nhất với người dùng.
+Figures 4-1 and 7-1 place both A2P bridges behind SYSBUS_0. Addresses follow
+HAS v2.0 pages 46-47. The PERIBUS_1 SYS column conflicts with the figures;
+the agreed topology follows the figures while preserving the published addresses.
 
-`BusConfig::fu3()` có 4 initiator và 36 target enabled. Mọi target enabled
-phải bind IP trước `sc_start`; initiator không dùng có thể để trống.
-Platform có thể disable target chưa có IP; địa chỉ đó sẽ unmapped.
-Không sửa cấu hình sau elaboration. Tên, range, overlap, width và path được
-validate trước tạo module. Vùng địa chỉ dùng `[base, base+size)`.
-Các tầng trung gian giữ global address; chỉ tầng leaf đổi sang local offset.
-Địa chỉ và metadata payload được khôi phục sau transfer, kể cả exception.
+`BusConfig::fu3()` enables four initiators and 36 targets. Bind every enabled
+target before `sc_start`; unused initiators may remain unbound. Disable missing
+targets before constructing the fabric; their addresses become unmapped.
+Configuration is fixed during elaboration. Names, ranges, overlaps, widths and
+paths are validated. Regions use `[base, base+size)`. Intermediate routers keep
+global addresses; leaf routers translate to local offsets. Payload fields are
+restored on return, including exceptions.
 
-## Tích hợp
+## Integration
 
 ```cpp
 #include <fu3_bus/bus_system.h>
@@ -57,18 +57,18 @@ cva6.socket.bind(fabric.initiator("CVA6"));
 dma.socket.bind(fabric.initiator("DMA0"));
 fabric.target("IBEX_ISRAM").bind(ibex_sram.socket);
 fabric.target("SYSCSR").bind(syscsr.socket);
-// Bind toàn bộ target enabled còn lại hoặc disable chúng trước khi tạo fabric.
-// Boot controller gọi fabric.finish_staging() trước khi nhả reset CVA6.
+// Bind all other enabled targets, or disable them in cfg before construction.
+// The boot controller calls finish_staging() before releasing CVA6 reset.
 ```
 
-Gọi `b_transport` từ `SC_THREAD`, không từ `SC_METHOD` hoặc trực tiếp trong
-`sc_main`. Test/executable phải định nghĩa `int sc_main(int, char**)`; thư viện
-không chứa `main`/`sc_main`. `tests/installed_consumer/main.cpp` là ví dụ chạy được.
+Call `b_transport` from an `SC_THREAD`, not an `SC_METHOD` or directly from
+`sc_main`. Executables define `int sc_main(int, char**)`; the library defines
+neither `main` nor `sc_main`. See `tests/installed_consumer/main.cpp` for an example.
 
-Firmware loader dùng `transport_dbg` để ghi byte vào memory model trước hoặc
-trong simulation mà không cộng thời gian. Đây là backdoor có chủ ý, bypass policy;
-không được dùng thay đường CPU thường. Test nạp/readback một dãy byte trong ISRAM,
-**chưa có CPU chạy firmware hoặc ELF loader** trong thư viện bus.
+Loaders may use `transport_dbg` to access memory without simulated delay. This
+intentional backdoor bypasses access policy and must not replace CPU traffic.
+Tests verify image-byte loading and readback in ISRAM. The library does not
+execute firmware or parse ELF files.
 
 ## CPU/DMA transaction contract
 
@@ -177,38 +177,44 @@ silently guesses instruction/data or beat width. `transport_dbg` is for loaders.
 | Invalid byte enables | BYTE_ENABLE_ERROR |
 | Missing required metadata, null data, zero length | GENERIC_ERROR |
 
-## Build và kiểm thử
+## Build and test
 
-Linux/WSL, SystemC được build bằng compiler/ABI và chuẩn C++ tương thích:
-
-```bash
-SYSTEMC_HOME=/path/to/systemc-install bash scripts/build.sh
-```
-
-Script build bus static và shared, chạy regression, install rồi build/test một
-consumer riêng qua `find_package(fu3-bus CONFIG REQUIRED)`. Cuối cùng build một
-consumer link đồng thời FX1/FU3. Output chỉ trong `bus/build/`.
-
-Windows PowerShell gọi WSL (SystemCHome là đường dẫn Linux):
-
-```powershell
-.\scripts\build.ps1 -SystemCHome /path/to/systemc-install
-```
-
-Build đơn:
+Run from this directory in a Linux or WSL Bash shell. Use an installed SystemC
+with a compatible compiler, C++ standard and ABI. Replace the example prefix.
+No local scripts are required. Stop if any step fails.
 
 ```bash
-cmake -S . -B build/local -DSYSTEMC_HOME=/path/to/systemc-install -DFU3_BUS_BUILD_TESTS=ON -DBUILD_SHARED_LIBS=ON
-cmake --build build/local --parallel 4
-ctest --test-dir build/local --output-on-failure
+export SYSTEMC_HOME=/absolute/path/to/systemc-install
+for mode in static shared; do
+    shared=OFF
+    if [ "$mode" = shared ]; then shared=ON; fi
+    cmake -S . -B "build/$mode" -DSYSTEMC_HOME="$SYSTEMC_HOME" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS="$shared" -DFU3_BUS_BUILD_TESTS=ON || break
+    cmake --build "build/$mode" --parallel 4 || break
+    ctest --test-dir "build/$mode" --output-on-failure || break
+    cmake --install "build/$mode" --prefix "$PWD/build/$mode/install" || break
+    cmake -S tests/installed_consumer -B "build/$mode/consumer" -DCMAKE_PREFIX_PATH="$PWD/build/$mode/install;$SYSTEMC_HOME" || break
+    cmake --build "build/$mode/consumer" --parallel 4 || break
+    ctest --test-dir "build/$mode/consumer" --output-on-failure || break
+done
 ```
 
-Public target là `fu3::bus_system`, public dependency `SystemC::systemc`. Dùng
-imported target để giữ compile/link flags và dependencies của SystemC shared;
-không hardcode `-lsystemc` hoặc tự cung cấp entry point thay kernel. Namespace,
-header path, CMake target và package riêng biệt với FX1. Native Windows DLL có
-export-all-symbols nhưng chưa được kiểm chứng; môi trường kiểm chứng là WSL/Linux.
+Each build runs five regression tests and four installed-consumer tests. With
+FX1 available at its repository location, also run the coexistence check:
 
-Chi tiết map và các điểm chờ RTL: [MODEL_CONTRACT.md](docs/MODEL_CONTRACT.md).
-Kết quả chạy thực tế: [VALIDATION.md](docs/VALIDATION.md).
-Hướng dẫn review và tích hợp vào repo: [REPOSITORY_HANDOFF.md](docs/REPOSITORY_HANDOFF.md).
+```bash
+cmake -S tests/coexist -B build/coexist -DSYSTEMC_HOME="$SYSTEMC_HOME" -DBUILD_SHARED_LIBS=ON
+cmake --build build/coexist --parallel 4
+ctest --test-dir build/coexist --output-on-failure
+```
+
+This adds one test, for 19 CTest executions in total. The optional `scripts/`
+helpers are ignored by Git and are not required after cloning.
+
+The public CMake target is `fu3::bus_system`, with `SystemC::systemc` as a PUBLIC
+dependency. Use the imported target to retain SystemC compile/link settings.
+Namespaces, include paths and package targets are separate from FX1. Native
+Windows DLL support is not validated; the verified environment is WSL/Linux.
+
+- [Model contract and integration details](docs/MODEL_CONTRACT.md)
+- [Recorded validation results](docs/VALIDATION.md)
+- [Repository integration guide](docs/REPOSITORY_HANDOFF.md)
