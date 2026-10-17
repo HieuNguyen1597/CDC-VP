@@ -66,6 +66,10 @@ if(CDC_BUILD_FX1_SOC)
    add_subdirectory(FX1_Components)
 endif()
 
+if(CDC_BUILD_FU3_SOC)
+   add_subdirectory(FU3_Components/GPIO_IO)
+endif()
+
 # ── Install/export so a standalone platform can find_package(cdc-components) ──
 install(EXPORT cdc-components-targets
     NAMESPACE cdc::components::
