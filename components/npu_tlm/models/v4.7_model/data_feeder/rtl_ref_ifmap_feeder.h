@@ -9,6 +9,7 @@
 #include "data_feeder/rtl_ref_ifmap_feeder_rtl.h"
 #endif
 #include <sstream>
+#include <cstdlib>
 #include "debug.h"
 #include "data_feeder/rtl_ref_feed_data_manager.h"
 #ifdef FX1_A2_IDXCNT_THROTTLE
@@ -147,6 +148,16 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
         RtlFeeder rtl_feeder_;
 
     public:
+        // On-the-fly padding of the RTL-structure feeder (NOT in the RTL, see IfmapFeederRtl::Inputs): driven every cycle
+        // by NpuTop from the ACT_PAD_* configuration registers (plain wires, no port, so that the other users of this
+        // module need no new binding).
+        struct PadCfg
+        {
+            bool en{false};
+            int32_t val{0};
+            uint32_t col_lo{0}, col_hi{0}, row_lo{0}, row_hi{0};
+        } pad_cfg;
+
         // for npu_top to call in sequence.
         void seam_step() { feeder_process(); }
 
@@ -229,6 +240,10 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
     private:
         int64_t rtl_context_seen_{-1};   // last context seen, to clear the latches on a context change
         bool rtl_init_{false};
+#ifdef FX1_A3_FEED_SIG
+        uint64_t sig_pass_{0}, sig_cyc_{0};   // FX1_A3_FEED_SIG: core pass (counted at its start pulse) and cycle inside it
+        bool sig_in_reset_{true};             // true from the core reset until the start pulse
+#endif
 #endif
         sauria_rtl::FeedDataManager<1, Y_DIM, DILP_W, 3> act_fdm;
         bool act_fdm_stall{false};
@@ -683,6 +698,9 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
                     o_fifo_empty.write(true);
                     o_fifo_full.write(false);
                     o_stall.write(false);
+#ifdef FX1_A3_FEED_SIG
+                    sig_in_reset_ = true;
+#endif
                     return;
                 }
                 if (!rtl_init_)
@@ -783,6 +801,12 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
 #else
                 ri.pop_en = i_pop_en.read();
 #endif
+                ri.pad_en = pad_cfg.en;
+                ri.pad_val = pad_cfg.val;
+                ri.pad_col_lo = pad_cfg.col_lo;
+                ri.pad_col_hi = pad_cfg.col_hi;
+                ri.pad_row_lo = pad_cfg.row_lo;
+                ri.pad_row_hi = pad_cfg.row_hi;
 
                 // As sauria_model/data_feeder/ifmap_feeder.h:773-801: between two contexts `cnt_en` goes low; the
                 // til_done / outbounds latches of the previous context are cleared then, or they would carry over. Only
@@ -795,6 +819,39 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
                 }
 
                 auto ro = rtl_feeder_.tick(ri);
+#ifdef FX1_A3_FEED_SIG
+                // Debug hook (default off): one line per cycle with everything the rest of the core sees from this feeder --
+                // the status flags (done, til_done, fifo_empty, fifo_full, stall) and a hash of the 32 lane outputs;
+                // SAURIA_FEED_SIG_FULL=1 adds the 32 values. Lines start at the start pulse of each core pass and cycles
+                // are numbered from it, so two runs with a different DMA timing or a different number of configuration
+                // writes still line up. Std instance only. File: environment SAURIA_FEED_SIG (default
+                // trace_sysc/feed_sig.csv).
+                if (std::string(this->name()).find("NpuTop_std") != std::string::npos && (!sig_in_reset_ || ri.start))
+                {
+                    static std::ofstream fs(std::getenv("SAURIA_FEED_SIG") ? std::getenv("SAURIA_FEED_SIG")
+                                                                           : "trace_sysc/feed_sig.csv");
+                    static const bool sig_full = std::getenv("SAURIA_FEED_SIG_FULL") != nullptr;
+                    if (sig_in_reset_)
+                    {
+                        sig_in_reset_ = false;
+                        sig_pass_++;
+                        sig_cyc_ = 0;
+                    }
+                    uint64_t h = 1469598103934665603ull;
+                    for (int y = 0; y < Y_DIM; y++)
+                    {
+                        h ^= static_cast<uint64_t>(static_cast<uint32_t>(ro.a_arr[y]));
+                        h *= 1099511628211ull;
+                    }
+                    fs << sig_pass_ << ',' << sig_cyc_ << ',' << (int)ro.done << (int)ro.til_done << (int)ro.fifo_empty
+                       << (int)ro.fifo_full << (int)ro.feeder_stall << ',' << std::hex << h << std::dec;
+                    if (sig_full)
+                        for (int y = 0; y < Y_DIM; y++)
+                            fs << ',' << ro.a_arr[y];
+                    fs << '\n';
+                    sig_cyc_++;
+                }
+#endif
 #ifdef FX1_A3_FEED_TAPE
                 // Debug hook (default off): one line EVERY cycle (unfiltered), std instance only; joins fsm_tape.csv on tsim.
                 if (std::string(this->name()).find("NpuTop_std") !=

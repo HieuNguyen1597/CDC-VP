@@ -20,12 +20,25 @@ SOFTMAX (per row, 32 lanes = 32 rows; the golden works one row at a time):
            p_j = r * e_j (int16 x int8) ; t_j = RoundShift(p_j, E + Q - P) (knob R5) ; a_j = Requant(t_j, ATTN_Scale,
            ATTN_Shift, Z_ATTN)  (same Requant as has/gvu_quant.h: x*S -> round-shift -> sat16 -> +zp -> clamp int8)
 
+Names in the MAS (fox_neo_lite32 MAS V1.0) differ from the names used above:
+  MAS "PWL mode"       = the mode called log-scale above (mantissa index 8 b + fraction 8 b, interpolated, E from the LUT)
+  MAS "log-scale mode" = lut_ls() below: index = {E - Base, 4 fine bits}, read directly (no interpolation), E_shift from the
+                         instruction; recip table 256 entries (4-bit segment), rsqrt table 512 entries (5-bit segment)
+  lut_pwl() / pwl_form = the reading of the drawing made before the MAS; kept for the existing vectors
+Items added from the MAS and from the RTL of the functional units (defaults keep every existing vector file unchanged):
+  round ceil | trunc | away, tab_depth mas, zero_in zero, lut_ls(), softmax mode "ls"; --only mas compares them with the
+  independent reference tools/has/mas_ref.py.
+
 Knobs (each one an open HW question; defaults marked *):
-  H1 round        : *half_up | floor | half_away | half_even  (Round-Shift and Requant)
+  H1 round        : *half_up | floor | half_away | half_even | ceil | trunc (toward zero) | away (from zero)
+                    (Round-Shift and Requant)
   H4 smx_sub      : *unsigned (m - x as uint8 0..255, never overflows) | sat (m - x saturated to int8 0..127)
   R2 tab_fmt      : *q14s (int16 Q14, as gvu_lut.h) | q15u (uint16 Q15)
   R3 interp_round : *floor (>> 8 as drawn) | half_up (+128 before >> 8)
-  R4 zero_in      : *sat (x = 0 -> r = INT16_MAX (q14s) / UINT16_MAX (q15u), E_shift 0, as gvu_lut.h) | error
+  R4 zero_in      : *sat (x = 0 -> r = INT16_MAX (q14s) / UINT16_MAX (q15u), E_shift 0) | zero (r = 0, E_shift 0, as
+                    the RTL) | error
+  tab_depth       : *seg257 (257 entries per segment) | mas (recip 256, rsqrt 512 entries; the address of the second
+                    interpolation point is clamped to the last entry of the table, as the RTL)
   R5 P            : *15 (probability t = p * 2^P before requant)
   R6 exp_fmt      : *u8 (LUT_exp[d] = round(255 e^-(d sx)), read unsigned) | s8 (round(127 e^-(d sx)), int8)
 
@@ -42,9 +55,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 DEFAULT_KNOBS = {"round": "half_up", "smx_sub": "unsigned", "tab_fmt": "q14s", "interp_round": "floor",
-                 "zero_in": "sat", "P": 15, "exp_fmt": "u8", "pwl_form": "seg"}
+                 "zero_in": "sat", "P": 15, "exp_fmt": "u8", "pwl_form": "seg", "tab_depth": "seg257"}
 QUESTION = {"round": "H1", "smx_sub": "H4", "tab_fmt": "R2", "interp_round": "R3", "zero_in": "R4", "P": "R5",
-            "exp_fmt": "R6", "pwl_form": "R1 (PWL: meaning of Base / W)"}
+            "exp_fmt": "R6", "pwl_form": "R1 (PWL: meaning of Base / W)",
+            "tab_depth": "Q-M7 (MAS table depth 256 / 512; RTL clamps the address of the second point)"}
+LS_FINE = 4  # fine bits of the MAS log-scale index
 
 
 def rnd(v):
@@ -71,6 +86,14 @@ def rshift(p, s, mode):
         q = p >> s
         rem = p - (q << s)
         return q + 1 if rem > half or (rem == half and q & 1) else q
+    if mode == "ceil":
+        return -((-p) >> s)
+    if mode == "trunc":
+        q = abs(p) >> s
+        return -q if p < 0 else q
+    if mode == "away":
+        q = -((-abs(p)) >> s)
+        return -q if p < 0 else q
     raise ValueError(mode)
 
 
@@ -82,10 +105,11 @@ def requant(x, S, s, zp, k):
 # ---------------------------------------------------------------- LUT_RCE
 def log_table(func, k):
     q = q_of(k)
+    n = 256 if k["tab_depth"] == "mas" else 257
     if func == "recip":
-        T = [rnd(2.0 ** q / (1.0 + i / 256.0)) for i in range(257)]
+        T = [rnd(2.0 ** q / (1.0 + i / 256.0)) for i in range(n)]
     else:
-        T = [rnd(2.0 ** q / math.sqrt((1.0 + i / 256.0) * 2.0 ** p)) for p in (0, 1) for i in range(257)]
+        T = [rnd(2.0 ** q / math.sqrt((1.0 + i / 256.0) * 2.0 ** p)) for p in (0, 1) for i in range(n)]
     lim = 32767 if k["tab_fmt"] == "q14s" else 65535
     assert max(T) <= lim, "table does not fit %s" % k["tab_fmt"]
     return T
@@ -101,6 +125,8 @@ def interp(a, b, frac, k):
 def zero_result(k):
     if k["zero_in"] == "error":
         raise ZeroDivisionError("LUT input 0 (R4)")
+    if k["zero_in"] == "zero":
+        return 0, 0
     return (32767 if k["tab_fmt"] == "q14s" else 65535), 0
 
 
@@ -111,8 +137,40 @@ def lut_log(x, func, T, k):
     E = x.bit_length() - 1
     y = (x << (31 - E)) & 0xFFFFFFFF
     i, frac = (y >> 23) & 0xFF, (y >> 15) & 0xFF
+    if k["tab_depth"] == "mas":
+        a = i if func == "recip" else ((E & 1) << 8) | i
+        return interp(T[a], T[min(a + 1, len(T) - 1)], frac, k), (E if func == "recip" else E >> 1)
     base = 0 if func == "recip" else (E & 1) * 257
     return interp(T[base + i], T[base + i + 1], frac, k), (E if func == "recip" else E >> 1)
+
+
+def ls_table(func, base, e_shift, k):
+    """Host-side table of the MAS log-scale mode: entry = 2^(Q + e_shift) / f(x) at the middle of the bin, saturated."""
+    lim = 32767 if k["tab_fmt"] == "q14s" else 65535
+    T = []
+    for i in range(1 << ((4 if func == "recip" else 5) + LS_FINE)):
+        seg, fine = i >> LS_FINE, i & ((1 << LS_FINE) - 1)
+        xm = (1.0 + (fine + 0.5) / (1 << LS_FINE)) * 2.0 ** (base + seg)
+        v = 2.0 ** (q_of(k) + e_shift) / (xm if func == "recip" else math.sqrt(xm))
+        T.append(lim if v >= lim else rnd(v))
+    return T
+
+
+def ls_index(x, func, base):
+    """MAS log-scale index {E - Base, fine bits}; E - Base wraps to the segment width and x < 16 has no fine bits (RTL)."""
+    if x == 0:
+        return 0
+    E = x.bit_length() - 1
+    seg = (E - base) & ((1 << (4 if func == "recip" else 5)) - 1)
+    fine = ((x >> (E - LS_FINE)) & ((1 << LS_FINE) - 1)) if E >= LS_FINE else 0
+    return (seg << LS_FINE) | fine
+
+
+def lut_ls(x, func, T, base, e_shift, k):
+    """MAS log-scale mode: (r, E_shift); the table is read directly and E_shift comes from the instruction."""
+    if x == 0:
+        return zero_result(k)[0], e_shift
+    return T[ls_index(x, func, base)], e_shift
 
 
 def pwl_index(x, base, w, k, n_idx=512):
@@ -183,6 +241,8 @@ def softmax_row(xs, k, cfg, zero=None):
     sigma = sum(es)
     if cfg["mode"] == "log":
         r, E = lut_log(sigma, "recip", cfg["recip"], k)
+    elif cfg["mode"] == "ls":
+        r, E = lut_ls(sigma, "recip", cfg["recip"], cfg["base"], cfg["e_shift"], k)
     else:
         r, E = lut_pwl(sigma, cfg["recip"], cfg["base"], cfg["w"], cfg["e_shift"], k)
     sh = E + q_of(k) - k["P"]
@@ -709,7 +769,7 @@ def write_ln(out, k, lk, seed, with_vit):
 def self_check(k):
     """Default log-scale path must equal fe_ref_has_rce (validated against has/gvu_lut.h)."""
     import fe_ref_has_rce as rce  # imports fe_common (torch) -> VM only
-    if k["tab_fmt"] != "q14s" or k["interp_round"] != "floor":
+    if k["tab_fmt"] != "q14s" or k["interp_round"] != "floor" or k["tab_depth"] != "seg257" or k["zero_in"] != "sat":
         return "skipped (non-default table/interp knobs)"
     rng = random.Random(7)
     for func in ("recip", "rsqrt"):
@@ -720,13 +780,51 @@ def self_check(k):
     return "ok (log-scale == fe_ref_has_rce on 2 x 20000 inputs)"
 
 
+def mas_check(k, n=20000):
+    """Items added from the MAS / RTL against the independent reference tools/has/mas_ref.py (needs the default knobs)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "has"))
+    import mas_ref as mr
+    assert q_of(k) == mr.Q and k["interp_round"] == "floor" and k["P"] == 15 and k["exp_fmt"] == "u8", "default knobs only"
+    rng = random.Random(11)
+    for _ in range(n):
+        p, s = rng.randrange(-(1 << 62), 1 << 62), rng.randrange(1, 63)
+        assert rshift(p, s, "ceil") == mr.ceil_shift(p, s), (p, s)
+        assert rshift(p, s, "trunc") == mr.trunc_shift(p, s), (p, s)
+        assert rshift(p, s, "away") == mr.away_shift(p, s), (p, s)
+    xs = list(range(1, 3000)) + [mr.sample_x(rng) for _ in range(n)] + [(511 << j) | ((1 << j) - 1) for j in range(22)]
+    km = dict(k, tab_depth="mas", zero_in="zero")
+    recip_t, rsqrt_t = mr.pwl_tables()
+    for func, ref_t in (("recip", recip_t), ("rsqrt", rsqrt_t)):
+        T = log_table(func, km)
+        assert T == ref_t, func
+        for x in xs:
+            assert lut_log(x, func, T, km) == mr.pwl_mas(x, func == "rsqrt", recip_t, rsqrt_t), (func, x)
+    assert lut_log(0, "recip", log_table("recip", km), km) == (0, 0)
+    for func, base, es in (("recip", 7, 7), ("rsqrt", 0, 0)):
+        T = ls_table(func, base, es, k)
+        assert T == mr.ls_table(func == "rsqrt", base, mr.Q + es), func
+        for x in xs:
+            i = mr.ls_index(x, func == "rsqrt", base)
+            assert ls_index(x, func, base) == i and lut_ls(x, func, T, base, es, k) == (T[i], es), (func, x)
+    cfg = dict(attn_requant(k), mode="ls", exp=exp_table(1 / 16.0, k), recip=ls_table("recip", 7, 7, k), base=7, e_shift=7)
+    rows_n = 0
+    for i in range(400):
+        L, spread = (8, 32, 64, 197)[i % 4], (10, 40, 127)[i % 3]
+        row = [max(-128, min(127, int(rng.gauss(0, spread)))) for _ in range(L)]
+        m, sigma, r, _, a = softmax_row(row, k, cfg)
+        assert (m, sigma, r, a) == mr.softmax_ls(row, cfg["exp"], cfg["recip"], 7, 7), i
+        rows_n += 1
+    return "ok (3 rounding modes x %d, MAS-depth tables and MAS log-scale index on 2 x %d inputs, %d softmax rows == mas_ref)" \
+        % (n, len(xs), rows_n)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-lut", type=int, default=40000)
     ap.add_argument("--rows", type=int, default=1500)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out-dir", default=None)
-    ap.add_argument("--only", choices=["lut_smx", "attn", "ln"], default="lut_smx")
+    ap.add_argument("--only", choices=["lut_smx", "attn", "ln", "mas"], default="lut_smx")
     ap.add_argument("--r8-floor", default=LN_KNOBS["r8_floor"], choices=["z_out", "max1"])
     ap.add_argument("--r9-split", default=LN_KNOBS["r9_split"], choices=["exact", "msb_only"])
     ap.add_argument("--out-fmt", default=LN_KNOBS["out_fmt"], choices=["int8_tensor", "int8_channel", "int16"])
@@ -739,6 +837,9 @@ def main():
     for key, val in DEFAULT_KNOBS.items():
         ap.add_argument("--" + key.replace("_", "-"), dest=key, type=type(val), default=val)
     args = ap.parse_args()
+    if args.only == "mas":
+        print("[gvu] mas_check:", mas_check({key: getattr(args, key) for key in DEFAULT_KNOBS}))
+        return
     if args.out_dir is None:
         import fe_common as fc
         args.out_dir = os.path.join(fc.FE_WORK, "has", "vectors", "gvu")

@@ -60,8 +60,8 @@ namespace has
         std::vector<int64_t> qrow(NQ, 0), kcol(L, 0);
         for (size_t i = 0; i < NQ; i++) for (size_t c = 0; c < D; c++) qrow[i] += Q[i][c];
         for (size_t j = 0; j < L; j++) for (size_t c = 0; c < D; c++) kcol[j] += K[j][c];
-        for (auto v : qrow) r.ovf16 += std::llabs(v) > 32767;
-        for (auto v : kcol) r.ovf16 += std::llabs(v) > 32767;
+        for (auto v : qrow) { r.ovf16 += std::llabs(v) > 32767; RangeProbe::pt(RangeProbe::FA_QROW, v); }
+        for (auto v : kcol) { r.ovf16 += std::llabs(v) > 32767; RangeProbe::pt(RangeProbe::FA_KCOL, v); }
         r.X.assign(NQ, std::vector<int>(L));
         const Mat64 qk = dot(Q, K);
         for (size_t i = 0; i < NQ; i++)
@@ -69,6 +69,8 @@ namespace has
             {
                 int64_t acc = qk[i][j];
                 acc += -int64_t(Zk) * qrow[i] - int64_t(Zq) * kcol[j] + int64_t(D) * Zq * Zk;
+                const RangeProbe::Scope probe_scope(RangeProbe::C_ATTN_QK);
+                RangeProbe::pt(RangeProbe::FA_ACC_QK, acc);
                 const int x = requant(acc, p.Mqk, p.TSqk, p.Zqk, k);
                 r.X[i][j] = (mask[i][j] == -128) ? -128 : x;
             }
@@ -88,7 +90,7 @@ namespace has
         std::vector<int64_t> vcol(D, 0), arow(NQ, 0);
         for (size_t n = 0; n < D; n++) for (size_t j = 0; j < L; j++) vcol[n] += V[j][n];
         for (size_t i = 0; i < NQ; i++) for (size_t j = 0; j < L; j++) arow[i] += r.A[i][j];
-        for (auto v : vcol) r.ovf16 += std::llabs(v) > 32767;
+        for (auto v : vcol) { r.ovf16 += std::llabs(v) > 32767; RangeProbe::pt(RangeProbe::FA_VCOL, v); }
         r.O.assign(NQ, std::vector<int>(D));
         Mat Vt(D, std::vector<int>(L));
         for (size_t j = 0; j < L; j++) for (size_t n = 0; n < D; n++) Vt[n][j] = V[j][n];
@@ -99,6 +101,8 @@ namespace has
                 int64_t acc = av[i][n];
                 acc -= int64_t(Za) * vcol[n];
                 if (p.av_zv_corr) acc += -int64_t(Zv) * arow[i] + int64_t(L) * Za * Zv;
+                const RangeProbe::Scope probe_scope(RangeProbe::C_ATTN_AV);
+                RangeProbe::pt(RangeProbe::FA_ACC_AV, acc);
                 r.O[i][n] = requant(acc, p.Mav, p.TSav, p.Zav, k);
             }
         return r;

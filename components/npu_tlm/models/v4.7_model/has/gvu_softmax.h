@@ -5,6 +5,10 @@
 //            p_j = r * e_j ; t_j = RoundShift(p_j, E + Q - P) (P = 15, R5) ; a_j = Requant(t_j, ATTN_Scale, ATTN_Shift, Z_ATTN)
 // Bit-exact with tools/fe/fe_ref_gvu.py softmax_row at the default knobs (checked by tools/has/tb_gvu_softmax.cpp).
 // Timing: cycles() is an ESTIMATE from the drawing's dashed pipeline cuts (32 rows in parallel lanes, one element per cycle).
+// MAS V1.0 "Softmax": stage 2 computes max - x_i and reads an e^-x table, so the index is never negative (H4: unsigned);
+// stage 3 selects E_shift by LUT mode: from the LUT in the PWL mode (has::LutIndirect, field log_recip -- the name predates
+// the MAS), from the instruction in the log-scale mode (has::LutLogScale, field ls_recip). The attention score goes to the
+// Scratchpad, or to the IF_map SRAM when FUSED_ATTN phase 3 follows.
 #ifndef HAS_SOFTMAX_H
 #define HAS_SOFTMAX_H
 
@@ -19,8 +23,9 @@ namespace has
     struct SoftmaxCfg
     {
         const int32_t *exp{nullptr};           // LUT_exp, 256 entries (u8 values)
-        const LutIndirect *log_recip{nullptr}; // log-scale mode when set
-        const LutPwl *pwl_recip{nullptr};      // PWL mode otherwise
+        const LutIndirect *log_recip{nullptr}; // MAS PWL mode (normalised mantissa, interpolation, E from the LUT) when set
+        const LutLogScale *ls_recip{nullptr};  // MAS log-scale mode (direct entry, E_shift of the instruction) when set
+        const LutPwl *pwl_recip{nullptr};      // segment index with interpolation (earlier reading) otherwise
         int64_t S{1 << 30};                    // ATTN_Scale
         int s{37};                             // ATTN_Shift
         int zp{-128};                          // Z_ATTN
@@ -51,22 +56,28 @@ namespace has
             e[j] = (zero && (*zero)[j]) ? 0 : c.exp[d];
             o.sigma += e[j];
         }
-        const LutResult lr = c.log_recip ? c.log_recip->recip(uint32_t(o.sigma)) : c.pwl_recip->recip(uint32_t(o.sigma));
+        const LutResult lr = c.log_recip ? c.log_recip->recip(uint32_t(o.sigma))
+                             : (c.ls_recip ? c.ls_recip->recip(uint32_t(o.sigma)) : c.pwl_recip->recip(uint32_t(o.sigma)));
         o.r = lr.r;
         o.E = lr.e_shift;
         const int sh = o.E + c.q - c.P;
         o.a.resize(x.size());
+        const RangeProbe::Scope probe_scope(RangeProbe::C_SOFTMAX);
+        RangeProbe::pt(RangeProbe::SM_SIGMA, o.sigma); RangeProbe::pt(RangeProbe::SM_R, o.r); RangeProbe::pt(RangeProbe::SM_SH, sh);
         for (size_t j = 0; j < x.size(); j++)
         {
             const i128 p = static_cast<i128>(o.r) * e[j];
             const i128 t = sh <= 0 ? (p << -sh) : rshift(p, sh, k.round_mode);
+            if (RangeProbe::on()) { RangeProbe::pt(RangeProbe::SM_E, e[j]); RangeProbe::pt(RangeProbe::SM_P, p); RangeProbe::pt(RangeProbe::SM_T, t); }
             o.a[j] = requant(static_cast<int64_t>(t), c.S, c.s, c.zp, k, qc);
         }
         return o;
     }
 
     // ESTIMATE: stage 1 = L + 3, stage 2 = L + 5, stage 3 = L + 18 (LUT_recip 4 cuts + Mul + Round-Shift + Requant 9 + read/write)
-    inline uint64_t softmax_cycles(uint64_t L) { return (L + 3) + (L + 5) + (L + 18); }
+    // lut_stages = depth of LUT_recip: 4 = the cuts counted on the drawing (reference runs); the MAS gives kLutStagesPwl (6)
+    // and kLutStagesLogScale (3).
+    inline uint64_t softmax_cycles(uint64_t L, int lut_stages = 4) { return (L + 3) + (L + 5) + (L + 14 + uint64_t(lut_stages)); }
 } // namespace has
 
 #endif // HAS_SOFTMAX_H

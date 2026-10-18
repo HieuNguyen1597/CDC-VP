@@ -122,6 +122,9 @@ namespace sauria
         sc_out<sramc_mask_t<Y_DIM>> o_sramc_wmask{"o_sramc_wmask"};
         sc_out<psum_vector_t<Y_DIM, T_PSUM>> o_sramc_wdata{"o_sramc_wdata"};
         sc_in<psum_vector_t<Y_DIM, T_PSUM>> i_sramc_rdata{"i_sramc_rdata"};
+        // Channel index side band of the native PSM (Psm::o_channel_idx), for Obp::i_channel_idx. Read it from this
+        // signal; the RTL-accurate block has no such side band.
+        sc_signal<uint32_t> s_channel_idx{"s_channel_idx"};
 
         // ---- array_inst boundary (shared PE array, outside this block) ----
         sc_out<act_vector_t<Y_DIM, T_ACT>> o_act_arr{"o_act_arr"};
@@ -300,6 +303,7 @@ namespace sauria
             psm_inst_a->o_sramc_rden(o_sramc_rden);
             psm_inst_a->o_sramc_wmask(o_sramc_wmask);
             psm_inst_a->o_sramc_wdata(o_sramc_wdata);
+            psm_inst_a->o_channel_idx(s_channel_idx);
             psm_inst_a->i_fsm_start(s_psm_start_a);
             psm_inst_a->i_fsm_reset(s_psm_reset_a);
             psm_inst_a->i_pipeline_en(o_pipeline_en);
@@ -721,6 +725,14 @@ namespace sauria
             ctrl_inst_a->peek_act_full_ = [this]() { return act_feeder_a->peek_fifo_full_now(); };
             if (!ctrl_inst_a->peek_act_stall_)
                 ctrl_inst_a->peek_act_stall_ = [this]() { return act_feeder_a->peek_stall_now(); };
+#endif
+#if (defined(FX1_A3_WEI_DONE_Q_GATE) || defined(FX1_A3_WEI_DONE_Q_PROBE)) && defined(FX1_A3_WEI_FEEDER_RTL)
+            // RTL-exact weight done / til_done path into feeders_fsm (see rtl_ref_main_controller.h).
+            ctrl_inst_a->peek_wei_done_rtl_ = [this]() { return wei_feeder_a->peek_done_rtl_now(); };
+            ctrl_inst_a->peek_wei_til_done_rtl_ = [this]() { return wei_feeder_a->peek_til_done_rtl_now(); };
+            ctrl_inst_a->peek_wei_full_ = [this]() { return wei_feeder_a->peek_fifo_full_now(); };
+            if (!ctrl_inst_a->peek_wei_stall_)
+                ctrl_inst_a->peek_wei_stall_ = [this]() { return wei_feeder_a->peek_stall_now(); };
 #endif
             psm_inst_a->peek_fsm_start_ = [this]() { return ctrl_inst_a->peek_outbuf_start_now(); };
             psm_inst_a->peek_pipe_en_ = [this]() { return ctrl_inst_a->seam_pipeline_en_; };

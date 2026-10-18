@@ -23,6 +23,12 @@ typedef NativeLaneACoreA<32, 32, int8_t, int8_t, int32_t, 16, 64, 1, 1536> Nativ
 typedef RtlRefLaneACoreA<32, 32, int8_t, int8_t, int32_t, 16, 64, 1, 1536> RtlRefCoreT;
 
 // A complete rig (Sram + Array + one core), parameterised on the core type so both sides use the same code.
+// Only the RTL-reference block has i_inactive_cols (X_DIM - X_used of the tile; 0 here: every column is used).
+template <typename C>
+auto bind_inactive_cols(C *c, sc_signal<uint32_t> &s, int) -> decltype(c->i_inactive_cols(s), void()) { c->i_inactive_cols(s); }
+template <typename C>
+void bind_inactive_cols(C *, sc_signal<uint32_t> &, long) {}
+
 template <typename CoreT>
 struct LaneRig
 {
@@ -142,6 +148,7 @@ struct LaneRig
         core->o_cswitch_arr(core_cswitch_arr); core->o_sa_clear(core_sa_clear);
         core->o_context_id(core_context_id);
         core->o_done(core_done); core->o_deadlock(core_deadlock); core->o_active(core_active);
+        bind_inactive_cols(core, *new sc_signal<uint32_t>((std::string(prefix) + "_inactive_cols").c_str()), 0);
     }
 
     void reset_and_configure(int total_contexts)

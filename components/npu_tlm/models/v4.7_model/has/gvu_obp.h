@@ -18,6 +18,8 @@
 #include <vector>
 #include "sauria_types.h"
 #include "has/gvu_quant.h"
+#include "has/gvu_rtl_obp.h"
+#include "has/gvu_top_bridge.h"
 
 namespace has
 {
@@ -94,7 +96,20 @@ namespace has
         psum_vector_t<W, int32_t> apply_inline(const psum_vector_t<W, int32_t> &in, uint32_t ch, const sramc_mask_t<W> &m)
         {
             inline_vectors++;
-            return compute(in, ch, m);
+            psum_vector_t<W, int32_t> r = compute(in, ch, m);
+            if (GvuTopBridge::on()) top_beat(in, ch, m, r);
+            else if (RtlObp::on()) rtl_beat(in, ch, m, r);
+            return r;
+        }
+        // Tail behind the last write of a core pass: the depth of the cycle-level pipeline with HAS_GVU_TOP (GvuTop, stream
+        // mode) or HAS_OBP_RTL, else LAT.
+        int inline_latency() const { return GvuTopBridge::on() ? GvuTopBridge::kDepth : RtlObp::on() ? RtlObp::kLatency : lat; }
+        // HAS_GVU_TOP=2: the layer's table set without host-bus cycles (the instruction path charges the cycles of the
+        // Scratchpad path instead, GvuTopBridge::table_cycles()). The same table as 32 copies over the host port.
+        void load_lut(const uint8_t *table)
+        {
+            for (int e = 0; e < 256; e++) { lut[e] = static_cast<int8_t>(table[e]); lut_written[e] = true; }
+            rtl_lut_stale = top_lut_stale = true;
         }
 
     private:
@@ -116,7 +131,43 @@ namespace has
         uint32_t nch{1};
         bool perch{true};
         std::deque<Slot> pipe;
+        RtlObp::Unit rtl_ep;          // HAS_OBP_RTL: the cycle-level epilogue and whether its table follows `lut`
+        bool rtl_lut_stale{true};
+        bool top_lut_stale{true};     // HAS_GVU_TOP: the table changed since GvuTop loaded it
 
+        // HAS_GVU_TOP: the beat of compute() on GvuTop (stream mode); r holds the model result and gets GvuTop's.
+        void top_beat(const psum_vector_t<W, int32_t> &in, uint32_t addr, const sramc_mask_t<W> &m, psum_vector_t<W, int32_t> &r)
+        {
+            if (W != 32) return;
+            const uint32_t ch = addr % nch;
+            const int64_t S = decode_scale(perch ? scale_bits[ch] : i_requant_scale.read(), k.scale_fmt);
+            const int s = perch ? shift[ch] : static_cast<int>(i_requant_shift.read());
+            uint32_t mask = 0;
+            for (int i = 0; i < W; i++) if (m[i]) mask |= 1u << i;
+            if (GvuTopBridge::gemm_beat(in, r, mask, addr, S, s, zp_out, k.round_mode, k.req_narrow == SAT16, i_lut_en.read(), lut.data(), top_lut_stale))
+                top_lut_stale = false;
+        }
+
+        // HAS_OBP_RTL: the beat of compute() on the cycle-level pipeline; r holds the model result and gets the pipeline's.
+        void rtl_beat(const psum_vector_t<W, int32_t> &in, uint32_t addr, const sramc_mask_t<W> &m, psum_vector_t<W, int32_t> &r)
+        {
+            if (W != 32) return;
+            const uint32_t ch = addr % nch;
+            const int64_t S = decode_scale(perch ? scale_bits[ch] : i_requant_scale.read(), k.scale_fmt);
+            const int s = perch ? shift[ch] : static_cast<int>(i_requant_shift.read());
+            if (rtl_lut_stale) { rtl_ep.load_act(lut.data()); rtl_lut_stale = false; RtlObp::table_loaded(lut.data()); }
+            uint32_t mask = 0;
+            for (int i = 0; i < W; i++) if (m[i]) mask |= 1u << i;
+            RtlObp::beat(rtl_ep, in, r, mask, S, s, zp_out, k.round_mode, k.req_narrow == SAT16, i_lut_en.read());
+        }
+
+        // A signed register value arrives either as the signed number itself or as the 32-bit two's-complement word the
+        // host bus carries (a zero point of -128 written as 0xFFFFFF80 = 4294967168): both decode to the same int.
+        static int host_i32(double v)
+        {
+            if (v >= 2147483648.0 && v < 4294967296.0) v -= 4294967296.0;
+            return static_cast<int>(v);
+        }
         void host_write(uint32_t a, const host_data_t &d, const host_mask_t &m)
         {
             if (a >= LUT_BASE && a < LUT_BASE + static_cast<uint32_t>(W) * 256u)
@@ -133,14 +184,15 @@ namespace has
                     if (lut_written[e0 + q] && lut[e0 + q] != v) lut_lane_mismatch++;
                     lut[e0 + q] = v;
                     lut_written[e0 + q] = true;
+                    rtl_lut_stale = top_lut_stale = true;
                 }
             }
             else if (a >= SCALE_BASE && a < SCALE_BASE + 4u * MAX_CH)
                 scale_bits[(a - SCALE_BASE) / 4] = static_cast<uint32_t>(static_cast<uint64_t>(d[0]));
             else if (a >= SHIFT_BASE && a < SHIFT_BASE + 4u * MAX_CH)
-                shift[(a - SHIFT_BASE) / 4] = static_cast<int>(static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(d[0]))));
+                shift[(a - SHIFT_BASE) / 4] = host_i32(d[0]);
             else if (a == CFG_BASE + REG_ZP_OUT)
-                zp_out = static_cast<int>(static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(d[0]))));
+                zp_out = host_i32(d[0]);
             else if (a == CFG_BASE + REG_NCH)
                 nch = d[0] >= 1 ? static_cast<uint32_t>(d[0]) : 1u;
             else if (a == CFG_BASE + REG_PERCH)

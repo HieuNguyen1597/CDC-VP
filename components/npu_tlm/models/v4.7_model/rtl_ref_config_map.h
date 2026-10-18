@@ -136,6 +136,13 @@ namespace sauria_rtl
         {X_USED, F_X_USED}, {Y_USED, F_Y_USED},
     };
 
+    // On-the-fly padding of the IFMAP feeder (NOT in the SAURIA RTL; v1 profile only, decoded directly by ConfigRegs like
+    // ACT + 0x40 / + 0x44). Free addresses of the ACT region; all four reset to 0 (padding off) with the core reset.
+    const uint32_t ACT_PAD_CTRL = CFG_ACT_OFFSET + 0x48;     // bit 0: enable; bits 15:8: padding value (int8)
+    const uint32_t ACT_PAD_COL = CFG_ACT_OFFSET + 0x4C;      // bits 15:0: first valid window column; bits 31:16: one past the last
+    const uint32_t ACT_PAD_ROW_LO = CFG_ACT_OFFSET + 0x50;   // first valid window row x row step
+    const uint32_t ACT_PAD_ROW_HI = CFG_ACT_OFFSET + 0x54;   // one past the last valid window row, x row step
+
     // (profile, local_addr) -> field. Returns F_NONE if the address is not mapped.
     inline CfgField cfg_lookup(NpuProfile prof, uint32_t local_addr)
     {

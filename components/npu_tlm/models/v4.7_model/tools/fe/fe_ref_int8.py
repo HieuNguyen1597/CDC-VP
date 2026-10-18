@@ -39,13 +39,16 @@ def conv_psum(q_in, q_w, stride, pad):
 
 
 def requant(psum, q_b, scale, shift, round_mode=0):
-    """round_mode 0 = floor (current OBP); 1 = HALF_UP (x + 2^(shift-1)) >> shift (HAS_IFACE §3, shift >= 1)."""
+    """round_mode 0 = floor (shift without rounding); 1 = HALF_UP (x + 2^(shift-1)) >> shift (HAS_IFACE §3, shift >= 1);
+    2 = half away from zero, (x + 2^(shift-1) - (x < 0)) >> shift for shift >= 1 (the native Obp of psm/obp_top.h)."""
     b = q_b.astype(np.int64)[None, :, None, None]
     s = scale.astype(np.int64)[None, :, None, None]
     h = shift.astype(np.int64)[None, :, None, None]
     p = (psum + b) * s
     if round_mode == 1:
         p = p + np.left_shift(np.int64(1), h - 1)
+    elif round_mode == 2:
+        p = p + np.where(h > 0, np.left_shift(np.int64(1), np.maximum(h - 1, 0)) - (p < 0), 0)
     elif round_mode != 0:
         raise ValueError("round_mode %r not supported here" % round_mode)
     return fq.sat8(np.right_shift(p, h)).astype(np.int8)
@@ -59,9 +62,13 @@ def maxpool_int8(x, kernel, stride, pad):
     return win.max(axis=(-2, -1))[None].astype(np.int8)
 
 
-def run_int8(ir, params, x, keep_psum=False):
+OBP_ROUND = {"floor": 0, "half_up": 1, "half_away": 2}
+
+
+def run_int8(ir, params, x, keep_psum=False, round_override=None):
     """Returns dict tensor -> int8 array; with keep_psum also '<output>@psum' (int64) and
-    '<output>@qpre' (int8, before the LUT) per conv."""
+    '<output>@qpre' (int8, before the LUT) per conv. round_override (0, 1 or 2) replaces the rounding mode of every
+    convolution; None keeps the mode stored with the quantization parameters (floor when absent)."""
     t = {ir["graph_input"]: quantize_input(x)}
     for o in ir["ops"]:
         op = o["op"]
@@ -72,6 +79,8 @@ def run_int8(ir, params, x, keep_psum=False):
             if keep_psum:
                 t[o["output"] + "@psum"] = psum
             rm = int(params[j + "/round_mode"]) if j + "/round_mode" in params else 0
+            if round_override is not None:
+                rm = round_override
             y = requant(psum, params[j + "/q_b"], params[j + "/scale"], params[j + "/shift"], rm)
             if keep_psum:
                 t[o["output"] + "@qpre"] = y

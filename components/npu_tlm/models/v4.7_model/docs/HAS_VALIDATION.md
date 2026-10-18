@@ -71,8 +71,9 @@ scratchpad area of Hp x Wo bytes per channel.
 ### 3.4 Scratchpad size (H8)
 
 ELEM_WISE ADD blocks of 4,096 elements use exactly 24,576 bytes (A 4 KB + B 4 KB + int32 sum 16 KB). The full
-YOLOv8m run reached this peak (MEASURED). LayerNorm on ViT-B is expected to need about 96 KB for the int32
-intermediate of 32 rows x 768 (ESTIMATED).
+YOLOv8m run reached this peak (MEASURED). LayerNorm on ViT-B needs 96 KB for the int32 intermediate of 32 rows x 768.
+The micro-architecture specification sets the scratchpad at 128 KB, double-buffered, that is 64 KB per half: 32 rows
+of 768 channels do not fit, and the default configuration runs 14 rows per group (section 6).
 
 ### 3.5 One-row over-access at full SRAM (H14)
 
@@ -116,7 +117,7 @@ Status after comparison with the GVU specification:
 | H5 | Average-pool int16 accumulator overflow | Wraps, counted | Overflow shown (section 3.2) | Open: accumulator still int16 |
 | H6 | MaxPool 5x5 in one pass or separable | Direct (`HAS_MP_MODE=0`); separable available | Separable 2x faster, identical | Open |
 | H7 | FUSED_ATTN multiplies by 1/sqrt(d) then requantizes (two roundings) | | | Answered: 1/sqrt(d) is folded into the single requant scale; asymmetric zero-point correction added; mask read from the scratchpad (masked entries = -128) |
-| H8 | Scratchpad capacity | Banked, 4 / 4 / 16 KB per half in the default profile; 24,576 bytes in one block in the `legacy` profile (`HAS_SCRATCH_BYTES`) | ADD uses exactly 24 KB; LayerNorm needs about 96 KB | Open: capacity "to be defined" |
+| H8 | Scratchpad capacity | Banked, 10,784 / 5,600 / 43,008 bytes and a 6,144-byte scalar bank per half in the default profile; 24,576 bytes in one block in the `legacy` profile (`HAS_SCRATCH_BYTES`) | ADD uses exactly 24 KB at 4,096 elements per block; LayerNorm of 32 rows x 768 needs about 96 KB | Partly answered: 128 KB double-buffered in total (micro-architecture specification); the size of each bank is still open (section 6) |
 | H9 | Who moves ELEM_WISE operands from PSUM SRAM to the scratchpad | Estimated DMA transfer | | Partly answered: a Vector Load/Store Unit, still to be defined |
 | H10 | LayerNorm gamma and beta location | | | Answered: scratchpad `sbank` (gamma int8, beta int32), not weight SRAM |
 | H11 | Is average-pool in the ISA, which field | ELEM_WISE mode 5, `SO` / `SHO` = Avg_Scale / Avg_Shift | | Partly answered: it is an ELEM_WISE pipeline; ISA field not given |
@@ -188,8 +189,8 @@ before the reference runs and are orders of magnitude, not results.
 | H28 | The array stalls about half of the time when a tile does not fill 32 columns or 32 rows. Same K = 1,728 (3x3): 7,193 cycles with 32 output channels, 14,054 with 16 (1.95x); 1x1, K = 576: 1.88x with 16 positions, 1.87x with 16 channels. On the RTL: 1.97x, 1.82x, 1.85x | 26.8 % of the core busy cycles in the baseline plan; avoided by planner rules 1, 2 and 4 | Intended behaviour or defect? Which feeder causes it, and can a feeder setting remove it? Otherwise the compiler must avoid tiles with fewer than 32 channels and 1x1 tiles with fewer than 32 positions |
 | H29 | A 3x3 stride-2 convolution with 32 positions per context costs about 1.32 K per context; with 31 or fewer the penalty disappears. On the RTL: 2,663 cycles (32 positions) against 2,089 (31 or 24), 1.27x | Every stride-2 convolution of YOLOv8m; avoided by planner rule 3 | Is the cause the input window of 2 x 32 + 1 = 65 columns (above 64)? Then widen the window buffer to 65, or confirm 31 positions. Consequence for the interface: positions per context must be an explicit instruction field (`Y_USED`, `SW_INTEGRATION_GUIDE.md`, section 4.1) |
 | H30 | The feeder counts positions in one dimension: a context cannot wrap over a row boundary, so a 3x3 convolution on a map 20, 40 or 80 wide leaves array rows unused | The largest remaining loss of spatial usage (run C: 74.58 %). Software can pack rows into blocks but is bound by tile height and multiples of 32 | A feeder that counts positions in two dimensions, so that a context wraps over the row boundary |
-| H31 | A floor of about 230 cycles per context. The stall-free tile law (contexts x K + 281) holds only for K of about 230 or more; 1x1 with 64 input channels: 5,788 cycles for 24 contexts | Limits layers with a small K (`stem`, K = 27, 8.84 % PE utilization; 1x1 layers with 64 to 192 input channels); ESTIMATED 1.9 M cycles on YOLOv8m | Where does the context-switch floor come from (partial-sum drain, feeder reload), and can it be reduced? |
-| H32 | A fixed cost of about 281 cycles per tile (configuration, start, drain) that cannot overlap with the previous tile, because the core must be configured before it starts | ESTIMATED 2.4 M cycles on YOLOv8m | Double-buffered (shadow) configuration registers, loaded while the current tile runs |
+| H31 | A floor of about 230 cycles per context. The stall-free tile law (contexts x K + 280 core-busy cycles) holds exactly for K of 230 or more (6,890 of 6,890 core passes of run C, MEASURED); below that the remainder varies; 1x1 with 64 input channels: 5,788 cycles for 24 contexts | Limits layers with a small K (`stem`, K = 27, 8.84 % PE utilization; 1x1 layers with 64 to 192 input channels); 1,763,540 cycles on YOLOv8m run C (DERIVED from the per-tile counters) | Where does the context-switch floor come from (partial-sum drain, feeder reload), and can it be reduced? |
+| H32 | A fixed cost of 280 core-busy cycles per core pass (configuration, start, drain; 281 cycles between start and done of a single-tile testbench) that cannot overlap with the previous tile, because the core must be configured before it starts | 2,154,600 cycles on YOLOv8m run C (7,695 core passes x 280, DERIVED) | Double-buffered (shadow) configuration registers, loaded while the current tile runs |
 | H33 | SRAM-B (81 KB per buffer) cannot hold the weights of 32 output channels for the six 3x3 layers with 384 or 576 input channels, hence the input-channel split | The split costs a reload of the input window per part; the partial sums stay in SRAM-C, so no partial-sum DMA | Low priority: SRAM-B of at least 165,888 bytes per buffer removes the split. Related question: may one half of SRAM-C be kept (not swapped) between two core runs to accumulate partial sums? The model assumes yes |
 | H34 | DMA bus width. Once the planner raises the PE utilization, more layers become limited by the DMA on a 128-bit AXI bus (large maps, 1x1 layers) | ESTIMATED: a 256-bit bus saves about 4 % of the total at a PE utilization of 59 % and up to about 14 % at a higher utilization | Actual AXI or NoC width for the NPU, 128 or 256 bit? How many outstanding transactions? |
 | H35 | SRAM-A (79 KB per buffer) limits the tile height, which makes tiles reread the rows they share | ESTIMATED: no gain from 128 KB at a PE utilization of 59 %, up to about 12 % at a higher utilization | Can SRAM-A be 128 KB per buffer or more? |
@@ -211,3 +212,38 @@ utilization; at the level of the reference run the core, not the DMA, limits alm
 
 None of these changes affects the validated YOLOv8m results: YOLOv8m uses neither the PWL mode nor softmax, and
 the scratchpad and latency changes alter timing estimates only.
+
+## 6. Micro-architecture specification of the vector unit and the RTL of its functional units
+
+After the sections above were written, the hardware team released the micro-architecture specification of the vector
+unit (V1.0) and the RTL of its functional units (LUT, round-shift, multipliers, adders; no controller, load/store
+unit or top level). The model was compared with both. The epilogue, ELEM_WISE, FUSED_ATTN pipelines and the pipeline
+registers already matched the figures; the items below changed or were added.
+
+| Item | Specification / RTL | Model | Status |
+|---|---|---|---|
+| Scratchpad | 128 KB, double-buffered (64 KB per half), four banks; a capacity table of typical contents | Default: 10,784 / 5,600 / 43,008 bytes and a 6,144-byte scalar bank per half; rows per group limited by the banks (`has/gvu_sp_map.h`) | Total follows the specification. The size of each bank and the largest hidden size to support are not given: open |
+| Rounding | Seven modes selected by the instruction | `HAS_ROUND_MODE` 0 to 6 (floor, half up, half away, half even, ceil, toward zero, away from zero); default half up | Implemented; bit-exact against an independent reference |
+| LUT modes | "PWL": mantissa index with interpolation, exponent from the LUT. "Log-scale": index = {E - Base, 4 fine bits}, read directly, exponent shift from the instruction | The specification's PWL mode is the model's indirect LUT (used by softmax and LayerNorm); the log-scale mode is `has::LutLogScale` | Implemented; the instruction path uses the PWL mode |
+| LUT tables | 256 entries (reciprocal), 512 (inverse square root); RTL: the address of the second interpolation point is held at the last entry; input 0 returns 0 and a flag | Default follows the RTL (`lut_mas_depth`, `lut_zero0`) | Bit-identical results on both networks compared with the earlier 257-entry tables |
+| LUT pipeline depth | Specification: 6 stages (PWL), 3 (log-scale). RTL with default parameters: 4 and 2 | 4 stages in the softmax cycle estimate (`lut_stages`) | Open: which value is final |
+| Zero-point adder of the requantization | RTL: 16-bit adder that wraps | Saturating adder; the wrapping adder is the knob `zp_add_wrap16`, off by default | Reported as a possible defect (a wrapped value has the wrong sign). No effect on either network |
+| Scalar bank | RTL: the int8 port reads the low byte of an int32 word | One int32 word per scalar parameter: 8 bytes per LayerNorm channel (`sp_s_word32`) | Follows the RTL; the bank layout is to be confirmed |
+| Load/store unit | A v32int16 port, per-bank port table, 4-D stride address generation, direct store to AXI | Structure model `has/gvu_lsu.h` (counting only; no effect on results) | Timing not modelled until the controller is specified |
+| Pipeline controller | State machines of the softmax, LayerNorm and residual-add pipelines | State traces in `has/gvu_pipeline_ctrl.h`; not connected to the cycle estimate | Open: cycles per state |
+| DMA bus | AXI 128-bit | AXI 128-bit | Answered (H34) |
+
+Checks (MEASURED): `tools/has/tb_gvu_mas` against the independent reference `tools/has/mas_ref.py` (rounding modes,
+both LUT modes and table depths, softmax with the log-scale reciprocal, scratchpad capacities and port conflicts);
+both networks bit-exact with the default configuration (`PERFORMANCE_REPORT.md`, section 5.8); with `HAS_SPEC=rtl`
+both networks bit-exact and cycle-identical to the earlier reference runs.
+
+Questions raised by this comparison, in order of effect on the model:
+
+1. Size of each scratchpad bank and the largest hidden size (channels per row) the hardware must support: they set
+   the rows per group of LayerNorm, hence its cycles (ViT-B/16: +1.50 % of the network total between 32 and 14 rows).
+2. Layout of the scalar bank (bytes per LayerNorm channel for gamma and beta).
+3. Whether the wrapping zero-point adder of the RTL is intended.
+4. Final pipeline depth of the LUT unit (6 or 4 stages), and the cycles of each controller state.
+5. In the log-scale LUT mode the RTL wraps `E - Base` to the segment width and uses no fine bits for inputs below 16:
+   intended, or should the index saturate?

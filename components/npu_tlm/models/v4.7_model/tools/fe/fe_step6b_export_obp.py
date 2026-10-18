@@ -35,6 +35,9 @@ def main():
     ap.add_argument("--config", default="pc_p9999_rc")
     ap.add_argument("--jobs", default=DEFAULT_JOBS)
     ap.add_argument("--image", type=int, default=0)
+    ap.add_argument("--obp-round", default="params", choices=["params", "floor", "half_up", "half_away"],
+                    help="rounding of the OBP requantization in the golden: params = as stored with the quantization "
+                         "parameters (floor when absent); half_away = the native Obp of psm/obp_top.h")
     args = ap.parse_args()
     t0 = time.time()
     with open(os.path.join(fc.FE_WORK, "step2", "graph_ir.json")) as f:
@@ -44,7 +47,8 @@ def main():
     params = dict(np.load(os.path.join(fc.FE_WORK, "step3", args.config, "params.npz")))
     ops = {o["id"]: o for o in ir["ops"]}
     img = fc.list_coco8_images()[args.image]
-    gold = fr.run_int8(ir, params, fc.letterbox_input(img))
+    gold = fr.run_int8(ir, params, fc.letterbox_input(img),
+                       round_override=None if args.obp_round == "params" else fr.OBP_ROUND[args.obp_round])
     jobs = args.jobs.split(",")
     steps = {s["job"]: s for s in program["steps"] if s["kind"] == "conv"}
     missing = [j for j in jobs if j not in steps]

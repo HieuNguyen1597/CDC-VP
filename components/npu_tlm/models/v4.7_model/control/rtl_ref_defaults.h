@@ -10,7 +10,9 @@
 // fx1_a3_defaults.h so it can be re-checked.
 //
 // All defaults below are the REFERENCE tree's own defaults (i.e. "guard-on", matching
-// fx1_a3_defaults.h's un-guarded state) -- this file does NOT implement a `FX1_A3_GUARD_OFF`
+// fx1_a3_defaults.h's un-guarded state), except the blocks that say otherwise (FX1_A3_WEI_DONE_Q_GATE,
+// FX1_A3_INCNTLIM_ZERO_RTL) -- this file
+// does NOT implement a `FX1_A3_GUARD_OFF`
 // escape hatch, unlike the reference; if a guard-off comparison is ever needed for A1 debugging,
 // add it explicitly then, don't preemptively build unused infrastructure.
 //
@@ -84,12 +86,35 @@
 #define FX1_A3_TILDONE_Q_GATE
 #endif
 
+// Weight side of FX1_A3_TILDONE_Q_GATE -- RTL-exact weight done / til_done into FeedersFsm (repetition counter +
+// til-done shim): same-cycle done_q & cnt_en and til_done_q & cnt_en (RTL wei_idxcnt.sv:254-255, wei_feeder.sv:138,
+// feeders_fsm.sv:204/298/305) instead of the sc_signal values gated by the previous cycle's cnt_en. With the sc_signal
+// path, a weight FIFO that fills right after the weight counter wraps lets the pulse reach the repetition counter while
+// the RTL still holds it. When that wrap ends the last but one repetition, o_wei_cswitch is already high at the next
+// counter step, wei_idxcnt sets `outbounds` one repetition early, and the last context of the tile is computed with
+// zero weights -- no error is raised (measured on tiles with 32 output channels and K = 2, 3, 4, 8, 9; RTL simulation
+// of the same tiles is right; KNOWN_LIMITATIONS.md, O23).
+// NOT a default of the reference tree: sauria_model's main_controller.h reads both pulses through sc_signal.
+// Opt-out for comparisons: -DFX1_A3_WEI_DONE_Q_GATE_OFF. Observation only, without the correction:
+// -DFX1_A3_WEI_DONE_Q_GATE_OFF -DFX1_A3_WEI_DONE_Q_PROBE prints the cycles in which the two values differ.
+#if !defined(FX1_A3_WEI_DONE_Q_GATE) && !defined(FX1_A3_WEI_DONE_Q_GATE_OFF)
+#define FX1_A3_WEI_DONE_Q_GATE
+#endif
+
 // Control's o_incntlim/i_mvm_k priority fix (rtl_ref_main_controller.h:506-522) -- RTL feeds
 // ContextSwitchController's i_incntlim straight from config_regs.o_incntlim with no i_mvm_k
 // fallback; this flag restores that priority (this model previously had it inverted). Reference
 // default: fx1_a3_defaults.h:56-57.
 #ifndef FX1_A3_INCNTLIM_FIX
 #define FX1_A3_INCNTLIM_FIX
+#endif
+// CON.INCNTLIM = 0 (one MAC per context: K = kernel positions x input channels of the pass = 1) is a real value in the
+// RTL (context_switch_controller.sv:134, cdone_force_q2). Control replaced it by i_mvm_k and then by 1, so a K = 1 tile
+// ran with two MACs per context and gave wrong values. With this option the value stays 0 when i_mvm_k is 0 too;
+// HasNpuTop drives i_mvm_k = 0 exactly for such tiles, every other driver keeps the old fallback.
+// NOT a default of the reference tree. Opt-out for comparisons: -DFX1_A3_INCNTLIM_ZERO_RTL_OFF.
+#if !defined(FX1_A3_INCNTLIM_ZERO_RTL) && !defined(FX1_A3_INCNTLIM_ZERO_RTL_OFF)
+#define FX1_A3_INCNTLIM_ZERO_RTL
 #endif
 
 // FX1_A3_WEI_FIN_ONE_REP: wei_fin = wei_til_done_shim only (drops the wei_ov_flag_shim_ term), so a repetition is

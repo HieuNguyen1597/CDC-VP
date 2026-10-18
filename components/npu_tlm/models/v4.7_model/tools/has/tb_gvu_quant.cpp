@@ -229,6 +229,9 @@ SC_MODULE(TbObp)
             hw(0x00190000 + 4 * c, sh[c]);
         }
         hw(0x001A0004, NCH);
+        // output zero point, negative, written as the 32-bit word of the host bus (two's complement), as HasNpuTop does
+        const int ZP = -37;
+        hw(0x001A0000, static_cast<double>(static_cast<uint32_t>(ZP)));
         // reload a DIFFERENT table (as the next layer does) and then the real one again: must not count as lane mismatch
         for (int lane = 0; lane < W; lane++)
             for (int e = 0; e < 256; e += 4) hw(0x00140000 + lane * 256 + e, -lut[e], -lut[e + 1], -lut[e + 2], -lut[e + 3]);
@@ -251,7 +254,7 @@ SC_MODULE(TbObp)
             for (int i = 0; i < W; i++)
             {
                 if (!m[i]) continue;
-                int8_t q = requant(in[i], decode_scale(sc[ch], k.scale_fmt), sh[ch], 0, k);
+                int8_t q = requant(in[i], decode_scale(sc[ch], k.scale_fmt), sh[ch], ZP, k);
                 exp[i] = lu ? lut[q + 128] : q;
             }
             d_in.write(in); a_in.write(addr); m_in.write(m); v_in.write(true); lut_en.write(lu);

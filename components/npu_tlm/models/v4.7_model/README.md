@@ -23,8 +23,10 @@ level, `HasNpuTop`, keeps that protocol through a compatibility layer, adds a sm
 registers, and executes each instruction on the RTL-ref / HAS path. The compatibility layer and the tile
 iterator are implemented and verified. `HasNpuTop` is implemented and has passed its acceptance milestone: the full YOLOv8m
 (98 instructions) driven only by memory-mapped instructions, bit-exact. With its default run profile it reaches
-12.76 FPS on YOLOv8m and 19.48 FPS on ViT-B/16 (0.8 GHz, HAS AXI-128 DMA), with the hardware as drawn; 20.04 FPS on
-ViT-B/16 with the proposed bias-broadcast option. Required software changes are listed in
+12.77 FPS on YOLOv8m and 19.19 FPS on ViT-B/16 (0.8 GHz, HAS AXI-128 DMA), with the hardware as drawn and the
+vector-unit scratchpad of the micro-architecture specification (128 KB, double-buffered). With the vector-unit
+configuration used before that specification (`HAS_SPEC=v47ref`) the figures are 12.76 and 19.48 FPS, and 20.04 FPS
+on ViT-B/16 with the proposed bias-broadcast option. Required software changes are listed in
 `docs/SW_INTEGRATION_GUIDE.md`.
 
 ## Key results
@@ -38,12 +40,17 @@ ViT-B/16 with the proposed bias-broadcast option. Required software changes are 
 | HAS epilogue blocks (requant, dequant, LUT, ELEM_WISE add/max, indirect LUT) | Bit-exact against independent Python implementations on 120,000 to 400,000 vectors per block |
 | Whole YOLOv8m expressed in the v4.5 memory-mapped protocol | 98 instructions, 2,306 register writes; decoded back to 9,811 of 9,811 tiles and 15 of 15 element-wise steps exactly |
 | Whole YOLOv8m run by the delivery top level `HasNpuTop` from the memory-mapped instruction stream only (overlapped schedule, HAS AXI-128 DMA timing) | 58,425,600 elements, 0 mismatches; 9,811 of 9,811 tiles on the core; 112.9 M cycles = 7.09 FPS at 0.8 GHz |
-| Whole YOLOv8m with the data flow of the hardware vector-unit specification and tile-planner optimizations, through `HasNpuTop` | 0 mismatches in all three configurations; reference run: 62.7 M cycles = 12.76 FPS (PE utilization 69.3 %) at 0.8 GHz. Earlier configurations: 73.1 M cycles = 10.94 FPS and 64.1 M cycles = 12.48 FPS. With two proposed hardware options (bias preload by broadcast descriptor, halo reuse): 60.4 M cycles = 13.25 FPS, also bit-exact |
-| Whole ViT-B/16 (patch embedding, 12 encoder blocks, head) run by `HasNpuTop` from the memory-mapped instruction stream only, with the attention and LayerNorm instructions of the vector-unit specification | 244 instructions, 26,068,616 elements, 0 mismatches; 41.1 M cycles = 19.48 FPS at 0.8 GHz as drawn, 39.9 M cycles = 20.04 FPS with the proposed bias broadcast (softmax and LayerNorm timing estimated) |
+| Whole YOLOv8m with the data flow of the hardware vector-unit specification and tile-planner optimizations, through `HasNpuTop` | 0 mismatches in all three configurations; reference run of the default configuration: 62,666,123 cycles = 12.77 FPS (PE utilization 69.3 %) at 0.8 GHz; with `HAS_SPEC=v47ref` (run C): 62.7 M cycles = 12.76 FPS. Earlier configurations: 73.1 M cycles = 10.94 FPS and 64.1 M cycles = 12.48 FPS. With two proposed hardware options (bias preload by broadcast descriptor, halo reuse): 60.4 M cycles = 13.25 FPS, also bit-exact |
+| Whole ViT-B/16 (patch embedding, 12 encoder blocks, head) run by `HasNpuTop` from the memory-mapped instruction stream only, with the attention and LayerNorm instructions of the vector-unit specification | 244 instructions, 26,068,616 elements, 0 mismatches; default configuration: 41,680,289 cycles = 19.19 FPS at 0.8 GHz as drawn; with `HAS_SPEC=v47ref`: 41.1 M cycles = 19.48 FPS as drawn, 39.9 M cycles = 20.04 FPS with the proposed bias broadcast (softmax and LayerNorm timing estimated) |
+| Vector unit after the micro-architecture specification and the RTL of its functional units: seven rounding modes, LUT table depths 256 / 512 with the last entry held, LUT input 0, log-scale LUT mode, scratchpad of 128 KB with rows per group limited by the bank sizes | Unit test against an independent Python reference (`tools/has/tb_gvu_mas`); both networks bit-exact with the default configuration; with the behaviours taken from the RTL switched on over the earlier scratchpad split (`HAS_SPEC=rtl`) both networks are bit-exact with unchanged cycles (62,681,721 and 41,065,258) |
 | Both networks on a second image that was not used for calibration (coco128 000000000502), hardware as drawn | Both bit-exact; YOLOv8m cycles identical to the reference run, detection box identical to the golden; ViT-B/16 top-1 equal to the floating-point model |
 | More images, chosen as the hardest of a survey of 112 images (YOLOv8m) and 5 images (ViT-B/16) of the integer golden against the floating-point model | Four YOLOv8m images and two ViT-B/16 images through `HasNpuTop`, hardware as drawn: all bit-exact, cycles identical on every instruction, boxes and top-1 identical to the golden. Integer against floating point: recall 0.90 and precision 0.94 of the boxes (YOLOv8m), top-1 equal on 3 of 5 images (ViT-B/16) |
 | The same YOLOv8m and ViT-B/16 programs through a system TLM integration wrapper, with the model root `core_rtl/` | Every instruction passes; per-instruction cycles equal to the runs above (98 of 98 and 244 of 244) |
 | AVG_POOL (ELEM_WISE mode 5) through the instruction path | 8 of 8 instructions bit-exact (not used by the two networks) |
+| Convolution padding per side with a padding value, and dilation (extension registers), on check programs of fixed and random layers | Bit-exact against an independent integer reference, with the padding staged by the data flow controller and with the padding generated by the IFMAP feeder (option `HAS_FEEDER_PAD=1`); dilation of the ported core equal to the SAURIA RTL on 10 shapes; whole YOLOv8m with the padding by the feeder: 0 mismatches, 62,698,248 cycles (+0.05 %) |
+| Short contexts (very small K per tile) | A port error that left the last context of some tiles without weights is corrected; the SAURIA RTL computes the same 12 shapes right; both networks rerun bit-exact with unchanged cycles (62,666,123 and 41,680,289) |
+| Row sweep of the IFMAP feeder | Limited to 256 positions in the core and in the SAURIA RTL alike; instructions past it are refused at the push with error `SWEEP` (11); none of the reference programs is refused |
+| Vector-unit top level `GvuTop` connected to the instruction path (`HAS_GVU_TOP`, off by default) | 51 of 51 random runs equal to the model's cycle-level units; YOLOv8m instructions 86 to 88 and a two-instruction window bit-exact with unchanged cycles; residual adds of both networks replayed on it with 0 differences; whole networks not run |
 | Native regression unaffected by the RTL-ref work | `test_yolo`, `test_onnx_model`, `tb_obp`, `test_vit` pass unchanged |
 
 Full numbers, methodology and limitations are in `docs/VERIFICATION_REPORT.md` and `docs/PERFORMANCE_REPORT.md`.
@@ -55,14 +62,23 @@ Full numbers, methodology and limitations are in `docs/VERIFICATION_REPORT.md` a
 | `docs/USER_GUIDE.md` | Start here: run the two networks step by step, see what runs at each step, read the results |
 | `docs/ARCHITECTURE.md` | Understand both models, the block diagrams and which parts are cycle-accurate |
 | `docs/SW_INTEGRATION_GUIDE.md` | Port existing driver software to the delivery top level: register map, required changes, open points |
+| `docs/INTEGRATOR_QUICK_START.md` | For the person who builds and launches the platform: update the model tree, the environment variables that switch the report file, the recorder and the warnings on, what the files contain, what needs a change in the wrapper |
+| `docs/SW_EVALUATION_GUIDE.md` | Run a network through a system wrapper and evaluate it: checklist, where the outputs are, error checks, comparison per instruction, performance figures |
+| `docs/CHANGES_SINCE_INTEGRATED_MODEL.md` | What differs from the model revision built into the system wrapper repository: changes of results and cycle counts, new registers and environment variables, how to replace the model |
 | `docs/FRONTEND_GUIDE.md` | Understand how an ONNX model becomes a tiled int8 program and a golden reference |
 | `docs/TILING_GUIDE.md` | Cut a layer into tiles: limits and their formulas, cycle laws, procedure, worked examples, reference files |
 | `docs/INTERFACE_SPEC.md` | Look up file formats (`prog.bin`, DRAM image, manifest, metrics CSV) and registers |
 | `docs/HARDWARE_CONFIG.md` | Look up array, SRAM and OBP sizes and the build-time model options |
+| `docs/IFMAP_FEEDER_PADDING.md` | Implement convolution padding in the IFMAP feeder: SRAM-A layout, registers, feeder datapath, per-tile generator, cost, how to check an RTL implementation against the model |
 | `docs/BUILD_AND_RUN.md` | Set up the environment, build, and run every flow |
 | `docs/VERIFICATION_REPORT.md` | See how correctness is established and the results |
 | `docs/PERFORMANCE_REPORT.md` | See measured core metrics and how to interpret them |
 | `docs/HAS_VALIDATION.md` | See the validation of the HAS drawings and the open questions for hardware |
+| `docs/GVU_RTL_CONFORMANCE.md` | Compare the vector-unit blocks with the hardware RTL: what matches, what has to change, order of work |
+| `docs/GVU_PIPELINE_STEPS.md` | Build a vector-unit pipeline from the ported blocks: every step, unit, register and cut of the specification drawings |
+| `docs/GVU_TOP_IMPLEMENTATION_AND_TEST.md` | Understand the vector-unit top level `GvuTop` and its test benches |
+| `docs/GVU_TOP_VERIFICATION_REPORT.md` | See the runs of the `GvuTop` test benches (Softmax, residual add, GEMM_FUSED) |
+| `docs/GVU_TOP_CORE_INTEGRATION.md` | Connect `GvuTop` to the SAURIA core: the sockets in the instruction path, what the core hands over, the steps and their checks |
 | `docs/KNOWN_LIMITATIONS.md` | See modelling simplifications, open issues and risks |
 | `docs/CODE_MAP.md` | Find where things live in the source tree |
 | `RELEASE_NOTES.md` | See the contents and checksums of this release |

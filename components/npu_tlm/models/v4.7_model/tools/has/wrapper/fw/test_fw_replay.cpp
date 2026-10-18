@@ -121,5 +121,7 @@ int sc_main(int argc, char *argv[])
     std::printf("[fw] RESULT: %s (rc %d, %u instructions, %u host steps, %u failed, first failed %u, sum of PERF_EXEC_CYCLES %llu%s)\n",
                 rc == 0 ? "PASS" : "FAIL", rc, res.instructions, res.host_steps, res.failed, res.first_failed,
                 (unsigned long long)res.exec_cycles, host_only ? ", host-only" : "");
+    if (res.model_error != 0)
+        std::printf("[fw] the model refused an instruction at the push: error code %u (NPU_HAS_ERR_*)\n", res.model_error);
     return rc == 0 ? 0 : 1;
 }

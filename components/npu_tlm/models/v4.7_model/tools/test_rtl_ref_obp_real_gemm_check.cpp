@@ -14,13 +14,14 @@
 #include "control/native_lane_a_core.h"
 #include "systolic_array/rtl_ref_sa_array.h"
 #include "psm/obp_top.h"
+#include "tools/obp_port_compat.h"
 
 using namespace sauria;
 
 typedef Sram<32, 32, int8_t, int8_t, int32_t, 5056, 5184, 1536> SramT;
 typedef sauria_rtl::SystolicArray<32, 32, int8_t, int8_t, int32_t> ArrayT;
 typedef RtlRefLaneACoreA<32, 32, int8_t, int8_t, int32_t, 16, 64, 1, 1536> RtlRefCoreT;
-typedef Obp<32, 0x00140000, 0x00150000, int32_t, int8_t> ObpT;
+typedef Obp<32, 0x00140000, 0x00150000, 0x001C0000, int32_t, int8_t> ObpT;
 
 SC_MODULE(TbRtlRefObpRealGemmCheck)
 {
@@ -204,6 +205,8 @@ SC_MODULE(TbRtlRefObpRealGemmCheck)
         core->o_done(core_done);
         core->o_deadlock(core_deadlock);
         core->o_active(core_active);
+        // X_DIM - X_used of the tile: 0, every column of the array is used here
+        core->i_inactive_cols(*new sc_signal<uint32_t>("core_inactive_cols"));
 
         obp_inst = new ObpT("obp_inst");
         obp_inst->i_clk(i_clk);
@@ -212,6 +215,8 @@ SC_MODULE(TbRtlRefObpRealGemmCheck)
         obp_inst->i_addr(s_psm_sramc_addr_a);
         obp_inst->i_wmask(s_psm_sramc_wmask_a);
         obp_inst->i_valid(s_psm_sramc_wren_a);
+        // channel index and output zero point of the Obp: the former internal channel counter, zero point 0
+        (new sauria::ObpPortCompat("obp_compat", 32))->attach(obp_inst, i_clk, obp_rstn, s_psm_sramc_wren_a);
         obp_inst->i_residual(obp_residual);
         obp_inst->o_sramc_wdata(s_sramc_wdata_a);
         obp_inst->o_sramc_addr(s_sramc_addr_a);
@@ -388,10 +393,9 @@ SC_MODULE(TbRtlRefObpRealGemmCheck)
         {
             std::cout << "    cycle=" << rp1.cycle << " data_in[0]=" << rp1.data_in0
                       << " data_out[0]=" << rp1.data_out0 << std::endl;
-            // Note: the value observed here is 35000 (7/8 taps), unlike the exact result obtained with lane-distinguishable
-            // data in tools/test_rtl_ref_multictx_real_gemm_check.cpp. This file uses uniform data (act = 100, wei = 50),
-            // so the difference cannot be attributed; the check follows the observed value.
-            check(rp1.data_in0 == 35000, "data_in[0] == 35000 (value measured with preload_en=true on uniform data)");
+            // All 8 taps accumulate: 8 x 100 x 50 = 40000. An earlier state of the core gave 35000 (7 of 8 taps) on
+            // uniform data; that was a defect of the port, corrected since.
+            check(rp1.data_in0 == 40000, "data_in[0] == 40000 (8 taps x 100 x 50, preload_en=true)");
             check(rp1.data_out0 == rp1.data_in0, "passthrough: data_out == data_in (no function enabled)");
         }
 
@@ -411,7 +415,7 @@ SC_MODULE(TbRtlRefObpRealGemmCheck)
             std::cout << "    cycle=" << rp2.cycle << " data_in[0]=" << rp2.data_in0
                       << " +bias(" << bias0 << ") -> ky vong=" << exp
                       << " | data_out[0]=" << rp2.data_out0 << std::endl;
-            check(rp2.data_in0 == 35000, "data_in[0] is still 35000 (same GEMM configuration)");
+            check(rp2.data_in0 == 40000, "data_in[0] is still 40000 (same GEMM configuration)");
             check(rp2.data_out0 == exp, "bias_en: data_out == data_in + bias, NO clamp, on REAL values");
         }
 

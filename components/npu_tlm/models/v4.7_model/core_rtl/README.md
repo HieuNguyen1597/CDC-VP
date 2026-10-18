@@ -21,3 +21,11 @@ streams on the RTL-accurate core. Nothing else in the wrapper's build changes: t
 `docs/SW_INTEGRATION_GUIDE.md`, section 10: model root, the wrapper change for the DRAM window
 (`tools/has/wrapper/npu_tlm_rich_window.patch`), the firmware sequence, the performance counters and the limits.
 The reference firmware sequence is `tools/has/wrapper/test_npu_tlm_core_rtl.cpp`.
+
+## Vector-unit configuration
+
+`HasNpuTop` inside this top level reads the same environment variables as `tools/has/tb_has_npu_top`. With none set it uses
+the default configuration (scratchpad of the micro-architecture specification, 128 KB double-buffered).
+`HAS_SPEC=v47ref` selects the configuration of the results measured before that specification; `HAS_SPEC=rtl` and
+`HAS_SPEC=mas10` select two further groups (`docs/HARDWARE_CONFIG.md`, section 6.3). The transformer check
+(`rce_gate`, 14 instructions) takes 285,205 vector-unit cycles by default and 250,885 with `HAS_SPEC=v47ref`.

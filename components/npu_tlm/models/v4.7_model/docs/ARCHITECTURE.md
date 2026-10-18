@@ -152,7 +152,7 @@ SystemC model of the SAURIA RTL. The equivalence is checked cycle by cycle on sa
 ### 3.3 Execution of one tile
 
 1. Reset the core; select the host-side buffers (`i_select = 000`).
-2. Load SRAM A (input window with padding, `[Cin, A_H, A_W]`), SRAM B (weights in SAURIA order) and SRAM C (bias preload).
+2. Load SRAM A (input window with padding, `[Cin, A_H, A_W]`; with `HAS_FEEDER_PAD=1` only the part inside the image, the feeder generates the padding, `HARDWARE_CONFIG.md`, section 6.5), SRAM B (weights in SAURIA order) and SRAM C (bias preload).
 3. Swap the buffers to the accelerator side (`i_select = 111`).
 4. Write about 45 configuration registers (loop limits and steps, dilation pattern, active rows and columns, context count).
 5. Pulse start. The controller walks through its states: preparation, array busy, context switch, partial-sum drain, finish.
@@ -208,6 +208,7 @@ specification. `tools/fe/sysc/tb_has_net.cpp` is the network testbench that uses
 | `HasLut` | `has/gvu_lut.h` | Indirect LUT for reciprocal and reciprocal square root (mantissa index with linear interpolation) |
 | Pipeline registers | `has/gvu_vrf.h` | Structure model of the vector-unit pipeline registers (3 x v32int64 + 4 x v32int32 with reconfiguration): checks that the registers of every pipeline stage fit (`tools/has/tb_gvu_vrf`) |
 | `GvuLsu` | `has/gvu_lsu.h` | Load/store unit accounting: Scratchpad transfers per bank (`sbank`, `vbank#0..2`) and address mode (v32int32, v32int8, int32, int8), reported as `[GVU]` lines by `tools/has/tb_has_npu_top` |
+| `GvuTop` | `has/rtl_ref_gvu_top.h`, `has/gvu_top_bridge.h` | Vector-unit top level: controller with Softmax, LayerNorm, GEMM_FUSED and residual-add states over the ported units. With `HAS_GVU_TOP=1` or `2` (off by default) the GEMM epilogue and the residual add of the instruction path run on it; max pool stays on the cycle-level pipeline (`GVU_TOP_CORE_INTEGRATION.md`, section 9) |
 
 Model options, identical in Python and C++:
 
@@ -291,7 +292,7 @@ switch of the testbench `tools/has/tb_has_npu_top` (profiles: `HARDWARE_CONFIG.m
 | Option | Switch | What changes |
 |---|---|---|
 | Epilogue on the partial-sum path | `--obp-inline` | The OBP is applied at every real write of the partial-sum manager into SRAM-C, as in the GVU pipeline (array, PSM, requant, activation LUT, PSUM SRAM). The separate epilogue pass after the core is removed; only the OBP pipeline latency remains after the last write |
-| Banked scratchpad | `--sp-banked` | The scratchpad is split into `sbank`, `vbank#0`, `vbank#1/#2` (4, 4 and 16 KB per half, twice for ping-pong: 48 KB). ELEM_WISE operands are placed per bank as in the GVU specification and each chunk is scheduled in ping-pong with the DMA |
+| Banked scratchpad | `--sp-banked` | The scratchpad is split into `sbank`, `vbank#0`, `vbank#1/#2` (default: 10,784 / 5,600 / 43,008 bytes and a 6,144-byte scalar bank per half, twice for ping-pong: the 128 KB of the micro-architecture specification; `HAS_SPEC=v47ref`: 4, 4 and 16 KB per half, 48 KB; `HARDWARE_CONFIG.md`, section 6.3). ELEM_WISE operands are placed per bank as in the GVU specification and each chunk is scheduled in ping-pong with the DMA |
 | GVU pipeline latencies | `--gvu-lat` | OBP 10, ELEM_WISE ADD stage 1 8, stage 2 10, MAX 3 cycles, derived from the per-unit pipeline depths of the GVU specification (previous estimates 6/6/5/3) |
 | 3-D DMA descriptors | `--desc3d` | CH1 reads only the part of the input window inside the image (padding is zero-filled, not transferred); CH2 writes int8 results packed. Bytes on the bus are counted separately from data bytes |
 | Layer tile order | `--s4` | For each layer the controller chooses between output-channel-outer and spatial-outer tile order by comparing the DMA bytes of the two orders; the input window is kept (not reloaded, no buffer swap) while the spatial region does not change |

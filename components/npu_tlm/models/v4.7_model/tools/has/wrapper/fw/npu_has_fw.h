@@ -29,13 +29,19 @@ extern "C" {
 #define NPU_HAS_WR_STATUS_DONE    0x2u
 #define NPU_HAS_WR_STATUS_ERROR   0x4u
 #define NPU_HAS_WR_LAST_ERROR     (NPU_HAS_WR_BASE + 0x101Cu)
-#define NPU_HAS_WR_WINDOW_BASE    (NPU_HAS_WR_BASE + 0x1130u)   /* added by npu_tlm_rich_window.patch */
+#define NPU_HAS_WR_WINDOW_BASE    (NPU_HAS_WR_BASE + 0x1130u)   /* current wrappers; older ones: npu_tlm_rich_window.patch */
 #define NPU_HAS_WR_WINDOW_SIZE    (NPU_HAS_WR_BASE + 0x1134u)
 #define NPU_HAS_PERF_EXEC_LO      0x1200u                       /* cycles of the last completed instruction */
 #define NPU_HAS_PERF_EXEC_HI      0x1240u
 
 /* ---- instruction registers (model addresses) ---- */
 #define NPU_HAS_PUSH_A            0x40000310u   /* write the opcode: pushes one instruction */
+#define NPU_HAS_STATUS            0x40000318u   /* model status: BUSY[0] FULL[1] ERROR[2] (sticky) QUEUED[15:8] CODE[31:16];
+                                                   any write clears the error. The wrapper's STATUS reports DONE also for
+                                                   an instruction refused here, so read this after every push */
+#define NPU_HAS_RETIRED           0x4000031Cu   /* completed extended instructions */
+#define NPU_HAS_STATUS_ERROR      0x4u
+#define NPU_HAS_STATUS_CODE(s)    (((s) >> 16) & 0xFFFFu)
 #define NPU_HAS_IN_ADDR           0x40000400u
 #define NPU_HAS_W_ADDR            0x40000404u
 #define NPU_HAS_OUT_ADDR          0x40000408u
@@ -93,7 +99,13 @@ extern "C" {
 #define NPU_HAS_ROWS              NPU_HAS_EXT(28)
 #define NPU_HAS_PARAM_ADDR        NPU_HAS_EXT(29)
 #define NPU_HAS_MASK_ADDR         NPU_HAS_EXT(30)
-#define NPU_HAS_EXT_END           NPU_HAS_EXT(31)   /* exclusive */
+#define NPU_HAS_PAD_VALUE         NPU_HAS_EXT(31)   /* GEMM_FUSED: value of the padded positions, int8 in the low byte */
+#define NPU_HAS_PAD_T             NPU_HAS_EXT(32)   /* GEMM_FUSED: padding per side; writing any of the four replaces PAD */
+#define NPU_HAS_PAD_L             NPU_HAS_EXT(33)
+#define NPU_HAS_PAD_B             NPU_HAS_EXT(34)
+#define NPU_HAS_PAD_R             NPU_HAS_EXT(35)
+#define NPU_HAS_DILATION          NPU_HAS_EXT(36)   /* GEMM_FUSED: kernel taps DILATION apart; not written / 0 = 1 */
+#define NPU_HAS_EXT_END           NPU_HAS_EXT(37)   /* exclusive */
 
 #define NPU_HAS_FLAG_PAD_TAIL      0x1u
 #define NPU_HAS_FLAG_CHANNEL_MAJOR 0x2u
@@ -111,6 +123,20 @@ extern "C" {
 #define NPU_HAS_ACT_RELU          1u
 #define NPU_HAS_ACT_SILU          2u
 #define NPU_HAS_ACT_GELU          3u
+
+/* ---- error codes in NPU_HAS_STATUS bits 31:16 (docs/SW_INTEGRATION_GUIDE.md, section 3.2) ---- */
+#define NPU_HAS_ERR_NONE             0u
+#define NPU_HAS_ERR_Q_OVF            1u    /* push while the queue is full */
+#define NPU_HAS_ERR_LANE_B           2u    /* push to the second lane */
+#define NPU_HAS_ERR_LEGACY64         3u    /* 64-bit instruction interface used */
+#define NPU_HAS_ERR_UNSUPPORTED_OP   4u
+#define NPU_HAS_ERR_UNSUPPORTED_MODE 5u
+#define NPU_HAS_ERR_BROADCAST        6u    /* ADD with operands of different lengths */
+#define NPU_HAS_ERR_NEED_LUT         7u    /* SiLU or GELU without LUT_ADDR */
+#define NPU_HAS_ERR_BAD_GEOM         8u    /* inconsistent or missing geometry, padding or dilation */
+#define NPU_HAS_ERR_SCALE_RANGE      9u
+#define NPU_HAS_ERR_NO_TILING        10u
+#define NPU_HAS_ERR_SWEEP            11u   /* a row sweep of the IFMAP feeder would exceed 256 positions */
 
 /* 1 when the register holds a DRAM address: the program stores image offsets, firmware adds the RAM base of the image. */
 int npu_has_is_address_register(uint32_t model_addr);
@@ -136,11 +162,12 @@ int npu_has_is_address_register(uint32_t model_addr);
 typedef struct {
     uint32_t instructions;     /* instructions executed */
     uint32_t host_steps;       /* host steps executed */
-    uint32_t failed;           /* instructions or host steps with a wrapper error or a CRC mismatch */
+    uint32_t failed;           /* instructions or host steps with a wrapper error, a refusal by the model or a CRC mismatch */
     uint32_t first_failed;     /* index (instructions and host steps counted together) of the first failure */
     uint32_t last_status;      /* wrapper STATUS of the last instruction */
     uint32_t last_error;       /* wrapper LAST_ERROR when an error was reported */
     uint64_t exec_cycles;      /* sum of PERF_EXEC_CYCLES over the instructions */
+    uint32_t model_error;      /* NPU_HAS_ERR_* of the first instruction the model refused at the push (0: none) */
 } npu_has_result;
 
 /* Runs the program. `stream` points to the stream words; `ram_base` is the physical address where the program's DRAM

@@ -239,23 +239,39 @@ tools/has/tb_has_npu_top $FE_WORK/has/insts_has --profile legacy --overlap --dma
 ```
 
 Environment: `FE_METRICS_CSV=<file>` writes per-tile core counters, `FE_SNAPSHOT_DIR=<dir>` writes the DRAM image
-after the run, `HAS_*` variables set the arithmetic knobs (`KNOWN_LIMITATIONS.md`, section 7).
+after the run, `HAS_*` variables set the arithmetic knobs (`KNOWN_LIMITATIONS.md`, section 7). `HAS_SPEC` selects
+the vector-unit configuration as a group (`HARDWARE_CONFIG.md`, section 6.3): unset = the default (scratchpad of the
+micro-architecture specification), `v47ref` = the configuration of the results measured before that specification,
+`mas10` = the typical bank sizes of the specification's capacity table, `rtl` = the behaviours of the functional-unit
+RTL over the `v47ref` scratchpad.
 
 ### Expected results
 
 | Program and options | Instructions | Result | Total cycles |
 |---|---:|---|---:|
-| `insts_pe3`, default | 98 + 2 host steps | PASS, 58,425,600 elements, 0 mismatches | 62,681,721 |
-| `insts_pe4`, `--profile proposals` | 98 + 2 host steps | PASS, 0 mismatches | 60,386,685 |
-| `vit_full`, default | 244 | PASS, 26,068,616 elements, 0 mismatches | 41,065,258 |
-| `vit_full`, `--c-bcast` | 244 | PASS, 26,068,616 elements, 0 mismatches | 39,922,498 |
-| `insts_pe3`, `--first 40 --count 2` | 2 | PASS | 1,658,986 |
+| `insts_pe3`, default | 98 + 2 host steps | PASS, 58,425,600 elements, 0 mismatches | 62,666,123 |
+| `vit_full`, default | 244 | PASS, 26,068,616 elements, 0 mismatches | 41,680,289 |
+| `insts_pe3`, default, `HAS_SPEC=v47ref` (run C) | 98 + 2 host steps | PASS, 58,425,600 elements, 0 mismatches | 62,681,721 |
+| `insts_pe4`, `--profile proposals`, `HAS_SPEC=v47ref` (run D) | 98 + 2 host steps | PASS, 0 mismatches | 60,386,685 |
+| `vit_full`, default, `HAS_SPEC=v47ref` | 244 | PASS, 26,068,616 elements, 0 mismatches | 41,065,258 |
+| `vit_full`, `--c-bcast`, `HAS_SPEC=v47ref` | 244 | PASS, 26,068,616 elements, 0 mismatches | 39,922,498 |
+| `insts_pe3`, `--first 40 --count 2` (either configuration: two convolutions) | 2 | PASS | 1,658,986 |
+| `insts_pe3`, default, `HAS_FEEDER_PAD=1` (padding by the IFMAP feeder) | 98 + 2 host steps | PASS, 0 mismatches | 62,698,248 |
+| `insts_pe3`, `--first 40 --count 2`, `HAS_GVU_TOP=1` / `HAS_GVU_TOP=2` (vector unit on `GvuTop`) | 2 | PASS | 1,658,651 / 1,650,477 |
+| `rce_gate` (transformer instruction check), default / `HAS_SPEC=v47ref` | 14 | PASS | 285,205 / 250,885 vector-unit cycles |
 | `insts_has`, `--profile legacy --overlap --dma has` (baseline) | 98 + 2 host steps | PASS, 58,425,600 elements, 0 mismatches | 112,912,950 |
 
 The run prints one `[STEP]` line per instruction and ends with `[tb_fe_core_net] RESULT: PASS|FAIL (...)` and the
 total `sim cycles`; exit code 0 on PASS. Instruction-path check of the transformer instructions:
 `tools/has/tb_has_npu_top $FE_WORK/has/rce_gate` (14 instructions, PASS; the program is shipped in the data package
 and `python3 tools/has/make_rce_gate.py <vector dir> <table dir> <out dir>` regenerates it).
+
+Regression of the vector-unit blocks and of the instruction path (transformer check, window D, AVG_POOL, padding,
+short contexts, dilation, `GvuTop`): `bash tools/has/regress_gvu.sh <output dir>` from the repository root, 58 items,
+about 1.5 hours on one core; a second argument `--unit-only` runs the unit tests only. The last line is
+`RESULT: <n> passed, <m> failed`. The script was written for the development tree and reads the programs and vectors
+under `fe_work/` at the repository root (`fe_work/has/...`); in this repository that is the extracted data package
+(for example `ln -s sauria_npu_data fe_work`). The package check runs its own subset of these items, not this script.
 
 ## 7. Post-processing
 

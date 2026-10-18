@@ -40,7 +40,9 @@ tiles of a layer   T     = ceil(Cout / TILE_COUT) x ceil(OH / TILE_H) x ceil(OW 
 The controller derives, for the tile at output region `[c0, c1) x [oy0, oy1) x [ox0, ox1)`:
 
 ```
-input window   iy = [oy0 x s - pad, (oy1 - 1) x s - pad + kh)       ix likewise      (may reach into the padding: zero)
+input window   iy = [oy0 x s - pad, (oy1 - 1) x s - pad + kh')      ix likewise      (may reach into the padding: PAD_VALUE;
+                                                                                     pad = PAD_T for iy, PAD_L for ix;
+                                                                                     kh' = (kh - 1) x DILATION + 1)
 X_used         = c1 - c0
 Y_used         = Y_USED                    if Y_USED is written, <= 32, and divides the tile width
                = gcd(tile width, 32)       otherwise
@@ -54,11 +56,12 @@ Every tile must satisfy all of these. The right column is the place where the ru
 
 | Resource | Rule | Value | Source |
 |---|---|---|---|
-| SRAM-A, input window | `Cin_t x A_H x A_W <= 80,896` with `A_H = (h - 1) x s + kh`, `A_W = (w - 1) x s + kw`, `Cin_t = TILE_CIN` or `Cin`; `w` is the computed width (after `PAD_TAIL` rounding) | 79 KB per buffer = 2,528 rows of 32 bytes | `tools/fe/fe_emit_insts.py` (`fits`), `tools/fe/fe_tile_plan.py` |
+| SRAM-A, input window | `Cin_t x A_H x A_W <= 80,896` with `A_H = (h - 1) x s + kh'`, `A_W = (w - 1) x s + kw'` (effective kernel `kh' = (kh - 1) x DILATION + 1`, likewise `kw'`; the padding counts in the window), `Cin_t = TILE_CIN` or `Cin`; `w` is the computed width (after `PAD_TAIL` rounding) | 79 KB per buffer = 2,528 rows of 32 bytes | `tools/fe/fe_emit_insts.py` (`fits`), `tools/fe/fe_tile_plan.py` |
 | SRAM-B, weights | `X_used x Kt <= 82,944` | 81 KB per buffer = 2,592 rows of 32 bytes | same |
 | SRAM-C, partial sums | `X_used x h x w <= 24,576` | 96 KB per buffer = 768 rows of 128 bytes = 24,576 int32 | same |
 | Output channels per tile | `TILE_COUT <= 32` | 32 array columns and 32 epilogue lanes | `fe_tile_plan.py` (`OBP_LANES`) |
 | Positions per context | `1 <= Y_USED <= 32`; larger: error `BAD_GEOM` | 32 array rows | `has/has_mmio_compat.h` |
+| Row sweep of the IFMAP feeder | `1 + (Y_used - 1) x stride + W + 1 - (W mod 2) + 32 <= 256` for every tile, `W = (KW - 1) x dilation + 1`; larger: error `SWEEP`. Binds only for large strides or dilations: with a 3-wide kernel, stride 7 allows 32 positions per context, stride 8 at most 28 | 8-bit position counters of the feeder lanes; the SAURIA RTL gives wrong results or hangs beyond it | `has/has_mmio_compat.h` |
 | Input-channel split | `TILE_CIN` divides `Cin`; otherwise error `BAD_GEOM` | | `has/has_mmio_compat.h` |
 | Tile sizes | `TILE_COUT`, `TILE_H`, `TILE_W` all positive; otherwise error `NO_TILING` | | `has/has_mmio_compat.h` |
 | Skip tensor of a fused residual (network testbench with the native OBP only) | `X_used x h x w <= 24,576 bytes` | 24 KB scratch | `fe_tile_plan.py` (`BANK_SKIP_BYTES`); not used by `HasNpuTop`, where a residual is a separate ELEM_WISE ADD |
@@ -75,7 +78,10 @@ Consequences worth remembering (DERIVED):
 
 The model does not enforce the SRAM capacities at run time: an oversize tile wraps addresses silently unless the
 build option `FX1_SRAM_CAP_CHECK` is on (`KNOWN_LIMITATIONS.md`, O5 and O6). The compiler must guarantee the three
-SRAM rules. A tile that fills SRAM-B or SRAM-C exactly is legal and passes, with one unused access at the address
+SRAM rules. Two aids exist for a program from another compiler: the model root `core_rtl/` prints a warning line at
+the push of an instruction whose tile exceeds one of the three rules (`SW_EVALUATION_GUIDE.md`, section 4.1), and
+`tools/has/ref_program.py` prints a note for such an instruction. A tile larger than the staging areas of the model
+(input window above 128 KB, or more than 49,152 partial sums) is cut at that size and counted as an internal error. A tile that fills SRAM-B or SRAM-C exactly is legal and passes, with one unused access at the address
 equal to the capacity (question H14).
 
 ## 4. Cycle laws of the core
@@ -94,6 +100,10 @@ cycles of one core pass  ~=  n_ctx x max(Kt, 230) + 281
 | 3x3 stride 2 with `Y_used <= 31`; KxK stride 1 at any `Y_used` with `X_used` 32 | no penalty | |
 | `Kt < 230` | every context still costs about 230 cycles | `max(Kt, 230)` |
 | Every tile | about 281 cycles of start and drain, plus a reset and about 45 to 50 register writes outside the core | `+ 281` |
+
+The constant 281 is measured between start and done of a single-tile testbench; the core-busy counter of the
+whole-network runs gives 280 for the same pass, exactly on every pass with `Kt >= 230` (6,890 of 6,890 passes of the
+reference run). The difference of one cycle does not change any choice below.
 
 The same law is `core_cost` in `tools/fe/fe_emit_insts.py` and `core_pass_est` in `has/has_npu_top.h`. The older
 planner (`fe_tile_plan.py`) uses the equivalent per-shape model of `tools/eval_sw/tile_model.py`, calibrated on 149

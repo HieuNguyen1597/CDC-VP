@@ -163,6 +163,33 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
 
         //, symmetric.
         bool peek_fifo_full_now() const { return rtl_feeder_.peek_fifo_full(); }
+#if defined(FX1_A3_WEI_DONE_Q_GATE) || defined(FX1_A3_WEI_DONE_Q_PROBE)
+        // RTL o_done / o_til_done of THIS cycle: wei_idxcnt.sv:254-255 done_q & i_cnt_en, til_done_q & i_cnt_en, with
+        // wei_feeder.sv:138 cnt_en = i_cnt_en & !fifo_full_any & !stall_any. Uses the same cnt_en / feeder_en sources as
+        // the feeder process. Valid only before this cycle's feeder tick (SEAM_ORDER: Control runs first).
+        bool peek_cnt_en_rtl_now() const
+        {
+#ifdef FX1_A3_CNT_EN_DIRECT
+            const bool ce = seam_peek_cnt_en_ ? seam_peek_cnt_en_() : i_cnt_en.read();
+#else
+            const bool ce = i_cnt_en.read();
+#endif
+#ifdef FX1_A3_FDFSM_DIRECT
+            const bool fe = seam_peek_fd_ && (FX1_A3_FDFSM_MASK & (1u<<0)) ? seam_peek_fd_(0) : (i_feeder_en.read());
+#else
+            const bool fe = i_feeder_en.read();
+#endif
+            std::array<bool, X_DIM> ca{};
+            const uint64_t m = i_wei_cols_active.read();
+            for (int x = 0; x < X_DIM; x++) ca[x] = cols_active_bit(m, x);
+            return ce && !rtl_feeder_.peek_fifo_full() && !rtl_feeder_.peek_stall_any(fe, ca);
+        }
+        bool peek_done_rtl_now() const { return rtl_feeder_.peek_done_q() && peek_cnt_en_rtl_now(); }
+        bool peek_til_done_rtl_now() const { return rtl_feeder_.peek_til_done_q() && peek_cnt_en_rtl_now(); }
+        // values computed inside the LAST feeder tick (observer, for cross-check)
+        bool dbg_last_done_rtl() const { return rtl_feeder_.dbg_done_rtl(); }
+        bool dbg_last_til_done_rtl() const { return rtl_feeder_.dbg_til_done_rtl(); }
+#endif
 
         // Debug hooks (read-only pass-through of the weight path).
         uint32_t dbg_sramb_addr() const { return rtl_feeder_.dbg_sramb_addr(); }

@@ -46,6 +46,9 @@ namespace has
     {
         if (s <= 63) return rshift(p, s, mode);
         if (mode == FLOOR) return p >> s;
+        if (mode == CEIL) return (p + ((static_cast<i128>(1) << s) - 1)) >> s;
+        if (mode == TRUNC) { const i128 t = p >> s; return (p < 0 && (t << s) != p) ? t + 1 : t; }
+        if (mode == AWAY) { const i128 t = p >> s; return (p > 0 && (t << s) != p) ? t + 1 : t; }
         const i128 half = static_cast<i128>(1) << (s - 1);
         if (mode == HALF_UP) return (p + half) >> s;
         if (mode == HALF_AWAY) { const i128 a = p < 0 ? -p : p; const i128 q = (a + half) >> s; return p < 0 ? -q : q; }
@@ -68,6 +71,15 @@ namespace has
         for (int v : x) o.S += v;
         std::vector<int64_t> D(x.size());
         for (size_t j = 0; j < x.size(); j++) { D[j] = int64_t(H) * x[j] - o.S; o.V += D[j] * D[j]; }
+        const bool probe = RangeProbe::on();
+        if (probe)
+        {
+            typedef RangeProbe RP;
+            i128 vsum = 0;
+            for (size_t j = 0; j < x.size(); j++) { RP::pt(RP::LN_D, D[j]); RP::pt(RP::LN_DD, static_cast<i128>(D[j]) * D[j]); vsum += static_cast<i128>(D[j]) * D[j]; }
+            RP::pt(RP::LN_S, o.S); RP::pt(RP::LN_V, vsum); RP::pt(RP::LN_VPRE, static_cast<i128>(o.V >> p.Pre_Shift)); RP::pt(RP::LN_M0VAR, p.M0_var);
+            RP::pt(RP::LN_VPROD, static_cast<i128>(o.V >> p.Pre_Shift) * p.M0_var); RP::pt(RP::LN_TSVAR, p.TS_var);
+        }
         o.v = requant_clamp(static_cast<i128>(o.V >> p.Pre_Shift), p.M0_var, p.TS_var, p.Z_var, -128, 127, k.round_mode);
         const i128 u = rshift_wide(static_cast<i128>(o.v - p.Z_var) * p.M0_7 + p.E_bias, p.TS_7, k.round_mode);
         o.f = static_cast<int>(clamp128(u + p.Z_7, -128, 127));
@@ -75,6 +87,12 @@ namespace has
         const LutResult lr = lut.rsqrt(uint32_t(o.w));
         o.r = lr.r;
         o.E = lr.e_shift;
+        if (probe)
+        {
+            typedef RangeProbe RP;
+            RP::pt(RP::LN_U, static_cast<i128>(o.v - p.Z_var) * p.M0_7 + p.E_bias); RP::pt(RP::LN_TS7, p.TS_7); RP::pt(RP::LN_W, o.w); RP::pt(RP::LN_R, o.r);
+            RP::pt(RP::LN_M0DIV, p.M0_div); RP::pt(RP::LN_SHDIV, p.TS_div + o.E);
+        }
         const int lo = p.out_int16 ? -32768 : -128, hi = p.out_int16 ? 32767 : 127;
         o.n.resize(x.size());
         o.y.resize(x.size());
@@ -82,6 +100,7 @@ namespace has
         {
             const i128 prod = static_cast<i128>(o.r) * D[j];
             const i128 acc = p.r9_exact ? prod * p.M0_div : ((prod >> p.r9_lsb_bits) * p.M0_div) << p.r9_lsb_bits;
+            if (probe) { RangeProbe::pt(RangeProbe::LN_RD, prod); RangeProbe::pt(RangeProbe::LN_ACC, acc); }
             o.n[j] = static_cast<int>(clamp128(rshift_wide(acc, p.TS_div + o.E, k.round_mode) + p.Z_div, -128, 127));
         }
         for (size_t j = 0; j < x.size(); j++)
@@ -89,6 +108,13 @@ namespace has
             const int t = requant_clamp(static_cast<i128>(o.n[j] - p.Z_div) * p.gamma[j], p.M0_mul[j], p.TS_mul[j], p.Z_mul, lo, hi,
                                         k.round_mode);
             o.y[j] = static_cast<int>(clamp128(static_cast<i128>(t) - p.Z_mul + p.beta[j] + p.Z_out, lo, hi));
+            if (probe)
+            {
+                typedef RangeProbe RP;
+                const i128 gn = static_cast<i128>(o.n[j] - p.Z_div) * p.gamma[j];
+                RP::pt(RP::LN_GN, gn); RP::pt(RP::LN_M0MUL, p.M0_mul[j]); RP::pt(RP::LN_GPROD, gn * p.M0_mul[j]); RP::pt(RP::LN_TSMUL, p.TS_mul[j]);
+                RP::pt(RP::LN_YSUM, static_cast<i128>(t) - p.Z_mul + p.beta[j] + p.Z_out);
+            }
         }
         return o;
     }

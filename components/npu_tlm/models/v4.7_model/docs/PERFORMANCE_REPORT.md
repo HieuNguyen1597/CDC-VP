@@ -22,12 +22,15 @@ Clock frequency for all time and throughput figures: 0.8 GHz (assumption of the 
    the core in parts of the flow; the testbench total is the only valid sum.
 4. **Do not compare testbench totals across DMA models.** Only core cycles compare across runs with different
    DMA models.
-5. **Which whole-network number to quote.** Run C (section 5.4, 62.7 M cycles, 12.76 FPS at 0.8 GHz) is the
-   reference for the hardware as drawn. Run D (section 5.5, 60.4 M cycles, 13.25 FPS) assumes two proposed
-   hardware options and is valid only if the hardware team adopts them. Runs A and B are kept for traceability.
-   For ViT-B/16 quote section 5.6: 41.1 M cycles, 19.48 FPS with the hardware as drawn (39.9 M cycles, 20.04 FPS
-   with the bias-broadcast proposal); ViT-B/16 has a
-   larger estimated share than YOLOv8m.
+5. **Which whole-network number to quote.** Section 5.8: 62,666,123 cycles, 12.77 FPS at 0.8 GHz for YOLOv8m and
+   41,680,289 cycles, 19.19 FPS for ViT-B/16, with the hardware as drawn and the default vector-unit configuration
+   (scratchpad of the micro-architecture specification). Sections 3 and 5.3 to 5.7 were measured with the
+   vector-unit configuration used before that specification, which `HAS_SPEC=v47ref` reproduces: run C (section 5.4,
+   62.7 M cycles, 12.76 FPS) and ViT-B/16 (section 5.6, 41.1 M cycles, 19.48 FPS). The core figures of those
+   sections (core busy, PE utilization, GOPS, per-layer tables) do not depend on the vector-unit configuration and
+   hold for both. Run D (section 5.5, 60.4 M cycles, 13.25 FPS) and the ViT-B/16 bias-broadcast run (39.9 M cycles,
+   20.04 FPS) assume proposed hardware options and are valid only if the hardware team adopts them. Runs A and B
+   are kept for traceability. ViT-B/16 has a larger estimated share than YOLOv8m.
 
 ## 2. Workload
 
@@ -248,10 +251,12 @@ Summary of the whole-network totals in this report:
 | `HasNpuTop`, before optimizations (section 5.3) | 112.9 M | 7.09 | HAS AXI-128 |
 | `HasNpuTop`, run A | 73.1 M | 10.94 | HAS AXI-128 |
 | `HasNpuTop`, run B | 64.1 M | 12.48 | HAS AXI-128 |
-| `HasNpuTop`, run C (current reference) | 62.7 M | 12.76 | HAS AXI-128 |
+| `HasNpuTop`, run C (`HAS_SPEC=v47ref`) | 62.7 M | 12.76 | HAS AXI-128 |
 | `HasNpuTop`, run D (run C plus two hardware proposals, section 5.5) | 60.4 M | 13.25 | HAS AXI-128 |
-| `HasNpuTop`, ViT-B/16, hardware as drawn (section 5.6) | 41.1 M | 19.48 | HAS AXI-128 |
-| `HasNpuTop`, ViT-B/16 with the bias-broadcast proposal (section 5.6) | 39.9 M | 20.04 | HAS AXI-128 |
+| `HasNpuTop`, ViT-B/16, hardware as drawn (section 5.6; `HAS_SPEC=v47ref`) | 41.1 M | 19.48 | HAS AXI-128 |
+| `HasNpuTop`, ViT-B/16 with the bias-broadcast proposal (section 5.6; `HAS_SPEC=v47ref`) | 39.9 M | 20.04 | HAS AXI-128 |
+| `HasNpuTop`, YOLOv8m, default configuration (current reference, section 5.8) | 62.7 M | 12.77 | HAS AXI-128 |
+| `HasNpuTop`, ViT-B/16, default configuration (current reference, section 5.8) | 41.7 M | 19.19 | HAS AXI-128 |
 
 DRAM latency is 0 in all these runs. A latency of 100 cycles adds 4.85 % on a DMA-limited window (MEASURED);
 the whole-network effect is ESTIMATED at 1 to 5 %.
@@ -406,6 +411,46 @@ Reading the table:
   and 715,327,488 MACs (included in the end-to-end rows). The gap between 19.48 FPS and the core-only bound is the
   DMA wait and the estimated vector-unit time (section 5.6).
 
+### 5.8 Default configuration: scratchpad of the micro-architecture specification
+
+The micro-architecture specification of the vector unit fixes the scratchpad at 128 KB, double-buffered (64 KB per
+half). The default configuration of `HasNpuTop` follows it (`HARDWARE_CONFIG.md`, section 6.3): four banks of
+10,784 / 5,600 / 43,008 bytes and a 6,144-byte scalar bank per half, softmax and LayerNorm rows per group limited by
+the banks, LUT tables of 256 / 512 entries, scalar parameters in int32 words. The specification gives the total
+size, not the size of each bank; the split is a model choice. Sections 3 and 5.3 to 5.7 used 4 / 4 / 16 KB per half
+and always 32 rows per group (`HAS_SPEC=v47ref`).
+
+| Quantity | YOLOv8m `insts_pe3` | ViT-B/16 `vit_full` | Label |
+|---|---:|---:|---|
+| Result against the golden | PASS, 98 of 98 instructions, 58,425,600 elements, 0 mismatches | PASS, 244 of 244 instructions, 26,068,616 elements, 0 mismatches | MEASURED |
+| Total cycles, default configuration | 62,666,123 | 41,680,289 | MEASURED |
+| Total cycles, `HAS_SPEC=v47ref` (sections 5.4 and 5.6) | 62,681,721 | 41,065,258 | MEASURED |
+| Difference | -15,598 (-0.025 %) | +615,031 (+1.50 %) | DERIVED |
+| Frame rate at 0.8 GHz | 12.77 FPS | 19.19 FPS | DERIVED |
+| ELEM_WISE cycles | 1,677,242 (before: 1,692,832) | 737,200 | MEASURED on the model's estimate |
+| Softmax, LayerNorm and their DMA in the vector unit | not used | 5,908,480 (before: 5,284,480) | ESTIMATED |
+| Row groups of the softmax and LayerNorm instructions | not used | 1,383 | MEASURED |
+| Core busy cycles, PE utilization, core GOPS | 55,638,052, 69.27 %, 1,134.99 | 21,830,592, 76.05 %, 1,245.93 | MEASURED: unchanged |
+| Effective TOPS (2 x MACs x frame rate) | 1.008 | 0.680 | DERIVED |
+
+- **YOLOv8m** changes only in its 15 ELEM_WISE instructions: the larger banks hold blocks of 5,600 elements instead
+  of 4,096 (12 ADD instructions -16,616 cycles, 3 MAX_POOL instructions +1,072 cycles, measured one instruction at a
+  time).
+- **ViT-B/16** is slower because a LayerNorm over 768 channels keeps 14 rows per group in the scratchpad instead of
+  32 (25 LayerNorm instructions +624,775 cycles; 25 ADD instructions -10,050 cycles; the attention instructions are
+  unchanged: 32 rows of 197 scores fit).
+- **Predictions recorded before the runs**, from the per-instruction measurements: 62,666,177 and 41,679,983 cycles.
+  Measured: -54 and +306 cycles.
+- **Other configurations measured on the whole networks.** `HAS_SPEC=rtl` (the behaviours of the functional-unit
+  RTL -- table depths, LUT input 0, wrapping zero-point adder, int32 scalar words -- over the `v47ref` scratchpad):
+  both networks bit-exact with unchanged totals, 62,681,721 and 41,065,258 cycles. `HAS_SPEC=mas10` (the typical
+  column of the specification's capacity table, 10 LayerNorm rows per group, 6 LUT stages) on ViT-B/16: bit-exact,
+  42,192,302 cycles (18.96 FPS).
+- **Proposal runs.** Run D and the ViT-B/16 bias-broadcast run were not repeated with the default configuration.
+  DERIVED from the differences above: 60,371,087 cycles (13.25 FPS) and 40,537,529 cycles (19.73 FPS).
+
+Logs: `reference_runs/yolov8m_default/` and `reference_runs/vit_b16_default/` of the data package.
+
 ## 6. Estimated components
 
 These parts of the model use estimated timing until the hardware micro-architecture specification provides
@@ -417,7 +462,7 @@ values.
 | ELEM_WISE pipeline latencies | ADD stage 1: 6, ADD stage 2: 5, MAX: 3 cycles (section 5.3); 8, 10, 3 cycles (sections 5.4 to 5.6) | `has/gvu_elemwise.h`, `has/gvu_quant.h` |
 | ELEM_WISE data movement | bytes / bus width + 20 cycles per transfer | `has/gvu_elemwise.h` |
 | Data flow controller | 1 cycle per register write, 4 cycles decode | `has/has_npu_top.h` |
-| Softmax and LayerNorm pipelines | 3L + 26 and 4H + 48 cycles per 32 rows | `has/gvu_softmax.h`, `has/has_npu_top.h` |
+| Softmax and LayerNorm pipelines | 3L + 26 and 4H + 48 cycles per group of rows (at most 32; fewer when the scratchpad limits the group, section 5.8) | `has/gvu_softmax.h`, `has/has_npu_top.h` |
 | Halo copy inside SRAM-A (run D) | 32 bytes per cycle | `has/has_npu_top.h` (`halo_copy_bpc`) |
 | DRAM latency | 0 unless set | `has/has_dma.h` |
 | MaxPool 5x5 traversal | direct 159,544 cycles, separable 80,008 cycles (SPPF shape) | `tools/has/tb_gvu_elemwise` |

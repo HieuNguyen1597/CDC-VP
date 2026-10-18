@@ -18,6 +18,8 @@
 #include "has/gvu_quant.h"
 #include "has/gvu_scratchpad.h"
 #include "has/gvu_lsu.h"
+#include "has/gvu_rtl_elem.h"
+#include "has/gvu_top_bridge.h"
 
 namespace has
 {
@@ -91,11 +93,26 @@ namespace has
                     const int32_t db = dequant(b, p.zpB, SB, p.sB, k_, &st_.qc_deq);
                     sp_.put<int32_t>(offS + 4 * i, add_sat32(da, db, &st_.qc_deq));
                 }
-                compute(vectors(m) + uint64_t(k_.lat_add1));
                 // stage 2: requant Sum -> int8, written over region A
+                const RangeProbe::Scope probe_scope(RangeProbe::C_ADD);
                 for (uint32_t i = 0; i < m; i++)
                     sp_.put<int8_t>(offA + i, requant(sp_.get<int32_t>(offS + 4 * i), SO, p.sO, p.zpO, k_, &st_.qc_req));
-                compute(vectors(m) + uint64_t(k_.lat_add2));
+                uint64_t cyc1 = vectors(m) + uint64_t(k_.lat_add1), cyc2 = vectors(m) + uint64_t(k_.lat_add2);
+                // HAS_GVU_TOP (GvuTop) or HAS_ELEM_RTL (GvuResAddPipe): values and compute cycles of the chunk from the cycle-level unit
+                if (GvuTopBridge::on() || RtlElem::on())
+                {
+                    std::vector<int8_t> res(m);
+                    for (uint32_t i = 0; i < m; i++) res[i] = sp_.get<int8_t>(offA + i);
+                    uint64_t pc = 0;
+                    if ((GvuTopBridge::on() ? &GvuTopBridge::add : &RtlElem::add)(A + base, B + base, res.data(), m, p.zpA, p.zpB, p.zpO, SA, SB, SO, p.sA, p.sB, p.sO, k_.round_mode,
+                                     k_.deq_zp_order == SUB_BEFORE, k_.req_narrow == SAT16, cyc1 + cyc2, &pc))
+                    {
+                        for (uint32_t i = 0; i < m; i++) sp_.put<int8_t>(offA + i, res[i]);
+                        cyc1 = pc - pc / 2; cyc2 = pc / 2;
+                    }
+                }
+                compute(cyc1);
+                compute(cyc2);
                 sp_.read(offA, out + base, m);
                 dma(m);
             }
@@ -163,6 +180,7 @@ namespace has
                                 for (int ky = 0; ky < kk; ky++) mx = std::max(mx, sp_.get<int8_t>(rbase + (y * s + ky) * Wo + x));
                                 out[(static_cast<size_t>(c0 + c) * Ho + y) * Wo + x] = mx;
                             }
+                        if (RtlElem::on() || GvuTopBridge::on()) RtlElem::maxpool_not_expressible();
                         compute(static_cast<uint64_t>(Hp) * vec_per_row * kk + static_cast<uint64_t>(Ho) * vec_per_row * kk + 2 * uint64_t(k_.lat_max));
                     }
                     else
@@ -176,7 +194,14 @@ namespace has
                                         mx = std::max(mx, sp_.get<int8_t>(base + (y * s + ky) * Wp + x * s + kx));
                                 out[(static_cast<size_t>(c0 + c) * Ho + y) * Wo + x] = mx;
                             }
-                        compute(static_cast<uint64_t>(Ho) * vec_per_row * kk * kk + uint64_t(k_.lat_max));
+                        uint64_t cyc = static_cast<uint64_t>(Ho) * vec_per_row * kk * kk + uint64_t(k_.lat_max), pc = 0;
+                        // HAS_ELEM_RTL, and HAS_GVU_TOP (GvuTop has no max pool): values and compute cycles of the channel from
+                        // GvuMaxPoolPipe
+                        if (GvuTopBridge::on()) GvuTopBridge::maxpool_elsewhere();
+                        if ((RtlElem::on() || GvuTopBridge::on()) && RtlElem::maxpool(in + static_cast<size_t>(c0 + c) * H * Wd, out + static_cast<size_t>(c0 + c) * Ho * Wo,
+                                                              H, Wd, kk, s, p, cyc, &pc))
+                            cyc = pc;
+                        compute(cyc);
                     }
                 }
                 dma(static_cast<uint64_t>(g) * Ho * Wo);
@@ -223,6 +248,11 @@ namespace has
                                     acc = static_cast<int16_t>(static_cast<uint16_t>(acc + v));
                                 }
                             if (wide != acc) acc16_ovf++;
+                            if (RangeProbe::on())
+                            {
+                                RangeProbe::pt(RangeProbe::AVG_ACC, wide); RangeProbe::pt(RangeProbe::AVG_S, S);
+                                RangeProbe::pt(RangeProbe::AVG_PROD, static_cast<i128>(acc) * S); RangeProbe::pt(RangeProbe::AVG_SHIFT, avg_shift);
+                            }
                             const i128 r = rshift(static_cast<i128>(acc) * S, avg_shift, k_.round_mode);
                             const i128 o = clamp128(r, -128, 127);
                             if (o != r) st_.qc_req.clamp8++;

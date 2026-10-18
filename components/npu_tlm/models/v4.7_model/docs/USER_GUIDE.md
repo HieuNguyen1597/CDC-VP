@@ -38,10 +38,15 @@ tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3 --first 40 --count 2     # PASS,
 
 | Network and configuration | Command | Time on one core | Expected result |
 |---|---|---|---|
-| YOLOv8m, hardware as drawn (reference, run C) | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3` | about 10 hours | PASS, 98 instructions + 2 host steps, 0 mismatches, 62,681,721 cycles (12.76 FPS at 0.8 GHz) |
-| ViT-B/16, hardware as drawn | `tools/has/tb_has_npu_top $FE_WORK/has/vit_full` | about 5 hours | PASS, 244 instructions, 0 mismatches, 41,065,258 cycles (19.48 FPS) |
-| ViT-B/16 with the bias-broadcast proposal | `tools/has/tb_has_npu_top $FE_WORK/has/vit_full --c-bcast` | about 5 hours | PASS, 39,922,498 cycles (20.04 FPS) |
-| YOLOv8m with the two hardware proposals (run D) | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe4 --profile proposals` | about 10 hours | PASS, 60,386,685 cycles (13.25 FPS) |
+| YOLOv8m, hardware as drawn (reference) | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3` | about 10 hours | PASS, 98 instructions + 2 host steps, 0 mismatches, 62,666,123 cycles (12.77 FPS at 0.8 GHz) |
+| ViT-B/16, hardware as drawn (reference) | `tools/has/tb_has_npu_top $FE_WORK/has/vit_full` | about 5 hours | PASS, 244 instructions, 0 mismatches, 41,680,289 cycles (19.19 FPS) |
+| YOLOv8m, vector-unit configuration before the micro-architecture specification (run C) | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3` | about 10 hours | PASS, 62,681,721 cycles (12.76 FPS) |
+| ViT-B/16, same earlier configuration | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/vit_full` | about 5 hours | PASS, 41,065,258 cycles (19.48 FPS) |
+| ViT-B/16 with the bias-broadcast proposal, earlier configuration | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/vit_full --c-bcast` | about 5 hours | PASS, 39,922,498 cycles (20.04 FPS) |
+| YOLOv8m with the two hardware proposals (run D), earlier configuration | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/insts_pe4 --profile proposals` | about 10 hours | PASS, 60,386,685 cycles (13.25 FPS) |
+
+The two proposal runs have not been repeated with the default configuration; the expected totals are 60,371,087 and
+40,537,529 cycles (DERIVED from the measured difference of the as-drawn runs, `PERFORMANCE_REPORT.md`, section 5.8).
 
 Every instruction prints one `[STEP]` line as soon as it finishes; the run ends with `RESULT: PASS` or `FAIL` and
 the total `sim cycles`. To keep a log, the per-tile counters and the final memory image of a long run:
@@ -128,8 +133,10 @@ For an own run, replace the reference directory by the run directory (`run_c` ab
 | Goal | Do | Read |
 |---|---|---|
 | Drop-in replacement of the previous native model | Point the wrapper's model root at the repository root; nothing else changes | `SW_INTEGRATION_GUIDE.md`, section 9 |
-| Run programs on the RTL-accurate core through the wrapper | Model root `core_rtl/`, apply `tools/has/wrapper/npu_tlm_rich_window.patch` | `SW_INTEGRATION_GUIDE.md`, sections 10.1 to 10.4 |
+| Run programs on the RTL-accurate core through the wrapper | Model root `core_rtl/` and a wrapper with the DRAM window (current revisions have it; older ones: `tools/has/wrapper/npu_tlm_rich_window.patch`); platform files of `INTEGRATOR_QUICK_START.md`, section 2.1 | `SW_INTEGRATION_GUIDE.md`, sections 10.1 to 10.4 |
 | First firmware run | `tools/has/wrapper/fw/` with the 14-instruction transformer check | `SW_INTEGRATION_GUIDE.md`, section 10.5 |
+| Evaluate a network through the wrapper: outputs, error checks, comparison per instruction, PE utilization | Follow the checklist; read the model's status register after every push | `SW_EVALUATION_GUIDE.md` |
+| Find out why a program of another compiler gives wrong results | Read the warning lines on stderr; record the run with `SAURIA_CORE_RTL_RECORD` and replay it | `SW_EVALUATION_GUIDE.md`, sections 4 and 7 |
 | Write a driver | Register map and programming sequences | `SW_INTEGRATION_GUIDE.md`, sections 3 and 4 |
 | Write or extend a compiler | Data layout, weight order, tiling | `SW_INTEGRATION_GUIDE.md`, sections 5 and 6; `FRONTEND_GUIDE.md`; `TILING_GUIDE.md` |
 

@@ -96,6 +96,8 @@ int main(void)
         uart_put_hex32(res.first_failed);
         uart_puts(" error=");
         uart_put_hex32(res.last_error);
+        uart_puts(" model_error=");
+        uart_put_hex32(res.model_error);
         uart_puts("\n");
     }
     for (;;) {

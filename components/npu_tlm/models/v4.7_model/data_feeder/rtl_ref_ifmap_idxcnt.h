@@ -76,6 +76,12 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             bool outbounds = false;    // o_outbounds
             bool done = false;         // o_done (all positions finished, current context)
             bool til_done = false;     // o_til_done (all positions finished, all contexts)
+            // Padding tags (NOT in the RTL, used only by the on-the-fly padding of rtl_ref_ifmap_feeder_rtl.h): where the
+            // address behind `woffs` lies in the tile window. Same two register stages and enables as `woffs`, so the pair
+            // always belongs to the same address. pad_col0 = tile-X counter (window column of lane 0, tap 0); pad_row =
+            // kernel-Y counter + tile-Y counter (window row times the row step).
+            uint32_t pad_col0 = 0;
+            uint32_t pad_row = 0;
         };
 
         // Per-context reset (mirrors RTL i_rstn -- call once before first tick()).
@@ -91,6 +97,8 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             woffs_outshim_ = 0;
             x_ov_flag_outshim_ = false;
             outbounds_outshim_ = false;
+            pad_col0_q_ = pad_row_q_ = 0;
+            pad_col0_outshim_ = pad_row_outshim_ = 0;
         }
 
         // The harness keeps one feeder instance while ContextFsm advances
@@ -199,12 +207,15 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             // cnt_en (woffs_reg always_ff block).
             idx_t sram_idx_q_next;
             bool x_ov_flag_q_next, done_q_next, til_done_q_next;
+            idx_t pad_col0_q_next, pad_row_q_next;   // padding tags, registered with sram_idx_q
             if (in.cnt_clear)
             {
                 sram_idx_q_next = 0;
                 x_ov_flag_q_next = false;
                 done_q_next = false;
                 til_done_q_next = false;
+                pad_col0_q_next = 0;
+                pad_row_q_next = 0;
             }
             else if (in.cnt_en)
             {
@@ -212,6 +223,8 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
                 x_ov_flag_q_next = x_ov_flag;
                 done_q_next = done_d;
                 til_done_q_next = til_done_d;
+                pad_col0_q_next = til_x_idx_;
+                pad_row_q_next = (y_idx_ + til_y_idx_) & mask;
             }
             else
             {
@@ -219,6 +232,8 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
                 x_ov_flag_q_next = x_ov_flag_q_;
                 done_q_next = done_q_;
                 til_done_q_next = til_done_q_;
+                pad_col0_q_next = pad_col0_q_;
+                pad_row_q_next = pad_row_q_;
             }
 
             // outbounds_reg always_ff block: cnt_clear_q is UNCONDITIONAL every
@@ -246,11 +261,14 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             // more cycle of delay on top of sram_idx_q/x_ov_flag_q/outbounds_q.
             uint32_t woffs_outshim_next;
             bool x_ov_flag_outshim_next, outbounds_outshim_next;
+            idx_t pad_col0_outshim_next, pad_row_outshim_next;   // padding tags, registered with woffs_outshim
             if (in.cnt_clear)
             {
                 woffs_outshim_next = 0;
                 x_ov_flag_outshim_next = false;
                 outbounds_outshim_next = false;
+                pad_col0_outshim_next = 0;
+                pad_row_outshim_next = 0;
             }
             else if (in.cnt_en)
             {
@@ -258,12 +276,16 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
                 woffs_outshim_next = sram_idx_q_ & wofs_mask;
                 x_ov_flag_outshim_next = x_ov_flag_q_;
                 outbounds_outshim_next = outbounds_q_;
+                pad_col0_outshim_next = pad_col0_q_;
+                pad_row_outshim_next = pad_row_q_;
             }
             else
             {
                 woffs_outshim_next = woffs_outshim_;
                 x_ov_flag_outshim_next = x_ov_flag_outshim_;
                 outbounds_outshim_next = outbounds_outshim_;
+                pad_col0_outshim_next = pad_col0_outshim_;
+                pad_row_outshim_next = pad_row_outshim_;
             }
 
             // ---------- Phase 2: commit ----------
@@ -287,6 +309,11 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             x_ov_flag_outshim_ = x_ov_flag_outshim_next;
             outbounds_outshim_ = outbounds_outshim_next;
 
+            pad_col0_q_ = pad_col0_q_next;
+            pad_row_q_ = pad_row_q_next;
+            pad_col0_outshim_ = pad_col0_outshim_next;
+            pad_row_outshim_ = pad_row_outshim_next;
+
             // ---------- Outputs (RTL "assign" lines, combinational from _q regs
             // that were JUST updated above -- RTL's assigns read the post-edge q
             // values since they are plain continuous assigns off registers) ----------
@@ -299,6 +326,8 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             out.x_ov_flag = x_ov_flag_outshim_ && in.cnt_en;
             out.done = done_q_ && in.cnt_en;
             out.til_done = til_done_q_ && in.cnt_en;
+            out.pad_col0 = pad_col0_outshim_;
+            out.pad_row = pad_row_outshim_;
             return out;
         }
 
@@ -322,6 +351,10 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
         uint32_t woffs_outshim_ = 0;
         bool x_ov_flag_outshim_ = false;
         bool outbounds_outshim_ = false;
+
+        // Padding tags (not in the RTL): see Outputs::pad_col0 / pad_row.
+        idx_t pad_col0_q_ = 0, pad_row_q_ = 0;
+        idx_t pad_col0_outshim_ = 0, pad_row_outshim_ = 0;
     };
 
 } // namespace sauria_rtl

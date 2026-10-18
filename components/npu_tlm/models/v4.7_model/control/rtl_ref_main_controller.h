@@ -289,6 +289,14 @@ namespace sauria_rtl
         uint64_t tdq_gate_mis_{0};
         uint64_t tdq_gate_cyc_{0};
 #endif
+#if defined(FX1_A3_WEI_DONE_Q_GATE) || defined(FX1_A3_WEI_DONE_Q_PROBE)
+        // RTL o_done / o_til_done of THIS cycle from the weight feeder (FX1_A3_WEI_DONE_Q_GATE uses them;
+        // FX1_A3_WEI_DONE_Q_PROBE only compares them with the sc_signal values and reports).
+        std::function<bool()> peek_wei_done_rtl_{};
+        std::function<bool()> peek_wei_til_done_rtl_{};
+        uint64_t wdq_cyc_{0};
+        uint64_t wdq_diff_{0};
+#endif
 
     private:
 #endif
@@ -486,10 +494,16 @@ namespace sauria_rtl
             }
 #endif
 
+#ifdef FX1_A3_INCNTLIM_ZERO_RTL
+            // CON.INCNTLIM = 0 with i_mvm_k = 0 stays 0: one MAC per context (kernel positions x input channels = 1), the
+            // case of cdone_force_q2 in context_switch_controller.sv:134. A driver that writes the configuration register
+            // drives i_mvm_k = 0 for such a tile; any other value of i_mvm_k keeps the fallback above.
+#else
             if (incntlim == 0)
             {
                 incntlim = 1;
             }
+#endif
             uint32_t ncontexts = i_ncontexts.read();
             if (ncontexts == 0)
                 ncontexts = 1;
@@ -715,6 +729,35 @@ namespace sauria_rtl
 #endif
                 fd_in.wei_done = i_wei_done.read();
                 fd_in.wei_til_done = i_wei_til_done.read();
+#ifdef FX1_A3_WEI_DONE_Q_GATE
+                // Weight side of FX1_A3_TILDONE_Q_GATE. RTL feeders_fsm.sv:204 counts i_wei_done = wei_idxcnt.sv:254
+                // done_q & i_cnt_en of THIS cycle (wei_feeder.sv:138 cnt_en = i_cnt_en & !fifo_full_any & !stall_any).
+                // The sc_signals above carry the feeder's post-commit value gated by LAST cycle's cnt_en: when the weight
+                // FIFO fills right after the counter wraps, the pulse reaches the repetition counter while the RTL still
+                // holds it, o_wei_cswitch rises one repetition early and wei_idxcnt sets `outbounds` at the wrap before
+                // the LAST repetition -- the weights of the last context of the tile are then never pushed.
+                if (peek_wei_done_rtl_ && peek_wei_til_done_rtl_)
+                {
+                    fd_in.wei_done = peek_wei_done_rtl_();
+                    fd_in.wei_til_done = peek_wei_til_done_rtl_();
+                }
+#elif defined(FX1_A3_WEI_DONE_Q_PROBE)
+                // Debug hook (default off, observation only): cycles in which the sc_signal value differs from the RTL
+                // value of this cycle.
+                if (peek_wei_done_rtl_ && peek_wei_til_done_rtl_)
+                {
+                    const bool rd = peek_wei_done_rtl_(), rt = peek_wei_til_done_rtl_();
+                    if ((rd != fd_in.wei_done || rt != fd_in.wei_til_done) && wdq_diff_++ < 40)
+                        std::cerr << "[WDQ_PROBE] " << this->name() << " cyc=" << wdq_cyc_
+                                  << " done sig=" << fd_in.wei_done << " rtl=" << rd
+                                  << " til_done sig=" << fd_in.wei_til_done << " rtl=" << rt
+                                  << " full_now=" << (peek_wei_full_ ? (int)peek_wei_full_() : -1)
+                                  << " wei_rep=" << feeders_fsm.dbg_wei_rep()
+                                  << " wei_reps=" << fd_in.wei_reps
+                                  << " fsm=" << feeders_fsm.dbg_state() << "\n";
+                }
+                wdq_cyc_++;
+#endif
 #ifdef FX1_A3_EMPTY_DIRECT
                 fd_in.wei_fifo_empty = peek_wei_empty_ ? peek_wei_empty_()
                                                        : i_wei_fifo_empty.read();
@@ -727,6 +770,10 @@ namespace sauria_rtl
                 fd_in.wei_stall = peek_wei_stall_ ? peek_wei_stall_() : i_wei_stall.read();
 #else
                 fd_in.wei_stall = i_wei_stall.read();
+#endif
+#ifdef FX1_A3_WEI_DONE_Q_GATE
+                fd_in.wei_fifo_full_peek = peek_wei_full_ ? peek_wei_full_() : fd_in.wei_fifo_full;
+                fd_in.wei_stall_peek = peek_wei_stall_ ? peek_wei_stall_() : fd_in.wei_stall;
 #endif
 
                 auto fd_out = feeders_fsm.compute_outputs(fd_in);

@@ -271,6 +271,10 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
         idx_t dbg_aux() const { return aux_idx_; }
         idx_t dbg_w() const { return w_idx_; }
         idx_t dbg_tilk() const { return til_k_idx_; }
+        // done_q / til_done_q before this cycle's tick: RTL o_done / o_til_done (lines 254-255) without the i_cnt_en
+        // term, for the controller's same-cycle read (FX1_A3_WEI_DONE_Q_GATE).
+        bool peek_done_q() const { return done_q_; }
+        bool peek_til_done_q() const { return til_done_q_; }
 
     private:
         idx_t aux_idx_ = 0, w_idx_ = 0, til_k_idx_ = 0;

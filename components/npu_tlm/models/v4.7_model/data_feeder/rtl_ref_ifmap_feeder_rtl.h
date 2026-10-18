@@ -93,6 +93,16 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             bool clearfifo = false;
             bool pipeline_en = false;
             bool pop_en = false;
+            // ---- on-the-fly padding (NOT in the RTL; pad_en = false is the RTL behaviour, bit for bit) ----
+            // SRAM-A then holds only the real part of the tile window, row width = real width, behind a lead of
+            // (top padding rows x real width + left padding columns) unused elements, so the address counters need no
+            // offset. Every element of the SRAM word stream whose window position lies outside [pad_col_lo, pad_col_hi) x
+            // [pad_row_lo, pad_row_hi) is replaced by pad_val before the 32 lanes gather it. Rows are compared in the unit
+            // of the counters (window row x row step). The lanes, FIFOs and the skew line are unchanged.
+            bool pad_en = false;
+            elem_t pad_val = 0;
+            uint32_t pad_col_lo = 0, pad_col_hi = 0;
+            uint32_t pad_row_lo = 0, pad_row_hi = 0;
         };
 
         struct Outputs
@@ -161,6 +171,8 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             srama_addr_ = 0;
             done_ = til_done_ = false;
             full_any_shim_ = false;
+            pad_gw_q_ = pad_col0_q_ = pad_row_q_ = pad_sc_q_ = 0;
+            pad_ok_q_.fill(false);
         }
 
         // ContextFsm owns the outer context loop in this harness. Clear only
@@ -279,7 +291,14 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             // ---- muxes (RTL 310-313), all off PRE-tick register values ----
             std::array<elem_t, SRAMA_N> srama_data_mux{};
             if (!finalpush_q2_)
+            {
                 srama_data_mux = sram_data_q_;
+                // on-the-fly padding (not in the RTL): out-of-window elements of this word become the padding value.
+                if (in.pad_en)
+                    for (int i = 0; i < SRAMA_N; i++)
+                        if (!pad_ok_q_[i])
+                            srama_data_mux[i] = in.pad_val;
+            }
             const uint32_t glob_woffs_mux = in.finalpush ? 0u : glob_woffs_;
             // RTL '{default: 1} == every bit set, NOT zero.
             const uint64_t dil_pat_mux = finalpush_q1_ ? ~0ULL : in.dil_pat;
@@ -317,6 +336,35 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
                 // feed_registers is instantiated with N_REGS=jj, a DIFFERENT
                 // depth per row, so this needs runtime depth.
                 out.a_arr[y] = skew_tick(y, lo.data, in.clearfifo, in.pipeline_en);
+            }
+
+            // ---- on-the-fly padding registers (not in the RTL) ----
+            // Lane-independent copies of what feed_data_manager keeps per lane, with the same enable (pipeline_regs_en is
+            // the lanes' own enable for every active row) and the same clear: the word offset latched at an X transition
+            // (pad_gw_q_, without the per-lane part) and the stream position of the word (pad_sc_q_ = shift_idx_cnt_q).
+            // pad_ok_q_ is registered like shifted_dil_pat_q, from the same pre-tick values, so it describes the word the
+            // lanes gather on the next enabled cycle: element i of that word is window column
+            // pad_col0_q_ + pad_sc_q_ + i - pad_gw_q_ of window row pad_row_q_.
+            if (in.feeder_clear)
+            {
+                pad_gw_q_ = pad_col0_q_ = pad_row_q_ = pad_sc_q_ = 0;
+                pad_ok_q_.fill(false);
+            }
+            else if (pipeline_regs_en)
+            {
+                const bool row_ok = pad_row_q_ >= in.pad_row_lo && pad_row_q_ < in.pad_row_hi;
+                for (int i = 0; i < SRAMA_N; i++)
+                {
+                    const int64_t col = int64_t(pad_col0_q_) + int64_t(pad_sc_q_) + i - int64_t(pad_gw_q_);
+                    pad_ok_q_[i] = row_ok && col >= int64_t(in.pad_col_lo) && col < int64_t(in.pad_col_hi);
+                }
+                pad_sc_q_ = x_transition_flag ? 0u : ((pad_sc_q_ + uint32_t(SRAMA_N)) & 0xFFu);   // PARAMS_W = 8 in the lanes
+                if (x_transition_flag)
+                {
+                    pad_gw_q_ = glob_woffs_mux;
+                    pad_col0_q_ = io_.pad_col0;
+                    pad_row_q_ = io_.pad_row;
+                }
             }
 
             // ---- shim registers (RTL 137-170) ----
@@ -571,6 +619,9 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
         uint32_t glob_woffs_{0}, srama_addr_{0};
         bool outbounds_{false}, done_{false}, til_done_{false};
         bool full_any_shim_{false};
+        // on-the-fly padding (not in the RTL), see tick()
+        uint32_t pad_gw_q_{0}, pad_col0_q_{0}, pad_row_q_{0}, pad_sc_q_{0};
+        std::array<bool, SRAMA_N> pad_ok_q_{};
 #ifdef FX1_A3_TILDONE_Q_GATE
         bool dbg_til_done_rtl_{false};
 #endif

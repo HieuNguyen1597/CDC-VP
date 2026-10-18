@@ -263,7 +263,7 @@ SC_MODULE(TbHasNpuTop)
                     dir.c_str(), n_ins, first, last, program_bytes, dut->staging_base());
 
         // ---------------- replay
-        uint64_t pushed = 0, checked = 0, bad_tensors = 0, bad_elems = 0, elems = 0, host_steps = 0, mmio_errors = 0;
+        uint64_t pushed = 0, checked = 0, bad_tensors = 0, bad_elems = 0, elems = 0, host_steps = 0, mmio_errors = 0, refused = 0;
         std::vector<int> pushed_idx;
         const uint64_t t0 = now_cycles();
         auto check_retired = [&](bool block_all)
@@ -324,10 +324,22 @@ SC_MODULE(TbHasNpuTop)
                     check_retired(false);
                     wait(256);
                 }
+                const uint64_t refused_before = dut->mmio.n_errors;
                 mmio_write(e.addr, e.val);
+                const uint32_t s = mmio_read(M::STATUS);
+                if (dut->mmio.n_errors != refused_before)
+                {
+                    // The decoder refused the push: the instruction is not queued and never retires, so it is not waited for.
+                    std::printf("[tb_has_npu_top] instruction %d (%s) REFUSED at the push: STATUS 0x%08x, error code %u; its output is not checked\n",
+                                i, ins[i].label.c_str(), s, s >> 16);
+                    mmio_errors++;
+                    refused++;
+                    mmio_write(M::STATUS, 0);
+                    check_retired(false);
+                    continue;
+                }
                 pushed++;
                 pushed_idx.push_back(i);
-                const uint32_t s = mmio_read(M::STATUS);
                 if (s & 4u)
                 {
                     std::printf("[tb_has_npu_top] STATUS error 0x%08x after push of instruction %d (%s)\n", s, i, ins[i].label.c_str());
@@ -362,12 +374,25 @@ SC_MODULE(TbHasNpuTop)
                         (unsigned long long)ob.inline_vectors, (unsigned long long)dut->inline_out_of_tile);
         std::printf("[tb_has_npu_top] core passes %llu for %llu tiles (S1 Cin split when >), S4 spatial-outer layers %llu\n",
                     (unsigned long long)st.core_passes, (unsigned long long)st.tiles, (unsigned long long)dut->s4_layers);
+        if (dut->feeder_pad || dut->pad_value_forced)
+        {
+            char pv[48] = "value from the instruction";
+            if (dut->pad_value_forced) std::snprintf(pv, sizeof pv, "value forced to %d (HAS_PAD_VALUE)", dut->pad_value);
+            std::printf("[tb_has_npu_top] padding: %s, %s, core passes padded by the feeder %llu, kept staged although the window "
+                        "reaches outside the image %llu\n",
+                        dut->feeder_pad ? "by the IFMAP feeder (HAS_FEEDER_PAD)" : "staged with the input window", pv,
+                        (unsigned long long)st.feeder_pad_passes, (unsigned long long)st.feeder_pad_fallback);
+        }
         std::printf("[tb_has_npu_top] weight blocks: DMA loads %llu, reused by B flip %llu\n",
                     (unsigned long long)st.weight_loads, (unsigned long long)st.weight_reuse_flips);
         if (st.attn || st.ln || st.rce_param_errors)
             std::printf("[tb_has_npu_top] RCE: FUSED_ATTN %llu, LAYERNORM %llu, rows %llu, cycles %llu (ESTIMATE), ovf16 %llu, param errors %llu\n",
                         (unsigned long long)st.attn, (unsigned long long)st.ln, (unsigned long long)st.rce_rows,
                         (unsigned long long)st.rce_cycles, (unsigned long long)st.rce_ovf16, (unsigned long long)st.rce_param_errors);
+        if (dut->knobs.sp_limit_rows || dut->knobs.lut_stages != 4 || dut->knobs.lut_mas_depth)
+            std::printf("[tb_has_npu_top] RCE row groups %llu (rows per group limited by the Scratchpad: %s), LUT stages %d, "
+                        "instructions with a scalar bank too small %llu\n", (unsigned long long)st.rce_groups,
+                        dut->knobs.sp_limit_rows ? "yes" : "no", dut->knobs.lut_stages, (unsigned long long)st.rce_sp_short);
         if (st.rce_core_passes)
             std::printf("[tb_has_npu_top] RCE products on the core: passes %llu, core cycles %llu (MEASURED)\n",
                         (unsigned long long)st.rce_core_passes, (unsigned long long)st.rce_core_cycles);
@@ -380,6 +405,8 @@ SC_MODULE(TbHasNpuTop)
                     (unsigned long long)es.max_elems, (unsigned long long)st.elem_cycles, (unsigned long long)es.qc_req.clamp8);
         std::printf("[tb_has_npu_top] ELEM_WISE cycles: dma %llu, compute %llu, hidden by ping-pong (A2) %llu\n",
                     (unsigned long long)es.cyc_dma, (unsigned long long)es.cyc_compute, (unsigned long long)es.cyc_overlap_saved);
+        if (refused)
+            std::printf("[tb_has_npu_top] %llu instruction(s) refused at the push (not run, not checked)\n", (unsigned long long)refused);
         const bool pass = bad_tensors == 0 && mmio_errors == 0 && dut->mmio.n_errors == 0 && st.core_deadlocks == 0 &&
                           st.framing_errors == 0 && checked == uint64_t(count) && ob.cfg_errors == 0 && ob.vectors_in == ob.vectors_out;
         std::printf("[tb_fe_core_net] RESULT: %s (steps %d, tensors %llu, elements %llu, bad tensors %llu, bad elements %llu, "
@@ -390,6 +417,9 @@ SC_MODULE(TbHasNpuTop)
                     "(DMA wait %llu, OBP %llu, OBP config approx %llu)\n", (unsigned long long)st.tiles, (unsigned long long)st.tiles,
                     (unsigned long long)st.vectors, (unsigned long long)st.macs, (unsigned long long)cyc,
                     (unsigned long long)st.dma_cycles, (unsigned long long)st.obp_cycles, (unsigned long long)st.cfg_cycles);
+        std::printf("[tb_has_npu_top] core busy (start to done) %llu, real MACs %llu, PE utilization %.2f %%\n",
+                    (unsigned long long)st.core_busy, (unsigned long long)st.real_macs,
+                    st.core_busy ? 100.0 * double(st.real_macs) / (double(st.core_busy) * 1024.0) : 0.0);
         {
             std::istringstream gr(dut->gvu_report());
             for (std::string l; std::getline(gr, l);) std::printf("[GVU] %s\n", l.c_str());
@@ -468,7 +498,7 @@ int sc_main(int argc, char *argv[])
     if (profile == Profile::Proposals) TbHasNpuTop::g_halo = TbHasNpuTop::g_c_bcast = true;
     if (dma.empty()) dma = "v45";
     std::printf("[tb_has_npu_top] profile %s\n", profile_name(profile));
-    TbHasNpuTop::g_knobs = Knobs::from_env();
+    TbHasNpuTop::g_knobs = Knobs::from_env(profile != Profile::Legacy);   // HAS_SPEC=v47ref: the configuration before the MAS
     if (sp_banked) TbHasNpuTop::g_knobs.sp_banked = 1;
     if (gvu_lat) TbHasNpuTop::g_knobs.gvu_latencies();
     std::printf("[tb_has_npu_top] knobs %s\n", TbHasNpuTop::g_knobs.str().c_str());

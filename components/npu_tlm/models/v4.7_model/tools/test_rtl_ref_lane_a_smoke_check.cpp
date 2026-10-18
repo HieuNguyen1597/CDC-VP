@@ -197,6 +197,8 @@ SC_MODULE(TbRtlRefLaneASmokeCheck)
         core->o_done(core_done);
         core->o_deadlock(core_deadlock);
         core->o_active(core_active);
+        // X_DIM - X_used of the tile: 0, every column of the array is used here
+        core->i_inactive_cols(*new sc_signal<uint32_t>("core_inactive_cols"));
 
         SC_THREAD(run);
         sensitive << i_clk.pos();

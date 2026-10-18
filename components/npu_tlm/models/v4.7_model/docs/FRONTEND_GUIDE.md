@@ -71,7 +71,10 @@ percentile calibration, `rc` = rounding compensation. This is the configuration 
 - Convolution partial sums are computed with float64 matrix products on im2col columns. They are exact
   because every partial sum is an integer below 2^53.
 - Requant and LUT follow the formula above. An optional `round_mode = 1` adds `2^(shift-1)` before the shift
-  (used by the HAS configuration).
+  (used by the HAS configuration); `round_mode = 2` rounds half away from zero, which is the requantization of the
+  native OBP at its current revision. `fe_step6b_export_net.py` and `fe_step6b_export_obp.py` take
+  `--obp-round params|floor|half_up|half_away` to write the golden of the network testbenches with one of them
+  (`params`, the default, keeps the mode stored with the quantization parameters).
 - Max-pool pads with -128.
 
 The result is the expected byte value of every tensor. The golden DRAM image is built from it.
@@ -209,7 +212,7 @@ tiles), the reference for the replay check `tools/has/tb_has_mmio_replay`.
 ### 11.1 Tiling rules for PE utilization
 
 The `pe` plans apply the rules below. They were found by experiment on YOLOv8m (32x32 array, int8, SRAM A/B/C of
-158/162/192 KB, scratchpad 48 KB) and raise the network PE utilization from 37.40 % (plan `has`) to 69.27 % (plan
+158/162/192 KB, vector-unit scratchpad of 48 KB at the time; the core figures do not depend on it) and raise the network PE utilization from 37.40 % (plan `has`) to 69.27 % (plan
 `pe3`). Use them when mapping another network: read the per-layer table of a run
 (`bash tools/metrics/post_fullcore.sh --layers`, `BUILD_AND_RUN.md`, section 7), find the sign in the second column,
 apply the rule. "Columns x rows" is the `X x Y used` column of that table: output channels by positions per context.
@@ -234,7 +237,7 @@ utilization alone. The limits, the cycle laws behind the rules, a step-by-step p
 |---|---|
 | `fe_vit_float.py` | Float reference in numpy from the timm weights (`$FE_WORK/weights/`), checked against an independent PyTorch forward and on labelled images |
 | `fe_vit_quant.py` | Int8 quantization laid out on the vector-unit pipelines (per-channel weights, per-tensor activations), calibrated on coco128; writes `$FE_WORK/has/vit/vit_scales.json` |
-| `fe_ref_gvu.py` | Independent integer golden of the vector unit: indirect LUT, SOFTMAX, FUSED_ATTN, LAYERNORM (`has/HAS_IFACE_RCE.md`) |
+| `fe_ref_gvu.py` | Independent integer golden of the vector unit: indirect LUT, SOFTMAX, FUSED_ATTN, LAYERNORM (`has/HAS_IFACE_RCE.md`). Knobs for the items of the micro-architecture specification (rounding modes ceil, toward zero, away from zero; table depths 256 / 512; LUT input 0; log-scale LUT mode); `--only mas` compares them with `tools/has/mas_ref.py`. The defaults keep the shipped vectors unchanged |
 | `fe_vit_block.py` | Integer golden of one encoder block in the form the data flow controller runs it, and the instruction emitter |
 | `fe_vit_full.py` | Whole network: patch embedding, 12 encoder blocks, final LayerNorm and head, 244 instructions, no host step. Output `$FE_WORK/has/vit_full/` |
 

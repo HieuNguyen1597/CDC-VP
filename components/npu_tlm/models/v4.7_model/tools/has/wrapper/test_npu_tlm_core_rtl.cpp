@@ -125,8 +125,8 @@ int sc_main(int argc, char *argv[])
         std::ifstream f(dir + "/mmio.txt");
         std::string line, label;
         Step cur;
-        // Sticky instruction registers 0x40000400..0x40000468 and one-shot extension registers 0x4000046C..0x400004E7.
-        std::uint32_t sticky[27] = {0}, ext[31] = {0};
+        // Sticky instruction registers 0x40000400..0x40000468 and one-shot extension registers 0x4000046C..0x400004FF.
+        std::uint32_t sticky[27] = {0}, ext[37] = {0};
         while (std::getline(f, line) && (count < 0 || n_ins < count))
         {
             if (line.rfind("# [", 0) == 0) { label = line.substr(2); continue; }
@@ -142,7 +142,7 @@ int sc_main(int argc, char *argv[])
             std::string tag;
             Write w{};
             is >> tag >> std::hex >> w.addr >> w.val;
-            if (w.addr >= 0x4000046C && w.addr < 0x400004E8) ext[(w.addr - 0x4000046C) / 4] = w.val;
+            if (w.addr >= 0x4000046C && w.addr < 0x40000500) ext[(w.addr - 0x4000046C) / 4] = w.val;
             else if (w.addr >= 0x40000400 && w.addr <= 0x40000468) sticky[(w.addr - 0x40000400) / 4] = w.val;
             cur.writes.push_back(w);
             if (w.addr == 0x40000310)
@@ -246,7 +246,8 @@ int sc_main(int argc, char *argv[])
         std::printf("[test] %s: %d instructions, %zu steps, DRAM window 0x%llx + %u B, RAM %u B\n", dir.c_str(), n_ins,
                     steps.size(), (unsigned long long)kRamBase, window, ram_size);
 
-        std::uint64_t total_cycles = 0, total_bad = 0;
+        std::uint64_t total_cycles = 0, total_bad = 0, total_real = 0, total_pe = 0;
+        auto read64 = [&](std::uint32_t lo, std::uint32_t hi) { return std::uint64_t(read_native(lo)) | (std::uint64_t(read_native(hi)) << 32); };
         int i = 0;
         for (const Step &s : steps)
         {
@@ -288,6 +289,11 @@ int sc_main(int argc, char *argv[])
             }
             const std::uint64_t cyc = std::uint64_t(read_native(PERF_EXEC_CYCLES)) |
                                       (std::uint64_t(read_native(PERF_EXEC_CYCLES_HI)) << 32);
+            // PE utilization of the instruction = PERF_ACTIVE_PE_CYCLES (real MACs) / PERF_TOTAL_PE_CYCLES (core busy x 1024)
+            const std::uint64_t real = read64(PERF_ACTIVE_PE_CYCLES, PERF_ACTIVE_PE_CYCLES_HI);
+            const std::uint64_t pe = read64(PERF_TOTAL_PE_CYCLES, PERF_TOTAL_PE_CYCLES_HI);
+            total_real += real;
+            total_pe += pe;
             write_reg(STATUS, STATUS_DONE | STATUS_ERROR);
             const std::uint64_t bad = compare(s.out, s.bytes);
             const bool ok = !(st & STATUS_ERROR) && bad == 0;
@@ -297,9 +303,15 @@ int sc_main(int argc, char *argv[])
             std::printf("[test] instruction %d %s: status 0x%x, %llu output bytes, %llu mismatches, PERF_EXEC_CYCLES %llu  # %s\n",
                         i, ok ? "PASS" : "FAIL", st, (unsigned long long)s.bytes, (unsigned long long)bad,
                         (unsigned long long)cyc, s.label.c_str());
+            if (pe)
+                std::printf("[test] instruction %d PE: real MACs %llu, core busy %llu, PE utilization %.2f %%\n", i,
+                            (unsigned long long)real, (unsigned long long)(pe / 1024), 100.0 * double(real) / double(pe));
             std::fflush(stdout);
             i++;
         }
+        if (total_pe)
+            std::printf("[test] PE utilization of the program: real MACs %llu / (core busy %llu x 1024) = %.2f %%\n",
+                        (unsigned long long)total_real, (unsigned long long)(total_pe / 1024), 100.0 * double(total_real) / double(total_pe));
         std::printf("[test] RESULT: %s (%d instructions, %zu steps, %d failed, %llu mismatches, sum of PERF_EXEC_CYCLES %llu)\n",
                     failures ? "FAIL" : "PASS", n_ins, steps.size(), failures, (unsigned long long)total_bad,
                     (unsigned long long)total_cycles);

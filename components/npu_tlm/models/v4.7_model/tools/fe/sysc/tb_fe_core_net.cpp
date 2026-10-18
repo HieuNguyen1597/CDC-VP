@@ -26,6 +26,7 @@
 #include "sram/sram_top.h"
 #include "control/sauria_dma.h"
 #include "psm/obp_top.h"
+#include "tools/obp_port_compat.h"
 
 // Real core, lane_a backend (as tb_fe_core_tile.cpp): separate rtl_ref SRAM / array / core, backdoor loads.
 #include "control/native_lane_a_core.h"
@@ -49,7 +50,7 @@ using namespace sauria;
 static constexpr int W32 = 32;
 typedef Sram<32, 32, int8_t, int8_t, int32_t, 5056, 5184, 1536> SramT;
 typedef SauriaDma<32, 32, int8_t, int8_t, int32_t, 5056, 5184, 1536> DmaT;
-typedef Obp<W32, 0x00140000, 0x00150000, int32_t, int8_t> ObpT;
+typedef Obp<W32, 0x00140000, 0x00150000, 0x001C0000, int32_t, int8_t> ObpT;
 static constexpr uint32_t LUT_BASE = 0x00140000, SCALE_BASE = 0x00180000, SHIFT_BASE = 0x00190000;
 static constexpr uint32_t NONE = 0xFFFFFFFF;
 static constexpr int IDLE_CYCLES = 6;
@@ -305,6 +306,8 @@ SC_MODULE(TbFeCoreNet)
         obp = new ObpT("obp");
         obp->i_clk(i_clk); obp->i_rstn(rstn);
         obp->i_data(o_in); obp->i_addr(o_in_addr); obp->i_wmask(o_in_mask); obp->i_valid(o_in_valid); obp->i_residual(o_residual);
+        // channel index and output zero point of the Obp: the former internal channel counter, zero point 0
+        (new sauria::ObpPortCompat("obp_compat", W32))->attach(obp, i_clk, rstn, o_in_valid);
         obp->o_sramc_wdata(o_out); obp->o_sramc_addr(o_out_addr); obp->o_sramc_wren(o_out_wren); obp->o_sramc_wmask(o_out_mask);
         obp->o_valid(o_out_valid);
         obp->i_bias_en(bias_en); obp->i_requant_en(requant_en); obp->i_lut_en(lut_en); obp->i_residual_en(residual_en);

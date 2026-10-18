@@ -22,8 +22,13 @@ namespace has
     struct LayerGeom
     {
         int cout{0}, oh{0}, ow{0};        // output tensor
-        int kh{1}, kw{1}, sy{1}, sx{1};   // kernel, stride (dilation 1)
+        int kh{1}, kw{1}, sy{1}, sx{1};   // kernel, stride
+        int dil{1};                       // dilation (DILATION register): kernel taps dil apart, effective kernel (k - 1) * dil + 1
+        int ekh() const { return (kh - 1) * dil + 1; }
+        int ekw() const { return (kw - 1) * dil + 1; }
         int pad_t{0}, pad_l{0};           // top / left padding
+        int pad_b{0}, pad_r{0};           // bottom / right padding: only bound the output size (checked at the push); the
+                                          // tile windows follow from pad_t / pad_l and the output grid
         int cout_t{0}, h_t{0}, w_t{0};    // tile size (from the planner)
         int sa_y{32};                     // systolic array rows (Y_DIM): bound of Y_used
         int order{0};                     // 0: channel tile outermost (planner order); 1: spatial outermost (per-layer tile order);
@@ -48,7 +53,7 @@ namespace has
         explicit TileIter(const LayerGeom &g) : g_(g)
         {
             if (g.cout <= 0 || g.oh <= 0 || g.ow <= 0 || g.cout_t <= 0 || g.h_t <= 0 || g.w_t <= 0 ||
-                g.kh <= 0 || g.kw <= 0 || g.sy <= 0 || g.sx <= 0 || g.sa_y <= 0)
+                g.kh <= 0 || g.kw <= 0 || g.sy <= 0 || g.sx <= 0 || g.dil <= 0 || g.sa_y <= 0)
                 throw std::invalid_argument("TileIter: non-positive layer geometry");
             nc_ = (g.cout + g.cout_t - 1) / g.cout_t;
             ny_ = (g.oh + g.h_t - 1) / g.h_t;
@@ -72,8 +77,8 @@ namespace has
             t.c0 = ci * g_.cout_t;  t.c1 = std::min(t.c0 + g_.cout_t, g_.cout);
             t.oy0 = yi * g_.h_t;    t.oy1 = std::min(t.oy0 + g_.h_t, g_.oh);
             t.ox0 = xi * g_.w_t;    t.ox1 = std::min(t.ox0 + g_.w_t, g_.ow);
-            t.iy0 = t.oy0 * g_.sy - g_.pad_t;  t.iy1 = (t.oy1 - 1) * g_.sy - g_.pad_t + g_.kh;
-            t.ix0 = t.ox0 * g_.sx - g_.pad_l;  t.ix1 = (t.ox1 - 1) * g_.sx - g_.pad_l + g_.kw;
+            t.iy0 = t.oy0 * g_.sy - g_.pad_t;  t.iy1 = (t.oy1 - 1) * g_.sy - g_.pad_t + g_.ekh();
+            t.ix0 = t.ox0 * g_.sx - g_.pad_l;  t.ix1 = (t.ox1 - 1) * g_.sx - g_.pad_l + g_.ekw();
             t.x_used = t.c1 - t.c0;
             const int wt = t.ox1 - t.ox0;
             t.y_used = (g_.y_used > 0 && g_.y_used <= g_.sa_y && wt % g_.y_used == 0) ? g_.y_used : std::gcd(wt, g_.sa_y);
@@ -85,7 +90,7 @@ namespace has
                 if (wt % y != 0)
                 {
                     t.ox1 = t.ox0 + (wt + y - 1) / y * y;
-                    t.ix1 = (t.ox1 - 1) * g_.sx - g_.pad_l + g_.kw;
+                    t.ix1 = (t.ox1 - 1) * g_.sx - g_.pad_l + g_.ekw();
                 }
                 t.y_used = y;
             }

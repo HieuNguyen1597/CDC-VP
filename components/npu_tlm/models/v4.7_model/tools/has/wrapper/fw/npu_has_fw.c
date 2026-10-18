@@ -67,7 +67,8 @@ static int upsample2x(uint32_t in, uint32_t out, uint32_t c, uint32_t h, uint32_
 
 int npu_has_replay(const uint32_t *s, uint32_t ram_base, uint32_t flags, npu_has_result *res)
 {
-    npu_has_result r = {0, 0, 0, 0, 0, 0, 0};
+    npu_has_result r;   /* set field by field: a whole-struct initializer or copy can become memset / memcpy,
+                           which a freestanding build without a C library does not have */
     const uint32_t *end;
     uint32_t step = 0;      /* instructions and host steps counted together */
     int step_ok = 1;        /* state of the step whose check record is still to come */
@@ -75,6 +76,9 @@ int npu_has_replay(const uint32_t *s, uint32_t ram_base, uint32_t flags, npu_has
     uint64_t last_cycles = 0;   /* PERF_EXEC_CYCLES of the instruction just completed */
     const int host_only = (flags & NPU_HAS_REPLAY_HOST_ONLY) != 0;
 
+    r.instructions = r.host_steps = r.failed = r.first_failed = 0;
+    r.last_status = r.last_error = r.model_error = 0;
+    r.exec_cycles = 0;
     if (s[0] != NPU_HAS_STREAM_MAGIC || s[1] != NPU_HAS_STREAM_VERSION || s[2] < NPU_HAS_STREAM_HDR_WORDS)
         return -1;
     end = s + s[2];
@@ -115,6 +119,17 @@ int npu_has_replay(const uint32_t *s, uint32_t ram_base, uint32_t flags, npu_has
                 if (!step_ok)
                     r.last_error = npu_hal_read32(NPU_HAS_WR_LAST_ERROR);
                 npu_hal_write32(NPU_HAS_WR_STATUS, NPU_HAS_WR_STATUS_DONE | NPU_HAS_WR_STATUS_ERROR);
+                {
+                    /* The wrapper reports DONE also when the model refused the instruction at the push: the refusal
+                     * and its code are in the model's status register, which any write clears. */
+                    const uint32_t ms = npu_hal_read32(NPU_HAS_VP_OFF(NPU_HAS_STATUS));
+                    if (ms & NPU_HAS_STATUS_ERROR) {
+                        step_ok = 0;
+                        if (r.model_error == 0)
+                            r.model_error = NPU_HAS_STATUS_CODE(ms);
+                        npu_hal_write32(NPU_HAS_VP_OFF(NPU_HAS_STATUS), 0u);
+                    }
+                }
             }
         } else if (rec == NPU_HAS_REC_HOST) {
             step_kind = 'H';
@@ -136,7 +151,15 @@ int npu_has_replay(const uint32_t *s, uint32_t ram_base, uint32_t flags, npu_has
             return -2;
         }
     }
-    if (res)
-        *res = r;
+    if (res) {
+        res->instructions = r.instructions;
+        res->host_steps = r.host_steps;
+        res->failed = r.failed;
+        res->first_failed = r.first_failed;
+        res->last_status = r.last_status;
+        res->last_error = r.last_error;
+        res->exec_cycles = r.exec_cycles;
+        res->model_error = r.model_error;
+    }
     return (int)r.failed;
 }

@@ -23,6 +23,42 @@ all: tb_unified_smoke
 tb_unified_smoke: tb_unified_smoke.cpp
 	$(CXX) $(CXXFLAGS) $< $(LINK) -o $@
 
+# Detect SystemC library availability
+HAVE_SYSTEMC := $(shell test -f $(SYSTEMC_HOME)/lib/libsystemc.so -o -f $(SYSTEMC_HOME)/lib/libsystemc.a -o -f /usr/lib/x86_64-linux-gnu/libsystemc.so && echo 1 || echo 0)
+ifeq ($(HAVE_SYSTEMC),1)
+  GVU_LINK := $(LINK)
+  GVU_CXXFLAGS := $(CXXFLAGS)
+else
+  GVU_LINK := -lm -pthread
+  GVU_CXXFLAGS := -std=c++17 -O3 -Wall -I.
+endif
+
+GVU_HDRS     := has/rtl_ref_gvu_top.h has/rtl_ref_gvu_vrf.h has/rtl_ref_gvu_fu.h has/rtl_ref_gvu_scratchpad.h has/rtl_ref_gvu_lut.h has/rtl_ref_gvu_vlsu.h has/rtl_ref_gvu_ctrl.h
+
+tb_gvu_top: tb_gvu_top.cpp $(GVU_HDRS)
+	$(CXX) $(GVU_CXXFLAGS) $< $(GVU_LINK) -o $@
+
+tb_gvu_top_layernorm: tb_gvu_top_layernorm.cpp $(GVU_HDRS)
+	$(CXX) $(GVU_CXXFLAGS) $< $(GVU_LINK) -o $@
+
+tb_gvu_top_gemm_fused: tb_gvu_top_gemm_fused.cpp $(GVU_HDRS)
+	$(CXX) $(GVU_CXXFLAGS) $< $(GVU_LINK) -o $@
+
+tb_gvu_top_residual_add: tb_gvu_top_residual_add.cpp $(GVU_HDRS)
+	$(CXX) $(GVU_CXXFLAGS) $< $(GVU_LINK) -o $@
+
+trace_gvu_top: tools/trace_gvu_top.cpp $(GVU_HDRS)
+	$(CXX) $(GVU_CXXFLAGS) $< $(GVU_LINK) -o $@
+
+tb_obp: tb_obp.cpp
+	$(CXX) $(CXXFLAGS) $< $(LINK) -o $@
+
+tb_re: tb_re.cpp
+	$(CXX) $(CXXFLAGS) $< $(LINK) -o $@
+
+tb_pipeline_re: tb_pipeline_re.cpp
+	$(CXX) $(CXXFLAGS) $< $(LINK) -o $@
+
 tb_evaluate: tb_evaluate.cpp
 	$(CXX) $(CXXFLAGS) $< $(LINK) -o $@
 
@@ -75,4 +111,4 @@ test_onnx_model: tools/test_onnx_model.cpp
 	$(CXX) $(CXXFLAGS) -DEVAL_X=32 -DEVAL_Y=32 $< $(LINK) -o $@
 
 clean:
-	rm -f $(OBJS) tb_unified_smoke tb_evaluate tb_utilization_optimization test_rich_isa test_lane_b_isolation test_dual_lane_fsm test_dual_instruction_queues test_nsplit_barrier test_nsplit_64_idle_b test_cycle_by_cycle test_vit_encoder_int8
+	rm -f $(OBJS) tb_unified_smoke tb_gvu_top tb_gvu_top_layernorm tb_gvu_top_gemm_fused tb_gvu_top_residual_add trace_gvu_top tb_obp tb_re tb_evaluate tb_utilization_optimization test_rich_isa test_lane_b_isolation test_dual_lane_fsm test_dual_instruction_queues test_nsplit_barrier test_nsplit_64_idle_b test_cycle_by_cycle test_vit_encoder_int8

@@ -278,9 +278,10 @@ Any other opcode sets error `UNSUPPORTED_OP`.
 
 ### 6.3 Extension registers and `FLAGS`
 
-Extension register `i` is at `0x4000046C + 4 x i`, `i` = 0 to 30 (last address `0x400004E4`). All are cleared
+Extension register `i` is at `0x4000046C + 4 x i`, `i` = 0 to 36 (last address `0x400004FC`). All are cleared
 after every push. Indices 0 to 25 carry the layer geometry, tiling, quantization and pooling parameters;
-indices 26 to 30 were added for the planner options and the transformer instructions:
+indices 26 to 36 were added for the planner options, the transformer instructions, the convolution padding and the
+dilation:
 
 | Index | Address | Name | Instructions |
 |---|---|---|---|
@@ -289,6 +290,9 @@ indices 26 to 30 were added for the planner options and the transformer instruct
 | 28 | `0x400004DC` | `ROWS` | FUSED_ATTN: query rows; LAYERNORM: rows |
 | 29 | `0x400004E0` | `PARAM_ADDR` | FUSED_ATTN, LAYERNORM: address of the parameter block (required) |
 | 30 | `0x400004E4` | `MASK_ADDR` | FUSED_ATTN: int8 mask `[rows][L]`, -128 = masked (optional) |
+| 31 | `0x400004E8` | `PAD_VALUE` | GEMM_FUSED: value of the padded positions, int8 in the low byte (not written: 0) |
+| 32 to 35 | `0x400004EC` to `0x400004F8` | `PAD_T`, `PAD_L`, `PAD_B`, `PAD_R` | GEMM_FUSED: padding rows above, columns left, rows below, columns right. Writing any of the four replaces `PAD`; the ones not written are 0 |
+| 36 | `0x400004FC` | `DILATION` | GEMM_FUSED: kernel taps `DILATION` positions apart (not written or 0: 1); `(KW - 1) x DILATION` at most 63 |
 
 `FLAGS` (index 13, `0x400004A0`):
 

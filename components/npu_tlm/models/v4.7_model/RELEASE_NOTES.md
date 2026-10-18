@@ -69,6 +69,135 @@ lists the extracted data and the build outputs.
   multiplexed onto the SRAM C write-back, and debug printing is off by default. The native `NpuTop` has no `o_irq`
   port. Native regression passes with a fresh build. The RTL-ref core and `HasNpuTop` do not use these files, and the
   reference results below are unchanged.
+- **Vector unit after the micro-architecture specification (V1.0) and the RTL of its functional units**
+  (`docs/HAS_VALIDATION.md`, section 6): the default configuration of `HasNpuTop` uses the 128 KB double-buffered
+  scratchpad of the specification, with softmax and LayerNorm rows per group limited by the bank sizes, LUT tables of
+  256 / 512 entries and the LUT edge behaviour of the RTL. Added: rounding modes ceil, toward zero and away from zero;
+  the log-scale LUT mode; a scratchpad access map with capacity checks (`has/gvu_sp_map.h`); state traces of the
+  pipeline controller (`has/gvu_pipeline_ctrl.h`); a v32int16 port and address generation in the load/store unit
+  model; a unit test against an independent reference (`tools/has/tb_gvu_mas`, `tools/has/mas_ref.py`); the same
+  items in the frontend golden (`tools/fe/fe_ref_gvu.py --only mas`). `HAS_SPEC=v47ref` selects the earlier
+  configuration and reproduces the earlier reference results exactly; `HAS_SPEC=rtl` and `HAS_SPEC=mas10` select two
+  further groups (`docs/HARDWARE_CONFIG.md`, section 6.3).
+- **Vector-unit blocks ported from the hardware RTL**: `has/rtl_ref_gvu_fu.h`, `rtl_ref_gvu_lut.h`, `rtl_ref_gvu_vrf.h`,
+  `rtl_ref_gvu_scratchpad.h`, `rtl_ref_gvu_vlsu.h` and `rtl_ref_gvu_ctrl.h` follow the RTL of the functional units, the
+  LUT unit, the stream registers, the Scratchpad, the load / store unit and the table-load sequence line by line. They
+  follow the RTL revision in which the softmax data path of the vector-unit top level is connected (zero flag of the LUT
+  carried through its pipeline, load / store unit with address modes) and were compared with a simulation of that RTL
+  (Verilator 5, every output at every beat, no mismatch). They are not used by
+  the instruction path; the default results are unchanged. `docs/GVU_RTL_CONFORMANCE.md` holds the comparison of the
+  functional model with the RTL and what the simulation found in the RTL; `docs/GVU_PIPELINE_STEPS.md` lists every
+  pipeline step by step as the specification draws it. The tests are `tools/has/tb_rtl_ref_gvu_*.cpp`, the RTL harnesses
+  are in `tools/has/gvu_oracle/` (`run_all.sh` runs all of them), and `tools/has/check_rtl_trace.sh` checks without a
+  simulator that the ported blocks still give the outputs the RTL gave.
+- **Fix: negative output zero point of GEMM_FUSED.** A negative `ZP_OUT` was decoded as the most negative integer, so
+  every output of the layer was clamped to -128 (`has/gvu_obp.h`, the register value is now read as a 32-bit two's
+  complement word). Zero points of 0 or above, the other instructions and the cycle counts are unchanged; the unit test
+  of the block now writes a negative zero point (`tools/has/tb_gvu_quant.cpp`).
+- **Three knobs of the functional model** (off by default): `HAS_SP_PRESET=rtl` sizes the Scratchpad banks as the RTL does,
+  `HAS_RANGE_PROBE=1` prints the value ranges of the vector-unit arithmetic against the widths of the RTL units, and
+  `HAS_ARITH_RTL=1` takes requant, dequant, the 32-bit add and the LUT lookups from the ported units and counts where
+  they differ from the model arithmetic (`has/gvu_rtl_arith.h`; `docs/GVU_RTL_CONFORMANCE.md`, section 4.10). `tools/has/measure_cfg_instr.sh` measures single instructions under a
+  list of configurations.
+- **PE utilization through a system wrapper**: for every `HasNpuTop` instruction the model root `core_rtl/` now fills
+  `PERF_ACTIVE_PE_CYCLES` (real multiply-accumulates) and `PERF_TOTAL_PE_CYCLES` (core busy cycles x 1,024), together
+  with `PERF_SA_CYCLES`, `PERF_MAC_OPS` and the DMA port cycles, so software computes the PE utilization from registers
+  the wrapper already has (`docs/SW_INTEGRATION_GUIDE.md`, section 10.3). The core busy count is 2 cycles per core pass
+  above the count of the instrumented build. Cycle counts are unchanged.
+- **Diagnostics for programs of another compiler**: the model root prints a warning line when an instruction is refused
+  or retires with an internal error, and `SAURIA_CORE_RTL_RECORD` records the program that reaches `HasNpuTop` for a
+  replay with `tools/has/tb_has_npu_top`. `docs/SW_EVALUATION_GUIDE.md` (new) describes how to run, check and compare a
+  network through the wrapper and how to read the performance figures.
+- **Cycle-level pipelines of the vector unit**: max pool and residual add (`has/rtl_ref_gvu_elemwise.h`), selectable
+  in the instruction path with `HAS_ELEM_RTL=1` (off by default), and the Requant pipeline with the GEMM_FUSED epilogue
+  (`has/rtl_ref_gvu_requant.h`), which `HAS_OBP_RTL=1` (off by default) puts behind every epilogue beat of the
+  instruction path; `HAS_PSM_PROBE=1` observes how the partial-sum manager uses the PSUM SRAM in a core pass;
+  `docs/GVU_RTL_CONFORMANCE.md`, section 4.10.
+- **Independent reference for a program**: `tools/has/ref_program.py` computes the output of every GEMM_FUSED and
+  ELEM_WISE instruction of a program directory from its registers and image with integer arithmetic in numpy, sharing
+  no code with the model, and compares it with an image (a recording, a RAM dump, the reference image);
+  `tools/has/make_ref_gate.py` writes a check program for the instruction forms the networks do not use
+  (`docs/SW_EVALUATION_GUIDE.md`, section 5.1).
+- **Report file of a run through a system wrapper**: `SAURIA_CORE_RTL_REPORT=<file>` makes the model root write one CSV
+  line per retired instruction and a summary of the run (`docs/SW_EVALUATION_GUIDE.md`, section 6.1).
+- `tools/has/tb_has_npu_top` no longer waits for an instruction that was refused at the push: it reports it and ends
+  with FAIL.
+- **Vector-unit blocks follow the latest RTL delivery**: per-lane shift amounts of the round-shift units, the 32-bit
+  clamp unit, the load step of the table memory, the byte mask and the narrow read ports of the Scratchpad, the address
+  reset of the load / store unit. The round-shift of a negative input keeps the arithmetic shift
+  (`docs/GVU_RTL_CONFORMANCE.md`, section 3.1). The test vectors of the hardware team run on the ported units
+  (`tools/has/tb_rtl_ref_gvu_hwvec.cpp`).
+- **Checks at the push for programs of another compiler** (model root `core_rtl/`, warning lines on stderr,
+  `docs/SW_EVALUATION_GUIDE.md`, section 4.1): a region of the instruction that ends beyond the DRAM image area, and
+  a tile that does not fit one buffer of SRAM-A, SRAM-B or SRAM-C. The instruction runs all the same. The report
+  summary counts both.
+- **Fix: a tile larger than the staging areas of `HasNpuTop` wrote outside the DRAM vector**, which could end the
+  simulation later with a memory error. Such a tile is now cut at the size of the staging area and the instruction
+  retires with internal errors. The two staging areas of the partial sums have the size of the modelled SRAM-C.
+  Results and cycle counts of a legal tiling do not change.
+- **Convolution padding per side and padding value in the instruction**: extension registers `PAD_VALUE`, `PAD_T`,
+  `PAD_L`, `PAD_B`, `PAD_R` (`0x400004E8` to `0x400004F8`; through a system wrapper at offsets `0x4E8` to `0x4F8` of the
+  extension window). Not written: `PAD` on all four sides and value 0, as before (`docs/SW_INTEGRATION_GUIDE.md`,
+  rows 31 to 35). The firmware definitions (`tools/has/wrapper/fw/npu_has_fw.h`) and the wrapper change
+  (`tools/has/wrapper/npu_tlm_rich_window.patch`) cover the five registers.
+- **Padding generated by the IFMAP feeder** (`HAS_FEEDER_PAD=1`, off by default): SRAM-A receives only the part of a
+  tile's input window inside the image, and the feeder of the RTL-ref core replaces every other element by the padding
+  value while it gathers. Four configuration registers of the core (`ACT_PAD_CTRL`, `ACT_PAD_COL`, `ACT_PAD_ROW_LO`,
+  `ACT_PAD_ROW_HI`) written by the data flow controller, a padding generator per tile (`has/has_pad_gen.h`), 8 cycles
+  per padded core pass; 1x1 stride-1 layers keep the staged padding (`docs/HARDWARE_CONFIG.md`, section 6.5). Results
+  are bit-exact; whole YOLOv8m: 62,698,248 cycles (+0.05 %), core busy unchanged (`docs/VERIFICATION_REPORT.md`, V31).
+  This logic has no hardware description yet; it is a proposal to the hardware team.
+- **Fix: `--profile legacy` with `PAD_TAIL`** gave wrong results: the sequential schedule lacked the `PAD_TAIL` guards
+  on bias, scale, shift and write-back that the overlapped schedule has. They are now applied there too; the default
+  profile is unchanged.
+- **Check program for padding**: `tools/has/make_pad_gate.py` (fixed and random layers, golden from explicit loops),
+  unit test `tools/has/tb_has_pad_gen.cpp`; both in `tools/has/regress_gvu.sh`.
+- **Dilation**: extension register `DILATION` (`0x400004FC`, index 36; through a system wrapper at window offset
+  `0x4FC`); kernel taps `DILATION` positions apart, not written or 0 = 1, `(KW - 1) x DILATION` at most 63
+  (`docs/SW_INTEGRATION_GUIDE.md`, row 36). The extension range now ends at `0x40000500`: `core_rtl/npu_top.h`, the
+  firmware definitions and the wrapper change follow. The RTL-ref core already had dilation (the 64-position
+  dilation pattern of the IFMAP feeder); the instruction decoder, the tile walk and the padding generator now use the
+  effective kernel `(K - 1) x DILATION + 1`. Check programs `make_pad_gate.py --set dilation` (13 layers) and
+  `--set dilrandom` (random layers), and a dilation block in `tb_has_pad_gen.cpp` (`docs/VERIFICATION_REPORT.md`,
+  V33). Programs that do not write the register run exactly as before.
+- **Error `SWEEP` (11) at the push**: a GEMM_FUSED instruction whose tiles would need a row sweep of the IFMAP feeder
+  longer than 256 positions (large stride or dilation with many positions per context) is refused. Such instructions
+  gave wrong results without an error, or hung, in the core and in the SAURIA RTL alike (`docs/KNOWN_LIMITATIONS.md`,
+  O24; `docs/VERIFICATION_REPORT.md`, V34). `tools/has/ref_program.py` refuses them as well.
+- **Vector-unit top level `GvuTop`** (`has/rtl_ref_gvu_top.h`, contributed by the vector-unit owner): controller with
+  Softmax, LayerNorm, GEMM_FUSED and residual-add states, test benches `tb_gvu_top`, `tb_gvu_top_gemm_fused`,
+  `tb_gvu_top_residual_add`, `tools/trace_gvu_top.cpp` and their datasets under `target/test/`. The GEMM_FUSED path
+  takes the rounding mode as an input, saturates to int16 after the shift and can load a new activation table;
+  `tools/has/tb_gvu_top_vs_model.cpp` compares it with the model's cycle-level units on random data (in
+  `regress_gvu.sh`). A stream mode of GEMM_FUSED (one beat per cycle, nine stages after the register cuts of the
+  specification) and the socket `has/gvu_top_bridge.h` connect it to the instruction path behind the option
+  `HAS_GVU_TOP=1|2` (off by default; with it off nothing changes): the GEMM epilogue and the residual add then run on
+  `GvuTop`, max pool stays on the model's cycle-level unit (`docs/GVU_TOP_CORE_INTEGRATION.md`, section 9).
+  `docs/GVU_TOP_VERIFICATION_REPORT.md` describes the runs of its own test benches.
+- **Padding documents**: `docs/IFMAP_FEEDER_PADDING.md` describes the padding by the IFMAP feeder for the hardware team
+  (SRAM-A layout, registers, feeder datapath, per-tile generator, cost, how to check an RTL implementation);
+  `docs/SW_INTEGRATION_GUIDE.md`, section 4.7, lists what a compiler writes for each padding case of a framework and
+  what is not supported.
+- **Report file**: the last six columns give the padding per side, the padding value and the dilation each
+  instruction uses (`docs/SW_EVALUATION_GUIDE.md`, section 6.1); the earlier columns keep their order.
+- **Fix: short contexts in the RTL-ref core** (`docs/KNOWN_LIMITATIONS.md`, O23): a GEMM_FUSED tile whose K = kernel
+  positions x input channels of the core pass is very small could leave the last context of the tile without weights
+  (bias-only outputs), and K = 1 ran two MACs per context. The "done" path of the weight counter now reaches the
+  feeder controller in the cycle the RTL gives, and K = 1 keeps one MAC per context (`FX1_A3_WEI_DONE_Q_GATE`,
+  `FX1_A3_INCNTLIM_ZERO_RTL`, on by default in `control/rtl_ref_defaults.h`; `docs/HARDWARE_CONFIG.md`, section 4).
+  Cycle counts of the reference programs are unchanged (`docs/VERIFICATION_REPORT.md`, V32).
+- **Fix in `tools/has/ref_program.py`**: the note about the output of one tile used 49,152 elements as the limit; the
+  limit of one SRAM-C buffer is 24,576.
+- **New reference results**: both networks rerun with the default configuration (section 3;
+  `docs/PERFORMANCE_REPORT.md`, section 5.8). YOLOv8m: 62,666,123 cycles (before: 62,681,721). ViT-B/16: 41,680,289
+  cycles (before: 41,065,258; LayerNorm over 768 channels now runs 14 rows per group). Core figures are unchanged.
+- **Native model updated to the current v4.6 revision**: OBP requantization rounds half away from zero and adds an
+  output zero point (per-channel RAM at `0x001C0000` / `0x001D0000`, or a scalar port), guards shifts of 64 or more,
+  and takes the channel index from a PSM side band (`Psm::o_channel_idx`, `Obp::i_channel_idx`); the Reduction Engine
+  has per-vector softmax maxima, single-step rounding and double-precision LayerNorm accumulators; register fields
+  `F_RE_MODE_A/B`; testbenches `tb_obp` (17 checks), `tb_re` (32), `tb_pipeline_re` (12), `tb_unified_smoke` (32).
+  Testbenches of this tree that drive the native `Obp` attach `tools/obp_port_compat.h`. `HasNpuTop` does not include
+  any of these files; through the model root `core_rtl/` the native part of a system wrapper follows the update.
 
 ## 3. Reference results
 
@@ -77,10 +206,12 @@ block: `docs/PERFORMANCE_REPORT.md`, sections 5.4 to 5.6, and `docs/VERIFICATION
 
 | Workload | Command (data package as `$FE_WORK`) | Total cycles | Frame rate |
 |---|---|---:|---:|
-| YOLOv8m, hardware as drawn (run C) | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3` | 62,681,721 | 12.76 FPS |
-| YOLOv8m, two proposed hardware options (run D) | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe4 --profile proposals` | 60,386,685 | 13.25 FPS |
-| ViT-B/16, hardware as drawn | `tools/has/tb_has_npu_top $FE_WORK/has/vit_full` | 41,065,258 (1) | 19.48 FPS |
-| ViT-B/16, bias-broadcast proposal | `tools/has/tb_has_npu_top $FE_WORK/has/vit_full --c-bcast` | 39,922,498 | 20.04 FPS |
+| YOLOv8m, hardware as drawn | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3` | 62,666,123 | 12.77 FPS |
+| ViT-B/16, hardware as drawn | `tools/has/tb_has_npu_top $FE_WORK/has/vit_full` | 41,680,289 | 19.19 FPS |
+| YOLOv8m, earlier vector-unit configuration (run C) | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3` | 62,681,721 | 12.76 FPS |
+| YOLOv8m, two proposed hardware options (run D), earlier configuration | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/insts_pe4 --profile proposals` | 60,386,685 | 13.25 FPS |
+| ViT-B/16, earlier configuration | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/vit_full` | 41,065,258 (1) | 19.48 FPS |
+| ViT-B/16, bias-broadcast proposal, earlier configuration | `HAS_SPEC=v47ref tools/has/tb_has_npu_top $FE_WORK/has/vit_full --c-bcast` | 39,922,498 | 20.04 FPS |
 | Quick check, two YOLOv8m instructions | `tools/has/tb_has_npu_top $FE_WORK/has/insts_pe3 --first 40 --count 2` | 1,658,986 | |
 
 Program files (data package):
@@ -98,7 +229,7 @@ Program files (data package):
 | `has/vit_full/dram_golden.bin` | `a60236f1375d5852ed54a4d564a44a603fe01e6135dac9d0cd208ab19885b8e6` |
 | `step3/pc_p9999_has/params.npz` (quantization parameters) | `aab3a947bec00446a192b481ae7cea0658b907a041ecd58d9ce33b88cb518cb7` |
 
-The measured logs of these four whole-network runs, and of the YOLOv8m baseline before the planner and data-flow
+The measured logs of these six whole-network runs, and of the YOLOv8m baseline before the planner and data-flow
 options (112,912,950 cycles, 7.09 FPS; `docs/PERFORMANCE_REPORT.md`, section 5.3), are in `reference_runs/` of the
 data package.
 
@@ -114,19 +245,45 @@ On Ubuntu 22.04 with g++ 11 and SystemC 2.3.3, from a fresh copy of the reposito
 | Check | Result |
 |---|---|
 | Repository tree: every file against `package_manifest.txt`; data package joined, checked and extracted by `tools/unpack_data.sh`; a git clone made with line-ending conversion requested still matches the manifest, and git tracks every shipped file | PASS |
-| Build of the delivery testbench and 11 unit testbenches | PASS |
+| Build of the delivery testbench and 12 unit testbenches | PASS |
 | Data package self-sufficiency: vector-unit tables exported from the shipped vectors, transformer check regenerated byte-identical | PASS |
 | Unit tests: run profiles, register decoder, quantization, element-wise, DMA, attention, LayerNorm, softmax tables | PASS |
-| Transformer instruction path (14 instructions) | PASS |
+| Transformer instruction path (14 instructions) | PASS, 285,205 vector-unit cycles; 250,885 with `HAS_SPEC=v47ref` |
+| Vector-unit items of the micro-architecture specification: `tb_gvu_mas` and the frontend golden against the independent reference `mas_ref.py` | PASS |
 | Two-instruction YOLOv8m window, default profile | PASS, 1,658,986 cycles (equal to the reference run) |
-| Native model regression (fresh build) | PASS |
+| Native model regression (fresh build, v4.6 revision with the OBP and Reduction Engine update) | PASS |
 | Python byte-compilation of `tools/` | PASS |
 | YOLOv8m program regenerated by the packaged frontend from the data package | byte-identical to the shipped program |
 | YOLOv8m baseline program regenerated (`fe_emit_insts.py --plan has`) | byte-identical to the program of the baseline reference run |
-| Report tables regenerated by `tools/metrics/post_fullcore.sh` from the reference runs (YOLOv8m run C and baseline, ViT-B/16 as drawn), `has_rollup.py`, `fe_vit_top5.py` on the shipped ViT-B/16 program | PASS: figures equal to `docs/PERFORMANCE_REPORT.md`, section 5.7 |
+| Report tables regenerated by `tools/metrics/post_fullcore.sh` from the reference runs (YOLOv8m and ViT-B/16 in the default configuration, YOLOv8m run C and baseline, ViT-B/16 with `HAS_SPEC=v47ref`), `has_rollup.py`, `fe_vit_top5.py` on the shipped ViT-B/16 program | PASS: figures equal to `docs/PERFORMANCE_REPORT.md`, sections 5.7 and 5.8 |
 | System TLM wrapper with the model root `core_rtl/` (wrapper built unchanged; with the DRAM-window change: whole YOLOv8m and ViT-B/16 programs) | PASS: 0 mismatches, per-instruction cycles equal to the reference runs |
-| Wrapper revision that bundles the v4.6 native model: its unit test with this tree as native root and as `core_rtl/` root, unpatched and patched; the patch applies exactly; transformer check and first two YOLOv8m instructions through the patched wrapper | PASS: unit test output identical to the bundled model; cycles equal to the reference |
-| Firmware engine `tools/has/wrapper/fw/` (`docs/VERIFICATION_REPORT.md`, V24): transformer check through the wrapper on the host; host steps and output CRCs of whole YOLOv8m and ViT-B/16 on the golden images; negative control; example compiled for RV32 | PASS. Not run on a CPU model inside a full platform |
+| Current wrapper revision (the DRAM-window registers are part of it, no patch needed), built unchanged against the model root `core_rtl/`: its own unit test | PASS |
+| Firmware engine `tools/has/wrapper/fw/` (`docs/VERIFICATION_REPORT.md`, V24 and V29): transformer check through the wrapper on the host, default configuration and `HAS_SPEC=v47ref`; host steps and output CRCs of whole YOLOv8m and ViT-B/16 on the golden images; negative control; example compiled for RV32 | PASS: 285,205 and 250,885 cycles. Not run on a CPU model inside a full platform |
+
+Checked for this release in addition (`docs/VERIFICATION_REPORT.md`, V30): both networks rerun through `HasNpuTop` in
+the default configuration with the binary built from this tree -- YOLOv8m PASS, 62,666,123 cycles, PE utilization
+69.26 %; ViT-B/16 PASS, 41,680,289 cycles, 69.61 %, equal to the reference runs cycle for cycle; the wrapper test built
+on the current wrapper sources (14 of 14, 285,205 cycles, PE utilization 23.18 % read from the wrapper's registers); the
+recorder and the warning lines through the wrapper; the cycle-level pipelines (`tb_rtl_ref_gvu_elemwise`,
+`tb_rtl_ref_gvu_requant`, `tb_rtl_ref_gvu_replay`); the whole YOLOv8m with `HAS_ELEM_RTL=1` (PASS, 62,666,994
+cycles) and with `HAS_ELEM_RTL=1 HAS_OBP_RTL=1` (PASS, 62,661,785 cycles), no value different from the functional
+model; `tools/has/ref_program.py` on both networks, on the check program of `make_ref_gate.py` against the model, and
+on planted faults; the report file through the wrapper on the transformer check. Padding (`docs/VERIFICATION_REPORT.md`,
+V31): the check program of `make_pad_gate.py` with both ways of padding in four run profiles and through the system
+wrapper, random layers, the unit test of the padding generator, one-line faults, sanitizer builds, and the whole YOLOv8m
+with both ways of padding (PASS, 62,666,123 and 62,698,248 cycles). Dilation (V33): the RTL-ref core against the
+SAURIA RTL on 10 shapes, the check program and random layers with both ways of padding. Short contexts (V32): the
+SAURIA RTL on 12 shapes, and both networks rerun with the correction (cycles unchanged). Row sweep (V34): the limit
+measured on the core and on the SAURIA RTL, the instructions past it refused at the push, none of the reference
+programs refused. Vector-unit top level: its test benches, `tools/has/tb_gvu_top_vs_model.cpp` against the model's
+cycle-level units (51 runs, stream mode included), and through the instruction path with `HAS_GVU_TOP`: YOLOv8m
+instructions 86 to 88 and a two-instruction window bit-exact with the cycles of `HAS_OBP_RTL=1`, the recorded epilogue
+beats replayed on `GvuTop` outside the core, the residual adds of both networks replayed on `GvuTop` (V35). The package check
+of this tree passed 81 of 81 items, and `tools/has/regress_gvu.sh` 58 of 58.
+
+The row "System TLM wrapper ... whole YOLOv8m and ViT-B/16 programs" was measured on the previous release (earlier
+vector-unit configuration); it was not repeated. Network testbenches that use the native OBP (`tb_fe_network`,
+`tb_fe_core_net`) need a golden with the rounding of the updated native OBP (`docs/VERIFICATION_REPORT.md`, section 4).
 
 The whole-network results of section 3 come from the measured runs whose logs are shipped; a full rerun takes about
 10 hours (YOLOv8m) or 5 hours (ViT-B/16) on one core.
@@ -164,6 +321,9 @@ The whole-network results of section 3 come from the measured runs whose logs ar
   native core, whose timing is not RTL-accurate, and are not comparable with section 3. With the model root
   `core_rtl/`, extended instructions run on `HasNpuTop` and their counters equal `tb_has_npu_top`
   (`docs/SW_INTEGRATION_GUIDE.md`, section 10).
+- For a platform that already integrates the previous model through `core_rtl/`: replace the model tree and rebuild;
+  the platform's firmware register header and the wrapper's document need the six new extension registers and error
+  code 11, and one range constant of the wrapper is best extended (`docs/INTEGRATOR_QUICK_START.md`, section 2.1).
 - In the native top, instructions pushed through the instruction registers are executed by the functional decoder
   (`emulate_*()`): a whole network run through the native path gives the functional result, not RTL-accurate timing
   (`docs/KNOWN_LIMITATIONS.md`, N1).

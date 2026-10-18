@@ -11,6 +11,9 @@
 //   C8  queue overflow -> Q_OVF, STATUS bits; STATUS write clears the sticky error
 //   C9  extension registers are one-shot: a later old-style push does not reuse them
 //   C10 float ELEM ADD scales -> integer path close to round((A*sa + B*sb)/so)
+//   C11 padding per side and padding value
+//   C12 dilation: effective kernel, tile windows, one-shot, 0 = 1, 1x1 keeps 1, limit of the dilation pattern
+//   C13 row sweep of the IFMAP feeder: xlim 256 accepted, 257 refused with SWEEP; Y_USED brings it back
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -255,6 +258,148 @@ int main()
         CHECK(worst <= 1, "worst |diff| %ld vs round((A*sa+B*sb)/so)", worst);
         std::printf("  vs round((A*0.05 + B*0.02)/0.04): %ld of 65536 pairs off by 1, worst %ld (float path is approximate by design)\n",
                     off1, worst);
+    }
+    // ---------------------------------------------------------------- C11
+    {
+        std::printf("[C11] padding per side and padding value (PAD_T / PAD_L / PAD_B / PAD_R, PAD_VALUE)\n");
+        // 8x20x20 -> 8x10x10, k3 s2: TFLite SAME needs (top, left, bottom, right) = (0, 0, 1, 1)
+        auto conv = [](MmioCompat &m, uint32_t pad)
+        {
+            m.write(0x40000400, 0x1000); m.write(0x40000404, 0x2000); m.write(0x40000408, 0x3000); m.write(0x4000040C, 0x4000);
+            m.write(0x4000041C, 3); m.write(0x40000420, 3); m.write(0x40000424, 2); m.write(0x40000428, pad);
+            m.write(0x4000042C, 0);
+            const uint32_t v[] = {8, 20, 20, 8, 10, 10, 8, 5, 10, 0x5000, 0x6000, 0, 0, 0};
+            for (int i = 0; i < 14; i++) m.write(ext(i), v[i]);
+        };
+        LayerInstr li;
+        MmioCompat m;
+        conv(m, 0);
+        m.write(0x40000310, 0x12);
+        CHECK(m.queued() == 0 && m.last_error() == Err::BAD_GEOM, "PAD 0 alone: the last output row / column has no input -> BAD_GEOM");
+        m.write(M::STATUS, 1);
+        conv(m, 0);
+        m.write(ext(M::X_PAD_B), 1); m.write(ext(M::X_PAD_R), 1);
+        m.write(ext(M::X_PAD_VALUE), 0xFFFFFF80u);   // -128
+        m.write(0x40000310, 0x12);
+        CHECK(m.pop(li) && li.geom.pad_t == 0 && li.geom.pad_l == 0 && li.geom.pad_b == 1 && li.geom.pad_r == 1 && li.pad_val == -128,
+              "pads (0, 0, 1, 1), value -128: t %d l %d b %d r %d value %d", li.geom.pad_t, li.geom.pad_l, li.geom.pad_b, li.geom.pad_r,
+              li.pad_val);
+        {
+            TileIter it(li.geom);
+            const TileGeom t0 = it.at(0), tl = it.at(it.count() - 1);
+            CHECK(it.count() == 2 && t0.iy0 == 0 && t0.ix0 == 0 && tl.iy1 == 21 && tl.ix1 == 21,
+                  "windows: first starts at (0, 0), last ends at row 21 / column 21 (one past the image); got %ld tiles, [%d,%d) x [%d,%d)",
+                  it.count(), tl.iy0, tl.iy1, tl.ix0, tl.ix1);
+        }
+        // one-shot: the next push without the new registers is the symmetric PAD again, value 0
+        conv(m, 1);
+        m.write(0x40000310, 0x12);
+        CHECK(m.pop(li) && li.geom.pad_t == 1 && li.geom.pad_l == 1 && li.geom.pad_b == 1 && li.geom.pad_r == 1 && li.pad_val == 0,
+              "PAD 1 without the new registers: all four sides 1, value 0");
+        // the four registers replace PAD: with only top / left written, bottom / right are 0 even though PAD is 1
+        MmioCompat m2;
+        m2.write(0x4000041C, 3); m2.write(0x40000420, 3); m2.write(0x40000424, 1); m2.write(0x40000428, 1);
+        const uint32_t v2[] = {8, 20, 20, 8, 20, 20, 8, 5, 20, 0x5000, 0x6000, 0, 0, 0};
+        for (int i = 0; i < 14; i++) m2.write(ext(i), v2[i]);
+        m2.write(ext(M::X_PAD_T), 1); m2.write(ext(M::X_PAD_L), 1);   // bottom / right not written = 0
+        m2.write(0x40000310, 0x12);
+        CHECK(m2.queued() == 0 && m2.last_error() == Err::BAD_GEOM, "PAD_T / PAD_L written, bottom / right 0: output 20x20 does not fit -> BAD_GEOM");
+        CHECK(m.owns(ext(M::X_PAD_R)) && ext(M::X_PAD_R) == 0x400004F8, "PAD_R at 0x400004F8");
+    }
+    // ---------------------------------------------------------------- C12
+    {
+        std::printf("[C12] dilation (DILATION)\n");
+        // 4x24x24, k3 s1, dilation 9, PAD 9 -> 8x24x24: effective kernel 19
+        auto conv = [](MmioCompat &m, uint32_t kw)
+        {
+            m.write(0x40000400, 0x1000); m.write(0x40000404, 0x2000); m.write(0x40000408, 0x3000); m.write(0x4000040C, 0x4000);
+            m.write(0x4000041C, 3); m.write(0x40000420, kw); m.write(0x40000424, 1); m.write(0x40000428, 9);
+            m.write(0x4000042C, 0);
+            const uint32_t v[] = {4, 24, 24, 8, 24, 24, 8, 8, 24, 0x5000, 0x6000, 0, 0, 0};
+            for (int i = 0; i < 14; i++) m.write(ext(i), v[i]);
+        };
+        LayerInstr li;
+        MmioCompat m;
+        conv(m, 3);
+        m.write(0x40000310, 0x12);
+        CHECK(m.pop(li) && li.geom.dil == 1 && li.geom.ekh() == 3, "DILATION not written: dilation 1, got %d", li.geom.dil);
+        conv(m, 3);
+        m.write(ext(M::X_DILATION), 9);
+        m.write(0x40000310, 0x12);
+        CHECK(m.pop(li) && li.geom.dil == 9 && li.geom.ekh() == 19 && li.geom.ekw() == 19, "dilation 9: effective kernel 19, got dil %d", li.geom.dil);
+        {
+            TileIter it(li.geom);
+            const TileGeom t0 = it.at(0), tl = it.at(it.count() - 1);
+            CHECK(it.count() == 3 && t0.iy0 == -9 && t0.iy1 == 17 && t0.ix0 == -9 && t0.ix1 == 33 && tl.iy1 == 33,
+                  "windows with dilation 9: first [%d,%d) x [%d,%d), last ends at row %d; %ld tiles", t0.iy0, t0.iy1, t0.ix0, t0.ix1,
+                  tl.iy1, it.count());
+        }
+        // one-shot: the next push without DILATION has dilation 1 again
+        conv(m, 3);
+        m.write(ext(M::X_PAD_T), 1); m.write(ext(M::X_PAD_L), 1); m.write(ext(M::X_PAD_B), 1); m.write(ext(M::X_PAD_R), 1);
+        m.write(0x40000310, 0x12);
+        CHECK(m.pop(li) && li.geom.dil == 1, "DILATION is one-shot: next push has dilation 1, got %d", li.geom.dil);
+        // 0 means 1; a 1x1 kernel keeps dilation 1 (one tap)
+        conv(m, 3);
+        m.write(ext(M::X_PAD_T), 1); m.write(ext(M::X_PAD_L), 1); m.write(ext(M::X_PAD_B), 1); m.write(ext(M::X_PAD_R), 1);
+        m.write(ext(M::X_DILATION), 0);
+        m.write(0x40000310, 0x12);
+        CHECK(m.pop(li) && li.geom.dil == 1, "DILATION 0 = 1, got %d", li.geom.dil);
+        MmioCompat m1;
+        m1.write(0x4000041C, 1); m1.write(0x40000420, 1); m1.write(0x40000424, 1); m1.write(0x40000428, 0);
+        const uint32_t v1[] = {4, 24, 24, 8, 24, 24, 8, 8, 24, 0x5000, 0x6000, 0, 0, 0};
+        for (int i = 0; i < 14; i++) m1.write(ext(i), v1[i]);
+        m1.write(ext(M::X_DILATION), 5);
+        m1.write(0x40000310, 0x12);
+        CHECK(m1.pop(li) && li.geom.dil == 1, "1x1 kernel with DILATION 5 -> dilation 1, got %d", li.geom.dil);
+        // limit of the dilation pattern: (KW - 1) x DILATION <= 63; 8 taps 9 apart = 63 fits, 9 taps 8 apart = 64 does not
+        auto row = [](MmioCompat &m, uint32_t kw, uint32_t d)
+        {
+            m.write(0x4000041C, 1); m.write(0x40000420, kw); m.write(0x40000424, 1); m.write(0x40000428, 0);
+            const uint32_t v[] = {2, 4, 80, 8, 4, 80 - (kw - 1) * d, 8, 4, 8, 0x5000, 0x6000, 0, 0, 0};
+            for (int i = 0; i < 14; i++) m.write(ext(i), v[i]);
+            m.write(ext(M::X_DILATION), d);
+        };
+        MmioCompat m3;
+        row(m3, 8, 9);
+        m3.write(0x40000310, 0x12);
+        CHECK(m3.queued() == 1 && m3.last_error() == Err::NONE, "1x8 kernel, dilation 9 (span 63): queued");
+        MmioCompat m4;
+        row(m4, 9, 8);
+        m4.write(0x40000310, 0x12);
+        CHECK(m4.queued() == 0 && m4.last_error() == Err::BAD_GEOM, "1x9 kernel, dilation 8 (span 64): BAD_GEOM");
+        MmioCompat m5;
+        conv(m5, 3);
+        m5.write(ext(M::X_DILATION), 0xFFFFFFFFu);
+        m5.write(0x40000310, 0x12);
+        CHECK(m5.queued() == 0 && m5.last_error() == Err::BAD_GEOM, "DILATION -1: BAD_GEOM");
+        CHECK(m.owns(ext(M::X_DILATION)) && ext(M::X_DILATION) == 0x400004FC && !m.owns(M::EXT_END) && M::EXT_END == 0x40000500,
+              "DILATION at 0x400004FC, extension registers end at 0x40000500");
+    }
+
+    // ---------------------------------------------------------------- C13
+    {
+        std::printf("[C13] row sweep of the IFMAP feeder (xlim <= 256, error SWEEP)\n");
+        // 1 x KW kernel, 32 positions per context, output 1 x 32: xlim = 1 + 31 s + bw + 1 - (bw mod 2) + 32
+        auto row = [](MmioCompat &m, uint32_t kw, uint32_t s, uint32_t d, uint32_t y_used)
+        {
+            const uint32_t bw = (kw - 1) * d + 1, in_w = 31 * s + bw;
+            m.write(0x4000041C, 1); m.write(0x40000420, kw); m.write(0x40000424, s); m.write(0x40000428, 0);
+            const uint32_t v[] = {2, 1, in_w, 8, 1, 32, 8, 1, 32, 0x5000, 0x6000, 0, 0, 0};
+            for (int i = 0; i < 14; i++) m.write(ext(i), v[i]);
+            if (d > 1) m.write(ext(M::X_DILATION), d);
+            if (y_used) m.write(ext(M::X_Y_USED), y_used);
+            m.write(0x40000310, 0x12);
+        };
+        MmioCompat a, b, c, e;
+        row(a, 3, 6, 18, 0);   // xlim 256
+        CHECK(a.queued() == 1 && a.last_error() == Err::NONE, "xlim 256 (1x3, stride 6, dilation 18): queued");
+        row(b, 3, 7, 3, 0);    // xlim 257
+        CHECK(b.queued() == 0 && b.last_error() == Err::SWEEP, "xlim 257 (1x3, stride 7, dilation 3): SWEEP, got %d", int(b.last_error()));
+        row(c, 3, 8, 1, 0);    // 3x3-like row, stride 8, 32 positions: xlim 284
+        CHECK(c.queued() == 0 && c.last_error() == Err::SWEEP, "stride 8 with 32 positions per context: SWEEP");
+        row(e, 3, 8, 1, 16);   // the same with Y_USED 16: xlim 156
+        CHECK(e.queued() == 1 && e.last_error() == Err::NONE, "stride 8 with Y_USED 16: queued");
     }
 
     std::printf("[tb_has_mmio_compat] RESULT: %s (%d failed checks)\n", fails ? "FAIL" : "PASS", fails);

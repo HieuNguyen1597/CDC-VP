@@ -46,6 +46,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="pc_p9999_rc")
     ap.add_argument("--image", type=int, default=0)
+    ap.add_argument("--obp-round", default="params", choices=["params", "floor", "half_up", "half_away"],
+                    help="rounding of the OBP requantization in the golden: params = as stored with the quantization "
+                         "parameters (floor when absent); half_away = the native Obp of psm/obp_top.h")
     # --image-path / --out-dir: run any image without overwriting the default net directory (defaults unchanged).
     ap.add_argument("--image-path", default=None, help="path of any image (instead of --image)")
     ap.add_argument("--out-dir", default=None, help="output directory (default FE_WORK/step6b/net)")
@@ -63,7 +66,8 @@ def main():
     img = args.image_path if args.image_path else fc.list_coco8_images()[args.image]
     if not os.path.isfile(img):
         raise SystemExit("image not found: %s" % img)
-    gold = fr.run_int8(ir, params, fc.letterbox_input(img))
+    gold = fr.run_int8(ir, params, fc.letterbox_input(img),
+                       round_override=None if args.obp_round == "params" else fr.OBP_ROUND[args.obp_round])
 
     addr = 0
     stage = {}

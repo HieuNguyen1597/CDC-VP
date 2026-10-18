@@ -142,6 +142,12 @@ namespace sauria_rtl
             bool wei_fifo_full = false;
             bool wei_fifo_full_now = false;
             bool wei_stall = false;
+#ifdef FX1_A3_WEI_DONE_Q_GATE
+            // SAME-cycle full/stall of the weight feeder (RTL wei_feeder.sv:326-327 assign o_fifo_full = fifo_full_any;
+            // o_feeder_stall = stall_any), used only for the weight til-done shim enable (RTL feeders_fsm.sv:298/305).
+            bool wei_fifo_full_peek = false;
+            bool wei_stall_peek = false;
+#endif
         };
 
         struct Outputs
@@ -609,7 +615,11 @@ namespace sauria_rtl
 #else
             bool act_shim_en = out.act_cnt_en && !in.act_fifo_full && !in.act_stall;
 #endif
+#ifdef FX1_A3_WEI_DONE_Q_GATE
+            bool wei_shim_en = out.wei_cnt_en && !in.wei_fifo_full_peek && !in.wei_stall_peek;
+#else
             bool wei_shim_en = out.wei_cnt_en && !in.wei_fifo_full && !in.wei_stall;
+#endif
 
             p.act_til_done_q_d = act_til_done_q_;
             p.act_ov_flag_shim_d = act_ov_flag_shim_;

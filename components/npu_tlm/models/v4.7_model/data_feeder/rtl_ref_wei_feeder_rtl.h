@@ -179,6 +179,9 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             ii.wstep = in.wstep;
             ii.til_klim = in.til_klim;
             ii.til_kstep = in.til_kstep;
+            // RTL o_done / o_til_done of this cycle (wei_idxcnt.sv:254-255: registers before the edge & i_cnt_en)
+            dbg_done_rtl_ = idx_.peek_done_q() && cnt_en;
+            dbg_til_done_rtl_ = idx_.peek_til_done_q() && cnt_en;
             auto io_ = idx_.tick(ii);
 #ifdef FX1_A3_WPOP_PROBE
             // Debug hook (default off): one line per POP cycle, to catch the repeated beat.
@@ -494,6 +497,13 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
             return false;
         }
 
+        // symmetric to ifmap_feeder_rtl.h (FX1_A3_WEI_DONE_Q_GATE): the index counter's done_q / til_done_q before this
+        // cycle's tick, and the RTL o_done / o_til_done computed inside the LAST tick (observer, for cross-check).
+        bool peek_done_q() const { return idx_.peek_done_q(); }
+        bool peek_til_done_q() const { return idx_.peek_til_done_q(); }
+        bool dbg_done_rtl() const { return dbg_done_rtl_; }
+        bool dbg_til_done_rtl() const { return dbg_til_done_rtl_; }
+
     private:
         // Runtime-depth equivalent of feed_registers.sv (N_REGS = column index):
         // reg_q[0] is the input, o_dout = reg_q[N_REGS]; stages advance on
@@ -535,6 +545,7 @@ using namespace sauria; // A1 port: shared vector/mask types (act_vector_t, wei_
         uint32_t glob_woffs_{0}, sramb_addr_{0};
         bool transn_{false}, outbounds_{false}, done_{false}, til_done_{false};
         bool full_any_shim_{false};
+        bool dbg_done_rtl_{false}, dbg_til_done_rtl_{false};
         // diagnostics for lane 0 (not RTL ports)
     public:
         bool dbg_push0_{false}, dbg_empty0_{true}, dbg_stall0_{false};

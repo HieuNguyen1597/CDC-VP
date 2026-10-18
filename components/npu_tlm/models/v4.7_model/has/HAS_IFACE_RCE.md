@@ -46,6 +46,28 @@ UNIFORM:          off = x - Base; idx = off >> W; frac = the 8 bits below; off <
 idx >= n_idx -> (n_idx - 1, 255); r = T[idx] + (((T[idx+1] - T[idx]) * frac) >> 8)
 ```
 
+### 2.2 Mode names of the microarchitecture specification (MAS)
+
+The MAS ("Vector LUT Unit") describes three index modes and their pipeline depths. They map onto this model as follows.
+
+| MAS mode | Index and result | Stages | Class |
+|---|---|---|---|
+| Direct | the int8 input is the index (activation, exponential) | 1 | `has::lut_direct` |
+| Log-scale | index = {`E - Base`, 4 fine bits below the MSB}: 8 bits for the reciprocal, 9 for rsqrt; the entry is the result; `E_shift` comes from the instruction | 3 | `has::LutLogScale` |
+| PWL | the input is shifted by `E` so 16 bits sit below the MSB: index = bits [15:8] (rsqrt: {`E[0]`, index}), fraction = bits [7:0], interpolation between `lut[i]` and `lut[i+1]`; `E_shift` comes from the LUT | 6 | `has::LutIndirect` (section 2) |
+
+So section 2 ("logarithmic mode" in this document and in the vector names `lut_log_*`, `softmax_log`) is the PWL mode of
+the MAS, and section 2.1 is an earlier reading of the `Base` / `W` inputs that the MAS does not describe; it stays for its
+vectors. Table depths in the MAS are 256 (reciprocal) and 512 (rsqrt) entries of 16 bits; `LutIndirect(q, true)` uses
+these depths and holds the last entry where `lut[i+1]` would fall outside the memory (open point: the MAS does not say what
+the hardware reads there). Log-scale tables: `T[seg*16 + f] = round(2^q_total / g(x_mid))`, `x_mid = 2^(Base + seg) * (1 + (f + 0.5)/16)`,
+saturated to int16; `E - Base` is truncated to 4 (reciprocal) or 5 (rsqrt) bits as drawn.
+
+Measured (`tools/has/tb_gvu_mas`, vectors from `tools/has/mas_ref.py`): log-scale reciprocal, inputs 2^7 to 2^15, largest
+relative error 3.1e-2 (mean 1.1e-2); log-scale rsqrt, inputs 1 to 2^12, 1.6e-2; PWL with the MAS depths 2.0e-3 (reciprocal)
+and 9.8e-4 (rsqrt) against 1.6e-4 and 1.7e-4 with 257 entries per segment -- the difference is the held last entry.
+SOFTMAX on 400 rows: log-scale within 6.1 LSB of the exact `e / sigma`, PWL within 1.0 LSB.
+
 ## 3. SOFTMAX (three stages per row; 32 lanes = 32 rows in parallel, one column per cycle)
 
 ```
@@ -58,7 +80,8 @@ stage 3:  (r, E) = LUT_recip(sigma)                      # logarithmic mode, or 
           t_j = rshift(p_j, E + Q - P, ROUND_MODE)       # P = 15 (question R5); a negative amount is a left shift
           a_j = requant(t_j, ATTN_Scale, ATTN_Shift, Z_ATTN)   # int8 (defaults S = 2^30, s = 37, Z = -128)
 ```
-Timing (ESTIMATED): `(L + 3) + (L + 5) + (L + 18)` cycles per group of 32 rows.
+Timing (ESTIMATED): `(L + 3) + (L + 5) + (L + 18)` cycles per group of 32 rows. The 18 of stage 3 counts 4 register cuts
+for LUT_recip; `softmax_cycles(L, stages)` takes the MAS depths instead (6 for PWL, 3 for log-scale).
 
 ## 4. LAYERNORM (five stages per row of H int8 values)
 

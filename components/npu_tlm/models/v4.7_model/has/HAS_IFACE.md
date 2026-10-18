@@ -20,12 +20,49 @@ Each knob stands for a point the drawings leave open (`docs/KNOWN_LIMITATIONS.md
 
 | Knob | Values | HAS default | v4.5 compatibility |
 |---|---|---|---|
-| `ROUND_MODE` | 0 `FLOOR`, 1 `HALF_UP`, 2 `HALF_AWAY`, 3 `HALF_EVEN` | 1 `HALF_UP` | 0 `FLOOR` |
+| `ROUND_MODE` | 0 `FLOOR`, 1 `HALF_UP`, 2 `HALF_AWAY`, 3 `HALF_EVEN`, 4 `CEIL`, 5 `TRUNC` (toward zero), 6 `AWAY` (away from zero) | 1 `HALF_UP` | 0 `FLOOR` |
 | `REQ_NARROW` | 0 `SAT16`, 1 `WRAP16`, 2 `NONE` (keep int64 until the clamp) | 0 `SAT16` | 0 `SAT16` |
 | `DEQ_ZP_ORDER` | 0 `SUB_BEFORE` `(x - zp) * S`, 1 `ADD_AFTER` `x * S ... + zp` | 0 | 0 |
 | `SCALE_FMT` | 0 `I32` (S in [-2^31, 2^31)), 1 `U32` (S in [0, 2^32)) | 0 `I32` | 1 `U32` |
 | `MP_MODE` | 0 `DIRECT` (K x K window in one pass), 1 `SEPARABLE` (1 x K then K x 1) | 0 | 0 |
 | `SCRATCH_BYTES` | integer | 24,576 | 24,576 |
+| `SP_PRESET` | `gvu68k`, `mas128k`, `mas128k_bal`, `mas128k_bal8` (banked scratchpad sizes per half; a default-constructed `Knobs`: 4,096 / 4,096 / 16,384 B when banked) | `mas128k_bal8` on the instruction path | unset |
+
+The microarchitecture specification (MAS) lets the instruction select the rounding mode among floor, ceil, LSB truncation,
+half away from zero, half to even and half up; LSB truncation is the arithmetic shift, value 0 here. `mas128k` is the
+128 KB double-buffered scratchpad of the MAS: 24,576 / 1,024 / 32,768 B for `vbank#0` / `#1` / `#2` and 2,560 B for the
+scalar bank per half (60,928 of 65,536 B; the MAS gives the total and the contents of each bank, the split is this model's).
+
+Default configuration of the instruction path (run profiles other than Legacy; `Knobs::spec_default()`): banked scratchpad
+`mas128k_bal8` (10,784 / 5,600 / 43,008 B and a 6,144 B scalar bank per half, 65,536 B), rows per group limited by the
+scratchpad, reciprocal / rsqrt tables of 256 / 512 entries, LUT_recip depth 4, LUT input 0 returns 0, scalar parameters in
+int32 words. `HAS_SPEC=v47ref` selects the configuration used before the MAS (4,096 / 4,096 / 16,384 B banks, 32 rows per
+group, 257-entry tables). A default-constructed `Knobs` (unit tests, pure functions) keeps the earlier values.
+
+Single knobs (each overrides the group selected by `HAS_SPEC`):
+
+| Environment variable | Effect |
+|---|---|
+| `HAS_SP_PRESET=mas128k` | banked scratchpad with the sizes above |
+| `HAS_SP_PRESET=mas128k_bal8` | the default split: 10,784 / 5,600 / 43,008 B and 6,144 B scalar bank (8 B per LAYERNORM channel) |
+| `HAS_SP_PRESET=mas128k_bal` | the same 64 KB half split 10,784 / 7,904 / 43,008 B and 3,840 B scalar bank: 14 LAYERNORM rows of 768 per group, ADD chunk of 7,904 elements |
+| `HAS_SP_LIMIT_ROWS=1` | SOFTMAX and LAYERNORM take as many rows per group as the banked scratchpad holds (instead of always 32) |
+| `HAS_LUT_STAGES=6` | LUT_recip depth of the PWL mode in the SOFTMAX cycle estimate (3 = log-scale mode; default 4) |
+| `HAS_LUT_MAS_DEPTH=1` | reciprocal and rsqrt tables of 256 and 512 entries with the last entry held (on in the default configuration; 0 = 257 entries per segment) |
+| `HAS_SPEC=mas10` | preset `mas128k`, rows limited, LUT depth 6 and the 256 / 512 tables at once, over the `v47ref` values |
+
+Knobs that follow the RTL of the functional units (`HAS_LUT_ZERO0` and `HAS_SP_S_WORD32` are on in the default configuration,
+`HAS_ZP_ADD_WRAP16` is off; `HAS_SPEC=rtl` switches the three and the 256 / 512 tables on over the `v47ref` values):
+
+| Environment variable | Effect |
+|---|---|
+| `HAS_ZP_ADD_WRAP16=1` | requant adds the zero point with a wrapping 16-bit adder (the RTL adders do not saturate) |
+| `HAS_LUT_ZERO0=1` | reciprocal / rsqrt of 0 return 0 with the zero flag instead of the largest value |
+| `HAS_SP_S_WORD32=1` | every scalar parameter takes an int32 word of the scalar bank (8 B per LAYERNORM channel) |
+| `HAS_SPEC=rtl` | the three above, the 256 / 512-entry tables and LUT_recip depth 4 |
+
+The RTL rounding unit has seven modes; `HALF_UP`, `HALF_AWAY`, `HALF_EVEN` are its "nearest" modes, `FLOOR`, `CEIL`, `TRUNC`,
+`AWAY` its directed modes.
 
 ## 3. Round-shift (shared)
 
@@ -35,6 +72,7 @@ Each knob stands for a point the drawings leave open (`docs/KNOWN_LIMITATIONS.md
 - `HALF_UP`: `(p + 2^(s-1)) >> s` with an arithmetic shift, i.e. ties round towards +infinity (-2.5 -> -2).
 - `HALF_AWAY`: `sign(p) * ((|p| + 2^(s-1)) >> s)`.
 - `HALF_EVEN`: round to nearest, ties to even.
+- `CEIL`: `(p + 2^s - 1) >> s` with an arithmetic shift.
 
 ## 4. QUANTIZE
 

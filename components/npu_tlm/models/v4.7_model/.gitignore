@@ -17,6 +17,15 @@ __pycache__/
 /tb_evaluate
 /tb_utilization_optimization
 /test_*
+/tb_gvu_top
+/tb_gvu_top_layernorm
+/tb_gvu_top_gemm_fused
+/tb_gvu_top_residual_add
+/trace_gvu_top
+/tb_rtl_ref_gvu_elemwise
+/tools/trace_gvu_top
+/tools/gen_test_datasets
+/scratch/
 *.o
 
 # Built testbenches and regression outputs under tools/

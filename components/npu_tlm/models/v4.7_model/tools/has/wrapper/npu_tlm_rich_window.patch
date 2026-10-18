@@ -51,7 +51,7 @@
      void update_rich_parameter(std::uint32_t model_address,
                                 std::uint32_t value)
      {
-+        if (model_address >= 0x4000'046Cu && model_address < 0x4000'04E8u) {
++        if (model_address >= 0x4000'046Cu && model_address < 0x4000'0500u) {
 +            rich_params.extended = true;
 +        }
          switch (model_address) {

@@ -21,7 +21,7 @@ import zlib
 
 MAGIC, VERSION = 0x3150484E, 1
 REC_END, REC_WRITE, REC_HOST, REC_CHECK = 0, 1, 2, 3
-PUSH_A, EXT_BASE, EXT_END = 0x40000310, 0x4000046C, 0x400004E8
+PUSH_A, EXT_BASE, EXT_END = 0x40000310, 0x4000046C, 0x40000500
 LN_MAGIC = 0x31504E4C
 
 
@@ -59,7 +59,7 @@ def main():
 
     init = open(os.path.join(a.insts_dir, "dram_init.bin"), "rb").read()
     gold = open(os.path.join(a.insts_dir, "dram_golden.bin"), "rb").read()
-    words, sticky, ext = [], {}, [0] * 31
+    words, sticky, ext = [], {}, [0] * ((EXT_END - EXT_BASE) // 4)
     n_ins = n_host = 0
 
     def check(off, n):
@@ -93,7 +93,7 @@ def main():
         words.extend((REC_WRITE, addr, val))
         if addr == PUSH_A:
             check(sticky.get(0x408, 0), out_bytes(val & 0xFF, sticky, ext, init))
-            ext = [0] * 31
+            ext = [0] * ((EXT_END - EXT_BASE) // 4)
             n_ins += 1
     words.append(REC_END)
     if a.count >= 0 and n_ins < a.count:

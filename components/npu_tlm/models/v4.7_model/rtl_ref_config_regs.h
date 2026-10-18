@@ -165,6 +165,13 @@ static inline uint32_t cfg_u32(double v)
             sensitive << i_clk.pos();
         }
 
+        // Padding registers of the IFMAP feeder (ACT_PAD_*, rtl_ref_config_map.h), read by NpuTop as plain wires.
+        // The v4 profile has no padding registers: a value left from the v1 profile must not stay active.
+        uint32_t act_pad_ctrl() const { return r_profile == PROFILE_V4_LINEAR ? 0u : r_act_pad_ctrl; }
+        uint32_t act_pad_col() const { return r_act_pad_col; }
+        uint32_t act_pad_row_lo() const { return r_act_pad_row_lo; }
+        uint32_t act_pad_row_hi() const { return r_act_pad_row_hi; }
+
     private:
         // Internal Register State
         uint32_t r_incntlim{96};
@@ -173,6 +180,8 @@ static inline uint32_t cfg_u32(double v)
         sc_bv<DILP_W_PARAM> r_dil_pat{1};
         sramc_mask_t<Y_DIM> r_rows_active{true};
         uint32_t r_act_stride{1}; // ACT.STRIDE (+0x44)
+        // ACT_PAD_CTRL / COL / ROW_LO / ROW_HI (+0x48 .. +0x54): on-the-fly padding of the IFMAP feeder, not in the RTL
+        uint32_t r_act_pad_ctrl{0}, r_act_pad_col{0}, r_act_pad_row_lo{0}, r_act_pad_row_hi{0};
 
         // sauria_lib.py:187 -- lwoffs = rows_active_arr * arange(Y) * s
         act_vector_t<Y_DIM, uint32_t> make_loc_woffs()
@@ -429,6 +438,7 @@ static inline uint32_t cfg_u32(double v)
                 r_dil_pat = 1;
                 r_rows_active = sramc_mask_t<Y_DIM>(true);
                 r_act_stride = 1;
+                r_act_pad_ctrl = r_act_pad_col = r_act_pad_row_lo = r_act_pad_row_hi = 0;   // padding off after every reset
                 r_start = false;
                 r_done = false;
                 r_soft_reset = false;
@@ -617,6 +627,26 @@ static inline uint32_t cfg_u32(double v)
                     { // ACT.STRIDE -> drives o_loc_woffs
                         if (wmask[0])
                             r_act_stride = cfg_u32(wdata[0]);
+                    }
+                    else if (local_addr == ACT_PAD_CTRL)
+                    { // feeder padding: enable + value
+                        if (wmask[0])
+                            r_act_pad_ctrl = cfg_u32(wdata[0]);
+                    }
+                    else if (local_addr == ACT_PAD_COL)
+                    { // feeder padding: valid window columns
+                        if (wmask[0])
+                            r_act_pad_col = cfg_u32(wdata[0]);
+                    }
+                    else if (local_addr == ACT_PAD_ROW_LO)
+                    { // feeder padding: first valid row (x row step)
+                        if (wmask[0])
+                            r_act_pad_row_lo = cfg_u32(wdata[0]);
+                    }
+                    else if (local_addr == ACT_PAD_ROW_HI)
+                    { // feeder padding: one past the last valid row (x row step)
+                        if (wmask[0])
+                            r_act_pad_row_hi = cfg_u32(wdata[0]);
                     }
                     else if (local_addr == ACT_XLIM)
                     {
@@ -946,6 +976,22 @@ static inline uint32_t cfg_u32(double v)
                     else if (local_addr == CFG_ACT_OFFSET + 0x40)
                     { // HIGH32 half (see write-side comment above)
                         rdata[0] = (float)(uint32_t)(r_dil_pat.to_uint64() >> 32);
+                    }
+                    else if (local_addr == ACT_PAD_CTRL)
+                    {
+                        rdata[0] = static_cast<double>(r_act_pad_ctrl);
+                    }
+                    else if (local_addr == ACT_PAD_COL)
+                    {
+                        rdata[0] = static_cast<double>(r_act_pad_col);   // 32 significant bits: float would round
+                    }
+                    else if (local_addr == ACT_PAD_ROW_LO)
+                    {
+                        rdata[0] = static_cast<double>(r_act_pad_row_lo);
+                    }
+                    else if (local_addr == ACT_PAD_ROW_HI)
+                    {
+                        rdata[0] = static_cast<double>(r_act_pad_row_hi);
                     }
                     else if (local_addr == CFG_WEI_OFFSET + 0x04)
                     { // 0x04 is Reg 13 for wei feeder incnt lim

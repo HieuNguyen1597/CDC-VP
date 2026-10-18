@@ -267,6 +267,15 @@ namespace sauria_rtl
                 if (!ctrl_inst->peek_act_stall_)
                     ctrl_inst->peek_act_stall_ = [af]() { return af->peek_stall_now(); };
 #endif
+#if (defined(FX1_A3_WEI_DONE_Q_GATE) || defined(FX1_A3_WEI_DONE_Q_PROBE)) && defined(FX1_A3_WEI_FEEDER_RTL)
+                // RTL-exact weight done / til_done path into feeders_fsm (see main_controller.h). peek_wei_full_ and
+                // peek_wei_stall_ are only READ for the weight til-done shim enable unless STALL_DIRECT.
+                ctrl_inst->peek_wei_done_rtl_ = [wf]() { return wf->peek_done_rtl_now(); };
+                ctrl_inst->peek_wei_til_done_rtl_ = [wf]() { return wf->peek_til_done_rtl_now(); };
+                ctrl_inst->peek_wei_full_ = [wf]() { return wf->peek_fifo_full_now(); };
+                if (!ctrl_inst->peek_wei_stall_)
+                    ctrl_inst->peek_wei_stall_ = [wf]() { return wf->peek_stall_now(); };
+#endif
             }
 #endif
             array_inst = new SystolicArray<X_DIM, Y_DIM, T_ACT, T_WEI, T_PSUM>("array_inst", pe_cfg);
@@ -690,6 +699,22 @@ namespace sauria_rtl
             // Order = RTL combinational resolution order: Control first (outputs from the
             // registered state), then the feeders consume them.
             ctrl_inst->seam_step();
+#ifdef FX1_A3_IFMAP_FEEDER_RTL
+            // On-the-fly padding of the IFMAP feeder (not in the RTL): the ACT_PAD_* configuration registers drive the
+            // feeder as plain wires. They are written before the start pulse and cleared by the core reset. With them
+            // set, SRAM-A must hold only the real part of the tile window behind a lead of (top padding rows x real
+            // width + left padding columns) elements, and the row / channel steps of the activation counters must use
+            // the real width and height.
+            {
+                const uint32_t pc = config_regs_inst->act_pad_ctrl(), pcol = config_regs_inst->act_pad_col();
+                act_feeder->pad_cfg.en = (pc & 1u) != 0;
+                act_feeder->pad_cfg.val = static_cast<int32_t>(static_cast<int8_t>((pc >> 8) & 0xFFu));
+                act_feeder->pad_cfg.col_lo = pcol & 0xFFFFu;
+                act_feeder->pad_cfg.col_hi = pcol >> 16;
+                act_feeder->pad_cfg.row_lo = config_regs_inst->act_pad_row_lo();
+                act_feeder->pad_cfg.row_hi = config_regs_inst->act_pad_row_hi();
+            }
+#endif
             act_feeder->seam_step();
             wei_feeder->seam_step();
 #ifdef FX1_A3_PSM_SEAM_ORDER

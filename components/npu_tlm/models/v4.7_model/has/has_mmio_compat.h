@@ -6,7 +6,7 @@
 // instruction (one instruction = one layer; the DFC's tile iterator, has/has_tile_iter.h, walks the tiles).
 // Additions, all in address ranges no other code of the model uses:
 //   0x40000318 STATUS  (R; any write clears the sticky error)   0x4000031C RETIRED (R)
-//   0x4000046C..0x400004E4 extension registers -- ONE-SHOT: cleared after every push, so a later old-style push can
+//   0x4000046C..0x400004F8 extension registers -- ONE-SHOT: cleared after every push, so a later old-style push can
 //   never pick up stale conv geometry. The old registers stay sticky exactly as in instruction_decoder.h.
 // Nothing is executed here: the DFC pops instructions and calls retire(). Pure C++ (no SystemC) so it can be unit
 // tested alone (tools/has/tb_has_mmio_compat.cpp).
@@ -49,14 +49,26 @@ namespace has
             X_ROWS,       // 0x400004DC: FUSED_ATTN query rows NQ (unset = LEN) / LAYERNORM rows
             X_PARAM_ADDR, // 0x400004E0: DRAM address of the instruction's parameter block (has/gvu_rce_params.h)
             X_MASK_ADDR,  // 0x400004E4: FUSED_ATTN int8 mask [NQ][L] (-128 = masked); unset = no mask
+            X_PAD_VALUE,  // 0x400004E8: GEMM_FUSED padding value, int8 in the low byte (the input zero point); unset = 0
+            X_PAD_T,      // 0x400004EC: GEMM_FUSED padding per side (top, left, bottom, right). When any of the four is
+            X_PAD_L,      // 0x400004F0  written they replace PAD (0x40000428) and the unwritten sides are 0; when none is
+            X_PAD_B,      // 0x400004F4  written all four sides use PAD, as before
+            X_PAD_R,      // 0x400004F8
+            X_DILATION,   // 0x400004FC: GEMM_FUSED dilation, kernel taps DILATION apart; unset / 0 = 1
             X_COUNT
         };
-        constexpr uint32_t EXT_END = EXT_BASE + 4 * X_COUNT;   // exclusive (0x400004E8)
+        constexpr uint32_t EXT_END = EXT_BASE + 4 * X_COUNT;   // exclusive (0x40000500)
+        constexpr int MAX_DIL_SPAN = 63;   // (KW - 1) x DILATION: the dilation pattern of the IFMAP feeder has 64 positions
+        // One row sweep of the IFMAP feeder, xlim = 1 + (Y_used - 1) x stride + B_w_eff + 1 - (B_w_eff mod 2) + 32
+        // (sauria_compute_core_fields), must stay within the 8-bit position counters of its lanes (PARAMS_W of the
+        // SAURIA feeder). Measured on the core and on the SAURIA RTL: 256 right, 257 and above wrong or hanging.
+        constexpr int MAX_SWEEP = 256;
     }
 
     enum class Err : uint16_t
     {
-        NONE = 0, Q_OVF, LANE_B, LEGACY64, UNSUPPORTED_OP, UNSUPPORTED_MODE, BROADCAST, NEED_LUT, BAD_GEOM, SCALE_RANGE, NO_TILING
+        NONE = 0, Q_OVF, LANE_B, LEGACY64, UNSUPPORTED_OP, UNSUPPORTED_MODE, BROADCAST, NEED_LUT, BAD_GEOM, SCALE_RANGE, NO_TILING,
+        SWEEP   // a tile's row sweep exceeds mmio::MAX_SWEEP: reduce Y_USED (positions per context) or the tile width
     };
 
     struct AddQ   // integer ELEM_WISE ADD parameters, same meaning as has::AddParams (gvu_elemwise.h)
@@ -83,6 +95,7 @@ namespace has
         uint32_t bcast_S{1};
         int bcast_s{0};
         int zp_out{0};
+        int pad_val{0};                // value of the padding around the input (int8); 0 unless PAD_VALUE is written
         uint32_t flags{0};
         bool from_float_scale{false};  // approximate path, not bit-exact with the old emulator
         bool default_tiling{false};    // tiling chosen by default_tiling(), not by the offline planner
@@ -124,6 +137,22 @@ namespace has
         w_t = std::min({Mpos, cap.a_bytes / std::max(K, 1), cap.c_elems / cout_t});
         if (w_t >= 32) w_t -= w_t % 32;
         return w_t > 0;
+    }
+
+    // Longest row sweep of the IFMAP feeder over the tiles of a layer (xlim of sauria_compute_core_fields, unaligned
+    // address mode; the aligned 1x1 mode sweeps less). Only the tile width matters, so one channel tile and one row of
+    // tiles are walked.
+    inline int max_sweep(const LayerGeom &g)
+    {
+        LayerGeom r = g;
+        r.cout = std::min(g.cout_t, g.cout);
+        r.oh = std::min(g.h_t, g.oh);
+        const TileIter it(r);
+        const int bw = g.ekw();
+        int m = 0;
+        for (long i = 0; i < it.count(); i++)
+            m = std::max(m, 1 + (it.at(i).y_used - 1) * g.sx + bw + 1 - (bw % 2) + 32);
+        return m;
     }
 
     class MmioCompat
@@ -283,7 +312,13 @@ namespace has
             {
                 li.in_c = ext_i(X_IN_C); li.in_h = ext_i(X_IN_H); li.in_w = ext_i(X_IN_W);
                 g.cout = ext_i(X_OUT_C); g.oh = ext_i(X_OUT_H); g.ow = ext_i(X_OUT_W);
-                g.kh = int(r_kh_); g.kw = int(r_kw_); g.sy = g.sx = int(r_stride_); g.pad_t = g.pad_l = int(r_pad_);
+                g.kh = int(r_kh_); g.kw = int(r_kw_); g.sy = g.sx = int(r_stride_);
+                if (ext_set_[X_PAD_T] || ext_set_[X_PAD_L] || ext_set_[X_PAD_B] || ext_set_[X_PAD_R])
+                { g.pad_t = ext_i(X_PAD_T); g.pad_l = ext_i(X_PAD_L); g.pad_b = ext_i(X_PAD_B); g.pad_r = ext_i(X_PAD_R); }
+                else g.pad_t = g.pad_l = g.pad_b = g.pad_r = int(r_pad_);
+                if (ext_set_[X_PAD_VALUE]) li.pad_val = int(static_cast<int8_t>(ext_[X_PAD_VALUE] & 0xFFu));
+                if (ext_set_[X_DILATION] && ext_i(X_DILATION) != 0) g.dil = ext_i(X_DILATION);
+                if (g.kh == 1 && g.kw == 1 && g.dil > 0) g.dil = 1;   // one tap: same layer, keeps the aligned 1x1 address mode
                 g.cout_t = ext_i(X_TILE_COUT); g.h_t = ext_i(X_TILE_H); g.w_t = ext_i(X_TILE_W);
                 if (g.cout_t <= 0 || g.h_t <= 0 || g.w_t <= 0) { error(Err::NO_TILING); return; }
             }
@@ -292,15 +327,16 @@ namespace has
                 // Old-style Linear/MatMul: M positions x K inputs -> N outputs = 1x1 conv on a 1 x M image.
                 li.in_c = int(r_k_); li.in_h = 1; li.in_w = int(r_m_);
                 g.cout = int(r_n_); g.oh = 1; g.ow = int(r_m_);
-                g.kh = g.kw = g.sy = g.sx = 1; g.pad_t = g.pad_l = 0;
+                g.kh = g.kw = g.sy = g.sx = 1; g.pad_t = g.pad_l = g.pad_b = g.pad_r = 0;
                 g.h_t = 1;
                 if (!default_tiling(li.in_c, g.cout, g.ow, caps_, g.cout_t, g.w_t)) { error(Err::NO_TILING); return; }
                 li.default_tiling = true;
                 n_default_tiling++;
             }
             if (li.in_c <= 0 || li.in_h <= 0 || li.in_w <= 0 || g.cout <= 0 || g.oh <= 0 || g.ow <= 0 || g.kh <= 0 ||
-                g.kw <= 0 || g.sy <= 0 || g.pad_t < 0 ||
-                (g.oh - 1) * g.sy - g.pad_t + g.kh > li.in_h + g.pad_t || (g.ow - 1) * g.sx - g.pad_l + g.kw > li.in_w + g.pad_l)
+                g.kw <= 0 || g.sy <= 0 || g.dil <= 0 || (g.kw - 1) * g.dil > mmio::MAX_DIL_SPAN ||
+                g.pad_t < 0 || g.pad_l < 0 || g.pad_b < 0 || g.pad_r < 0 ||
+                (g.oh - 1) * g.sy - g.pad_t + g.ekh() > li.in_h + g.pad_b || (g.ow - 1) * g.sx - g.pad_l + g.ekw() > li.in_w + g.pad_r)
             { error(Err::BAD_GEOM); return; }
 
             li.cin_t = (ext_set_[X_TILE_CIN] && ext_i(X_TILE_CIN) > 0) ? ext_i(X_TILE_CIN) : li.in_c;
@@ -314,6 +350,7 @@ namespace has
             li.zp_out = ext_i(X_ZP_OUT);
             li.flags = ext_[X_FLAGS];
             g.pad_tail = (li.flags & 1u) != 0;   // FLAGS bit 0 = PAD_TAIL, bit 1 = CHANNEL_MAJOR (RCE only)
+            if (max_sweep(g) > mmio::MAX_SWEEP) { error(Err::SWEEP); return; }
             if (ext_set_[X_SCALE_ADDR])
             {
                 li.per_channel = true;

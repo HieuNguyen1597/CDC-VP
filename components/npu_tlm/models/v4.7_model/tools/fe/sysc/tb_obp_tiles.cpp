@@ -22,6 +22,7 @@
 
 #include "sauria_types.h"
 #include "psm/obp_top.h"
+#include "tools/obp_port_compat.h"
 
 using namespace sauria;
 
@@ -31,7 +32,7 @@ static constexpr uint32_t SCALE_BASE = LUT_BASE + 0x00040000;
 static constexpr uint32_t SHIFT_BASE = LUT_BASE + 0x00050000;
 // 3 pipeline stages to flush + idle cycle that resets vec_channel_cnt; argv[2] overrides (negative control)
 static int IDLE_CYCLES = 6;
-typedef Obp<OBP_W, 0x00140000, 0x00150000, int32_t, int8_t> ObpDut;
+typedef Obp<OBP_W, 0x00140000, 0x00150000, 0x001C0000, int32_t, int8_t> ObpDut;
 
 struct Reader
 {
@@ -82,6 +83,8 @@ SC_MODULE(TbObpTiles)
         dut->i_addr(i_addr);
         dut->i_wmask(i_wmask);
         dut->i_valid(i_valid);
+        // channel index and output zero point of the Obp: the former internal channel counter, zero point 0
+        (new sauria::ObpPortCompat("obp_compat", OBP_W))->attach(dut, i_clk, rstn, i_valid);
         dut->i_residual(i_residual);
         dut->o_sramc_wdata(o_wdata);
         dut->o_sramc_addr(o_addr);

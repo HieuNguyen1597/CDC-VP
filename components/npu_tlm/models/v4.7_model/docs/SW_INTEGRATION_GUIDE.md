@@ -44,7 +44,7 @@ identical to the golden.
 | `0x40000400` ... `0x4000040C` | `IN_ADDR`, `W_ADDR`, `OUT_ADDR`, `BIAS_ADDR` | Unchanged meaning (DRAM byte addresses) |
 | `0x40000410` ... `0x40000418` | `M`, `K`, `N` | Used only when no geometry extension is written: the layer is a 1x1 convolution (linear / matrix product) over `M` positions, with a default tiling |
 | `0x4000041C`, `0x40000420` | `KH`, `KW` | Unchanged |
-| `0x40000424`, `0x40000428` | `STRIDE`, `PAD` | Unchanged; one value for both directions, symmetric padding |
+| `0x40000424`, `0x40000428` | `STRIDE`, `PAD` | Unchanged; one value for both directions. `PAD` applies to all four sides unless `PAD_T`, `PAD_L`, `PAD_B` or `PAD_R` is written (section 3.3) |
 | `0x4000042C` | `ACT_TYPE` | 0 none, 1 ReLU (table built internally), 2 SiLU, 3 GELU. 2 and 3 require `LUT_ADDR` |
 | `0x40000430`, `0x40000434` | `HAS_SKIP`, `SKIP_ADDR` | Split internally into GEMM_FUSED followed by an ELEM_WISE ADD with unit scales |
 | `0x40000438` ... `0x40000440` | `IN_SCALE`, `W_SCALE`, `OUT_SCALE` (IEEE-754 bits) | Used only when `SCALE_ADDR` is not written: converted to one integer multiplier and shift for all channels. Approximate path |
@@ -77,12 +77,13 @@ Error codes:
 | 8 | `BAD_GEOM` | Inconsistent or missing geometry |
 | 9 | `SCALE_RANGE` | A floating-point scale cannot be represented as an integer multiplier and shift |
 | 10 | `NO_TILING` | Tile sizes missing or zero, or the layer does not fit the default tiling |
+| 11 | `SWEEP` | One row sweep of the IFMAP feeder would exceed 256 positions: `1 + (Y_used - 1) x STRIDE + W + 1 - (W mod 2) + 32 > 256` for a tile, with `W = (KW - 1) x DILATION + 1` and `Y_used` the positions per context of that tile (`TILING_GUIDE.md`, section 3). Reduce `Y_USED` or the tile width |
 
 `SET_NSPLIT` (`0x05`) is accepted and ignored; the number of such pushes is counted.
 
 ### 3.3 Extension registers (new)
 
-Address = `0x4000046C + 4 x index`. The last register is at `0x400004E4`.
+Address = `0x4000046C + 4 x index`. The last register is at `0x400004FC`.
 
 The extension registers are **one-shot**: they are cleared after every push. A later push that does not write
 them therefore never picks up stale geometry.
@@ -101,7 +102,7 @@ them therefore never picks up stale geometry.
 | 9 | `0x40000490` | `SCALE_ADDR` | GEMM | DRAM address of the per-channel signed 32-bit multipliers |
 | 10 | `0x40000494` | `SHIFT_ADDR` | GEMM | DRAM address of the per-channel shifts |
 | 11 | `0x40000498` | `LUT_ADDR` | GEMM | DRAM address of the 256-entry activation table |
-| 12 | `0x4000049C` | `ZP_OUT` | GEMM | Output zero point (0 for symmetric quantization) |
+| 12 | `0x4000049C` | `ZP_OUT` | GEMM | Output zero point, signed 32-bit two's complement (0 for symmetric quantization; a negative value such as -128 is written as `0xFFFFFF80`). It is added after the rounding shift and before the clamp to int8 |
 | 13 | `0x400004A0` | `FLAGS` | GEMM | Bit 0 `PAD_TAIL`: edge tiles are computed at the full `TILE_COUT` channels and at a width rounded up to a multiple of the positions per context (`Y_USED`, or 32 when not written); only the real channels and positions are written back. Requires the compiler to zero-pad the weights of the last output-channel band to `TILE_COUT` (section 6.1). Bit 1 `CHANNEL_MAJOR` (FUSED_ATTN, LAYERNORM): operands and outputs are stored channel-major, element (token i, channel j) at `address + j x rows + i`, the layout a GEMM_FUSED over tokens writes. Other bits reserved, write 0 |
 | 14 | `0x400004A4` | `ZP_A` | ADD | Zero point of A |
 | 15 | `0x400004A8` | `ZP_B` | ADD | Zero point of B |
@@ -120,9 +121,29 @@ them therefore never picks up stale geometry.
 | 28 | `0x400004DC` | `ROWS` | FUSED_ATTN, LAYERNORM | FUSED_ATTN: query rows NQ (not written: equal to `LEN`). LAYERNORM: number of rows (required) |
 | 29 | `0x400004E0` | `PARAM_ADDR` | FUSED_ATTN, LAYERNORM | DRAM address of the instruction's parameter block (section 6.2). Required; missing: error `BAD_GEOM` |
 | 30 | `0x400004E4` | `MASK_ADDR` | FUSED_ATTN | DRAM address of an int8 mask [NQ][L], value -128 = masked position. Not written: no mask |
+| 31 | `0x400004E8` | `PAD_VALUE` | GEMM | Value of the padded positions around the input, int8 in the low byte (two's complement). Not written: 0. With an asymmetric quantization write the input zero point |
+| 32 | `0x400004EC` | `PAD_T` | GEMM | Padding rows above the input |
+| 33 | `0x400004F0` | `PAD_L` | GEMM | Padding columns left of the input |
+| 34 | `0x400004F4` | `PAD_B` | GEMM | Padding rows below the input |
+| 35 | `0x400004F8` | `PAD_R` | GEMM | Padding columns right of the input |
+| 36 | `0x400004FC` | `DILATION` | GEMM | Kernel taps are `DILATION` input positions apart in both directions. Not written or 0: 1. `(KW - 1) x DILATION` must not exceed 63 |
 
-The ranges `0x40000318` to `0x4000031C` and `0x4000046C` to `0x400004E4` are not used by any other part of the
+The ranges `0x40000318` to `0x4000031C` and `0x4000046C` to `0x400004FC` are not used by any other part of the
 model.
+
+Convolution padding. When none of `PAD_T`, `PAD_L`, `PAD_B`, `PAD_R` is written, all four sides use `PAD`, as
+before. When any of them is written, the four registers replace `PAD` and the ones not written are 0; for example
+the TensorFlow "SAME" rule of a 3x3 stride-2 layer on an even input is `PAD_B` = `PAD_R` = 1. The output size must
+fit the padded input: `(OUT_H - 1) x STRIDE - PAD_T + KH <= IN_H + PAD_B`, likewise for the width, otherwise the
+instruction is refused with `BAD_GEOM`. Every padded position holds `PAD_VALUE`. The five registers are one-shot
+like the other extension registers. Through a system wrapper with the extension-register window they are reached
+at the window offset of their address (`0x4E8` to `0x4F8`).
+
+Dilation. With `DILATION` = d the kernel spans `(KH - 1) x d + 1` rows and `(KW - 1) x d + 1` columns of the
+(padded) input, and every size rule above uses these effective sizes in place of `KH` and `KW`; the weights are
+still `KH x KW` per input channel, in the same layout. A 1x1 kernel ignores `DILATION`. The limit on
+`(KW - 1) x DILATION` comes from the 64-position dilation pattern of the IFMAP feeder; beyond it, or with a negative
+value, the instruction is refused with `BAD_GEOM`. Through a system wrapper the register is at window offset `0x4FC`.
 
 ## 4. Programming sequences
 
@@ -130,12 +151,14 @@ model.
 
 1. Write `IN_ADDR`, `W_ADDR`, `OUT_ADDR`, `BIAS_ADDR`, `KH`, `KW`, `STRIDE`, `PAD`, `ACT_TYPE`, and `HAS_SKIP = 0`.
 2. Write the extensions: `IN_C/H/W`, `OUT_C/H/W`, `TILE_COUT/H/W`, `SCALE_ADDR`, `SHIFT_ADDR`, `LUT_ADDR`
-   (if an activation is used), `ZP_OUT`.
+   (if an activation is used), `ZP_OUT`; `PAD_VALUE` when the padding value is not 0; `PAD_T`, `PAD_L`, `PAD_B`,
+   `PAD_R` when the padding differs between sides (section 4.7); `DILATION` when it is above 1.
 3. Write `0x12` to `PUSH_A`.
 
 The hardware walks the tiles in this order: output channel blocks, then output rows, then output columns.
 Edge tiles are clipped to the tensor. For each tile it derives:
-- the input window `iy = oy * stride - pad`, `ix = ox * stride - pad`, of size `(h - 1) * stride + kh`;
+- the input window `iy = oy * stride - PAD_T`, `ix = ox * stride - PAD_L` (both `PAD` when the four side fields are not
+  written), of size `(h - 1) * stride + (kh - 1) * DILATION + 1` (likewise for the width);
 - the active columns = the tile's output channels;
 - the active rows = `Y_USED` when it is written and divides the tile width, otherwise `gcd(tile width, 32)`.
 
@@ -187,6 +210,57 @@ For the whole YOLOv8m network the sequence is 98 instructions (83 GEMM_FUSED, 12
 register writes in the reference program (`insts_pe3`; 2,306 without the planner options of `ARCHITECTURE.md`,
 section 8.2). For comparison, one instruction per tile would need about 186,000 writes. ViT-B/16 is 244
 instructions (50 GEMM_FUSED, 144 FUSED_ATTN, 25 LAYERNORM, 25 ADD) and 3,264 register writes.
+
+### 4.7 Convolution padding: what a compiler writes
+
+The input tensor stays in DRAM as the unpadded int8 `[C][H][W]` tensor. Software never writes a padded copy or an
+im2col matrix: the hardware gathers the kernel windows and inserts the padding value while it does so. Each padded
+convolution is one GEMM_FUSED instruction with the fields below (one-shot, like every extension register).
+
+| Padding of the framework | Fields to write |
+|---|---|
+| Same on all four sides | `PAD` (the legacy field), or the four side fields with equal values |
+| Different per side, for example TensorFlow Lite `SAME` with stride 2 on an even input (top, left, bottom, right = 0, 0, 1, 1) | `PAD_T`, `PAD_L`, `PAD_B`, `PAD_R`. A `pads = [top, left, bottom, right]` attribute maps in that order. Writing any of the four replaces `PAD`; the ones not written are 0 |
+| `VALID` (no padding) | Nothing (`PAD` = 0) |
+| Padding value: input zero point of an asymmetric int8 network, 0 for a symmetric one, or the constant of a `PADV2` folded into the convolution | `PAD_VALUE`, int8 in the low byte (for example -128 is written `0x80`); one value per instruction |
+| Dilated convolution | `DILATION`; `(KW - 1) x DILATION <= 63` |
+| Input-channel split (`TILE_CIN`) | Combines with padding and dilation without change |
+| Max pool with padding | ELEM_WISE MAX_POOL with `POOL_P` (padding value -128, section 4.3) |
+
+Not supported, so the compiler must lower them otherwise or keep them on the host:
+
+| Case | Status |
+|---|---|
+| Different strides in the two directions | One `STRIDE` for both (`KNOWN_LIMITATIONS.md`, O22) |
+| Average pool with padding | `POOL_P` must be 0 for AVG_POOL |
+| Stand-alone `PAD` / `PADV2` on channels or batch; reflect, symmetric or edge modes | Only constant padding of the height and width, folded into a convolution |
+| Zero points of a uint8 network | int8 only |
+| Depthwise and transposed convolutions | No GEMM_FUSED form is documented or verified for them |
+
+Rules the instruction must meet (checked at the push; a violation refuses the instruction, section 3.2):
+
+- the output must fit the padded input: `(OUT_H - 1) x STRIDE - PAD_T + (KH - 1) x DILATION + 1 <= IN_H + PAD_B`,
+  likewise for the width (`BAD_GEOM` otherwise);
+- every tile must respect the row-sweep limit of the IFMAP feeder, which depends on stride, dilation and `Y_USED`
+  (`TILING_GUIDE.md`, section 3; `SWEEP` otherwise);
+
+The SRAM limits of `TILING_GUIDE.md`, section 3, are computed with the padded window (padding included). A tile above
+them is not refused: the model prints a warning line at the push and runs it all the same, and the result may be
+wrong (`SW_EVALUATION_GUIDE.md`, section 4.1).
+
+Notes:
+
+- A 1x1 layer without padding needs no padding field.
+- Rounding `K` up to a multiple of 32 with zero weights is not needed: `K` is `Cin x KH x KW` as defined, with the
+  weight layout of section 6.
+- Whether the hardware fills the padding on the DMA path or inside the IFMAP feeder (`HARDWARE_CONFIG.md`,
+  section 6.5; `IFMAP_FEEDER_PADDING.md`) is not visible to software: the instruction and the results are the same.
+- The frontend of this package writes only `PAD`, because YOLOv8m and ViT-B/16 need symmetric padding only.
+- Examples: `python3 tools/has/make_pad_gate.py <dir>` writes a program of 13 padded convolutions (per-side padding,
+  padding values -128 to 127, kernels 1x1 to 7x7, strides 1 and 2; `--set dilation` for dilation); its `mmio.txt`
+  lists every register write. To check the output of a compiler, record or write its program and run
+  `tools/has/ref_program.py` on it (`SW_EVALUATION_GUIDE.md`, section 5.1): an independent integer reference that
+  reads all the fields above.
 
 ## 5. Required software changes
 
@@ -260,7 +334,7 @@ listed in `KNOWN_LIMITATIONS.md`, section 7.1.
 | H15 | How is the nearest-neighbour x2 upsample performed (DMA replication, feeder addressing, or host)? | Host |
 | H16 | Instruction granularity: one instruction per tile or per layer; can instructions be read from a descriptor ring in DRAM? | One per layer, hardware tile loop |
 | H17 | Bias preload: full `OH x OW x OC` int32 read, or a broadcast mode reading `OC` values? | Full read (broadcast evaluated as a proposal, `PERFORMANCE_REPORT.md`, section 5.5) |
-| H18 | Convolution padding: DMA zero fill, feeder generation, or pre-padded data in DRAM? | DMA 3-D descriptor with zero fill |
+| H18 | Convolution padding: DMA zero fill, feeder generation, or pre-padded data in DRAM? | DMA 3-D descriptor that fills the padding (default); generation by the IFMAP feeder is modelled as an option (`HAS_FEEDER_PAD=1`, `HARDWARE_CONFIG.md`, section 6.5) |
 | H19 | Where are int8 results packed four per 32-bit word; can the write DMA scatter into a sub-region of the destination tensor? | DMA packs, 3-D descriptor |
 | H20 | Completion reporting (per instruction, per stream, status only); queue depth and full-queue behaviour | Status and retired counter, interrupt at end of stream, depth 16, error on overflow |
 | H21 | Which command loads the LUT, scales and shifts? | Loaded by the controller: the LUT once per instruction, scales and shifts per tile |
@@ -322,7 +396,9 @@ behaviour is unchanged in both configurations.
 
 1. Point the model root at `core_rtl/`. It contains the drop-in `npu_top.h` and one-line forwarding headers for every
    other file, so the wrapper's include path and required-file list stay the same (`core_rtl/README.md`).
-2. Apply `tools/has/wrapper/npu_tlm_rich_window.patch` to the wrapper (two source files, 28 added lines), from the
+2. A wrapper revision that already has the registers `RICH_WINDOW_BASE` and `RICH_WINDOW_SIZE` (offsets `0x1130` and
+   `0x1134` of the wrapper bank) needs nothing here: the change below is part of it. Otherwise apply
+   `tools/has/wrapper/npu_tlm_rich_window.patch` to the wrapper (two source files, 28 added lines), from the
    root of the wrapper's repository:
 
    ```bash
@@ -334,7 +410,7 @@ behaviour is unchanged in both configurations.
    `patch -p1` from that directory.) The patch was generated against the wrapper revision that bundles the v4.6
    native model; it applies with LF and with CRLF working files. If a later wrapper revision changes the context
    lines, the same 28 lines are added at the same places: two register constants, two fields of the register bank
-   with their read and write cases, a flag set by any write to `0x4000046C..0x400004E7`, and the window staging at
+   with their read and write cases, a flag set by any write to `0x4000046C..0x400004FF`, and the window staging at
    the start of the job preparation. It adds two
    registers to the wrapper's parameter bank and stages a DRAM window for extended instructions:
 
@@ -343,7 +419,9 @@ behaviour is unchanged in both configurations.
 | `0x1130` | `RICH_WINDOW_BASE` | Physical address of the program's DRAM image |
 | `0x1134` | `RICH_WINDOW_SIZE` | Size of the image in bytes |
 
-   An instruction is extended when any of `0x4000046C..0x400004E7` was written since the previous push. For it, the
+   An instruction is extended when any of `0x4000046C..0x400004FF` was written since the previous push (wrapper
+   revisions that have the window without this patch use `0x4000046C..0x400004E7`; `INTEGRATOR_QUICK_START.md`,
+   section 2.1, item 3). For it, the
    wrapper copies the whole window into the model before the push and back to RAM after completion; other
    instructions are staged exactly as before. Programs of `HasNpuTop` do not use `M`, `K`, `N`, so the size-based
    staging of the unpatched wrapper cannot serve them.
@@ -376,6 +454,18 @@ keep their meaning (`total_cycles` counts every clock).
 | `PERF_REDUCTION_ENGINE_CYCLES` | FUSED_ATTN and LAYERNORM cycles |
 | `PERF_POOLING_ENGINE_CYCLES` | ELEM_WISE cycles |
 | `PERF_DDR_READ_BYTES`, `PERF_DDR_WRITE_BYTES` | DMA bytes |
+| `PERF_DMA_READ_CYCLES`, `PERF_DMA_WRITE_CYCLES` | Cycles the DMA read / write port is busy |
+| `PERF_ACTIVE_PE_CYCLES` | Real MACs of the instruction: output elements x K (K = input channels x kernel height x kernel width); for FUSED_ATTN the two attention products when they run on the core |
+| `PERF_TOTAL_PE_CYCLES` | Core busy cycles x 1,024 (32 x 32 array). Core busy: from the start pulse of every core pass to its done |
+| `PERF_SA_CYCLES`, `PERF_MAC_ENGINE_CYCLES` | Core busy cycles |
+| `PERF_MAC_OPS` | MACs executed by the core, including the padding of edge tiles |
+
+PE utilization of an instruction is `PERF_ACTIVE_PE_CYCLES / PERF_TOTAL_PE_CYCLES` (real MACs / (core busy x 1,024),
+the definition of `PERFORMANCE_REPORT.md`). For a whole network, add both counters over the instructions and divide
+the sums: the wrapper clears the counters at every push. ELEM_WISE and LAYERNORM do not use the array and add nothing
+to these counters. For `HasNpuTop` instructions `PERF_ACTIVE_PE_CYCLES` is the real MAC count; the native array
+reports the number of PE cycles with two non-zero operands in the same counter. `tools/has/wrapper/test_npu_tlm_core_rtl.cpp`
+prints the PE utilization of every instruction and of the program this way.
 
 Cycle counts do not depend on the wrapper's clock period and equal those of `tools/has/tb_has_npu_top` for the same
 instruction (`VERIFICATION_REPORT.md`, V20).
@@ -387,6 +477,9 @@ instruction (`VERIFICATION_REPORT.md`, V20).
 | `SAURIA_CORE_RTL_PROFILE` | `recommended` (default, configuration of the reference results), `proposals`, `legacy` |
 | `SAURIA_CORE_RTL_C_BCAST=1` | Bias preload by broadcast descriptor (a proposed hardware option): changes the DMA timing only, not the data. Set it to reproduce the ViT-B/16 reference cycles (`PERFORMANCE_REPORT.md`, section 5.6); without it the program runs as drawn |
 | `SAURIA_CORE_RTL_TRACE=1` | One line per `HasNpuTop` instruction with its cycles |
+| `SAURIA_CORE_RTL_WARN=0` | Switches off the warning lines on stderr. By default the model root prints one line when `HasNpuTop` refuses an instruction at the push, when an instruction falls back to converted real-valued scales or to a default tiling, and when an instruction retires with an internal error counter raised (`SW_EVALUATION_GUIDE.md`, section 4) |
+| `SAURIA_CORE_RTL_RECORD=<directory>` | Records the program that reaches `HasNpuTop` as program directories that `tools/has/tb_has_npu_top` replays (`SW_EVALUATION_GUIDE.md`, section 4.2). Results and cycle counts do not change |
+| `SAURIA_CORE_RTL_REPORT=<file>` | Writes a CSV with one line per retired instruction (cycles, tiles, PE utilization, DMA wait, bus bytes) and `<file>.summary.txt` with the totals of the run; `SW_EVALUATION_GUIDE.md`, section 6.1 |
 
 - Lane A only, INT8 only (as `HasNpuTop`).
 - Simulation speed is that of the RTL-accurate core: a whole network takes hours (`RELEASE_NOTES.md`, section 4).
@@ -407,13 +500,13 @@ instruction (`VERIFICATION_REPORT.md`, V20).
 
 | File | Content |
 |---|---|
-| `npu_has_fw.h` | Register addresses of this guide as C definitions (instruction and extension registers, opcodes, modes, flags, the wrapper's status, window and counter registers) and the interface of the replay engine |
-| `npu_has_fw.c` | Replay engine: declares the DRAM window, writes the registers of each instruction (image offsets + RAM base in the address registers), pushes, waits for the wrapper's `STATUS`, clears it, runs the host steps on RAM, and checks every output by CRC-32 |
+| `npu_has_fw.h` | Register addresses of this guide as C definitions (instruction and extension registers, opcodes, modes, flags, the model's status register and its error codes, the wrapper's status, window and counter registers) and the interface of the replay engine |
+| `npu_has_fw.c` | Replay engine: declares the DRAM window, writes the registers of each instruction (image offsets + RAM base in the address registers), pushes, waits for the wrapper's `STATUS`, clears it, reads the model's status register (`0x40000318` through the alias) and fails the step with the model's error code when the instruction was refused at the push, runs the host steps on RAM, and checks every output by CRC-32 |
 | `make_fw_program.py` | Converts a program directory (`mmio.txt`, DRAM images) into the stream the engine executes; the expected CRC of every output is taken from `dram_golden.bin`, so firmware does not need the golden image. `--asm` writes an assembly file that links the stream and `dram_init.bin` into the firmware ELF |
 | `fw_main_example.c`, `linker_example.ld`, `Makefile` | Bare-metal example: hardware abstraction (five functions: 32-bit register access, RAM copy, idle, report), UART output, memory layout with the image at a fixed RAM address |
 | `test_fw_replay.cpp` | Host test: the same C engine driven through the wrapper with TLM transactions |
 
-Steps for a first run on a platform (a 14-instruction transformer check with a 1 MB image, 250,885 NPU cycles,
+Steps for a first run on a platform (a 14-instruction transformer check with a 1 MB image, 285,205 NPU cycles,
 a few minutes of simulation):
 
 ```bash
@@ -422,9 +515,10 @@ make PROGRAM=$FE_WORK/has/rce_gate FW_INC=<platform firmware include dir> STARTU
 <platform executable> --fw npu_has_example.elf        # expected on the console: NPU HAS start ... NPU HAS PASS
 ```
 
-The platform must be built with the model root `core_rtl/` and the patched wrapper (section 10.1). Then
+The platform must be built with the model root `core_rtl/` and a wrapper with the DRAM window (section 10.1). Then
 `PROGRAM=$FE_WORK/has/insts_pe3 COUNT=2` runs the first two YOLOv8m instructions, and without `COUNT` the whole
-network (hours; expected cycles in `PERFORMANCE_REPORT.md`, sections 5.4 and 5.6).
+network (hours; expected cycles in `PERFORMANCE_REPORT.md`, section 5.8). The environment variable `HAS_SPEC` is
+read by the model inside the platform as well (`HAS_SPEC=v47ref`: 250,885 cycles on the transformer check).
 
 **Loading the DRAM image.** The image of a program must be in system RAM before the first instruction: 1 MB for
 `rce_gate`, 86 MB for YOLOv8m, 114 MB for ViT-B/16, all below the usual 256 MB of RAM. The example links it into
