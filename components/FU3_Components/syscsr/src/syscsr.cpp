@@ -17,7 +17,7 @@ constexpr std::uint32_t kPad16 = 0x0000'FFFF;
 
 // Table Register Definition
 constexpr RegDef kRegs[] = {
-    {kVersion, 0x0, 0x0},          // major/minor từ input RO, FU3 top buộc 0
+    {kVersion, 0x0, 0x0},         // major/minor từ input RO, FU3 top buộc 0
     {0x0010, 0x0, 0xFFFF'FFFF}, 
     {0x0014, 0x0, 0xFFFF'FFFF},   // left/bottom_io_cfg
     {0x0018, 0x0, 0xFFFF'FFFF}, 
@@ -54,7 +54,7 @@ constexpr RegDef kRegs[] = {
     {kSyscsrStatus, 0x0, 0x0},                  // đọc live từ port
     {kSysCtrl, 0x0, kSwResetReq | kSwGlobalRstReq | kJtagmuxSel | kJtagmuxBlock},
     {kCpuCtrl, 0x0, 0x0}, 
-    {kCpuSystick, 0x0, 0x0},   // Reserved trong FU3
+    {kCpuSystick, 0x0, 0x0},                    // Reserved trong FU3
     {kOscPadCtrl, 0x13, 0x3F},
     {kRomCtrl, 0x0, 0x1},                       // 0x0084
 

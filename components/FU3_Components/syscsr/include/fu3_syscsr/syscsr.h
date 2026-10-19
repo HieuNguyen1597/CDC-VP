@@ -42,7 +42,8 @@ public:
     SC_HAS_PROCESS(Syscsr);
     explicit Syscsr(sc_core::sc_module_name name);
 
-    // Read trực tiếp (không qua bus) cho IOSEL/pinmux và test. Offset không map trả 0.
+    // Read trực tiếp (không qua bus) cho IOSEL/pinmux và test
+    // Offset không map trả 0.
     std::uint32_t read_register(std::uint32_t offset) const;
 
 private:
