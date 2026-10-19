@@ -1,4 +1,6 @@
 """Keep HDS clarity, executable outcomes and VP policy evidence separate."""
+from os.path import relpath
+
 SPEC_CASES = ('encrypt128', 'decrypt128', 'encrypt256', 'decrypt256', 'upper_key128', 'trace128', 'trace256')
 POLICY_CASES = ('registers', 'aes128', 'aes256', 'protocol', 'commands', 'reset', 'timing',
                 'result_mux', 'strobes', 'status_flow', 'access_matrix', 'concurrency',
@@ -52,10 +54,10 @@ def requirement_verdict(requirement, verdicts):
     return 'SPEC_NOT_TESTED'
 
 
-def render_matrix(matrix, report, destination):
+def render_matrix(matrix, report, destination, specification_notes):
     rows = [
         '# HDS verification matrix', '',
-        'Generated from `hds-requirements.json` and the three completed build reports.',
+        'Generated from `tests/hds-requirements.json` and the three completed build reports.',
         'Requirement clarity and verification status are separate. A clear requirement can remain',
         '`SPEC_BLOCKED` or `SPEC_NOT_TESTED`; a passing policy/reference test cannot promote it.', '',
         '**SPEC_PASS here is restricted to the stated core-vector/round-trace scope. It is not whole-IP HDS sign-off.**', '',
@@ -78,7 +80,8 @@ def render_matrix(matrix, report, destination):
             detail += '; policy evidence only: ' + ', '.join(req['policy_tests'])
         rows.append('| ' + ' | '.join([req['id'] + ' — ' + req['function'], req['source'],
                                       req['clarity'], verdict, detail.replace('|', '/')]) + ' |')
-    rows += ['', 'Owner questions and response fields: [hds-clarification-request.md](hds-clarification-request.md).',
+    notes_link = relpath(specification_notes, destination.parent).replace('\\', '/')
+    rows += ['', 'HDS issues and model conventions: [spec-decisions.md](' + notes_link + ').',
              'Machine evidence: `build/fu3-aes/verification-summary.json`.',
              'TLM error codes, debug/DMI, concurrency/locking, annotated delay and reset-cancellation rules',
              'are model contracts outside HDS; their results remain in the POLICY suite.', '']

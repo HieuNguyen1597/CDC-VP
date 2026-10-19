@@ -4,7 +4,7 @@ Functional single-block AES peripheral based on the supplied
 `FTEL_CDC_IP_AES_Specification (1).pdf` (23 pages). Supports AES-128/256
 encryption and decryption, key expansion, INIT/NEXT, READY/VALID polling,
 write-only key/input registers and byte strobes. No external crypto library
-is needed. The folder name follows the requested `AES-256` component name.
+is needed.
 
 **This is a firmware-oriented VP profile, not an exact model of the delivered
 RTL wrapper.** The PDF explicitly records unresolved reset polarity, CSR
@@ -12,11 +12,10 @@ address translation and result decode defects (AES-R01..R06, p.18).
 The choices below allow firmware to process and read a complete AES block.
 See [registers](docs/registers.md) and [spec decisions](docs/spec-decisions.md).
 
-Conformance is tracked separately from VP behavior in the
-[HDS verification matrix](docs/hds-verification-matrix.md): 38 requirements,
-including 12 undefined and four conflicting items. The
-[owner clarification package](docs/hds-clarification-request.md) is prepared
-for the user to forward; it has not been sent or approved.
+HDS requirement mappings are stored in `tests/hds-requirements.json`.
+The test runner writes verification results to `build/fu3-aes/`.
+Unresolved HDS items and current model conventions are documented in
+[spec-decisions.md](docs/spec-decisions.md).
 
 ## Build and run
 
@@ -32,7 +31,7 @@ ctest --test-dir build/fu3-aes --output-on-failure
 ```
 
 On PowerShell, enter WSL first with `wsl`, then
-`cd /mnt/d/Intern_doc/Project/CDC-VP` and run the commands above.
+change to the repository root and run the commands above.
 The standalone build avoids CPU/ISS and other SoC dependencies. Its default
 suite has 35 tests (seven SPEC and 28 POLICY), including three real FU3 bus tests. Set
 `FU3_AES_BUS_TESTS=OFF` to build 32 tests without the bus library, or
@@ -48,7 +47,7 @@ bash components/FU3_Components/AES-256/scripts/run_full.sh
 This verification script requires Python 3, the OpenSSL CLI, GCC/gcov and
 CMake/CTest >=3.21. OpenSSL is used only to generate reference test data;
 the AES model library does not depend on it. For one build, enable
-`-DFU3_AES_ORACLE_TESTS=ON`. See the [test report](docs/verification-report.md).
+`-DFU3_AES_ORACLE_TESTS=ON`. See [testing.md](docs/testing.md) for the output files.
 
 Run categories independently after building:
 

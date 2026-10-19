@@ -18,7 +18,7 @@ def main():
     build = Path(sys.argv[1]).resolve()
     component = Path(__file__).resolve().parents[1]
     report = {'suites': {}, 'coverage': {}, 'source_sha256': {}}
-    matrix_path = component / 'docs/hds-requirements.json'
+    matrix_path = component / 'tests/hds-requirements.json'
     matrix = json.loads(matrix_path.read_text(encoding='utf-8'))
     report['hds_source'] = matrix['source']
     report['hds_clarity_counts'] = dict(Counter(r['clarity'] for r in matrix['requirements']))
@@ -67,12 +67,12 @@ def main():
             if path.is_file() and '__pycache__' not in path.parts:
                 report['source_sha256'][str(path.relative_to(component))] = sha256(path)
     report['source_sha256']['CMakeLists.txt'] = sha256(component / 'CMakeLists.txt')
-    report['source_sha256']['docs/hds-requirements.json'] = sha256(matrix_path)
     report['openssl'] = subprocess.check_output(['openssl', 'version'], text=True).strip()
     report['compiler'] = subprocess.check_output(['g++', '--version'], text=True).splitlines()[0]
     output = build / 'fu3-aes' / 'verification-summary.json'
     output.write_text(json.dumps(report, indent=2) + '\n')
-    render_matrix(matrix, report, component / 'docs/hds-verification-matrix.md')
+    render_matrix(matrix, report, output.parent / 'hds-verification-matrix.md',
+                  component / 'docs/spec-decisions.md')
     print(json.dumps({'suites': {k: v['verdict_counts'] for k, v in report['suites'].items()},
                       'hds': {k: v['hds_verdict_counts'] for k, v in report['suites'].items()},
                       'coverage': report['coverage'], 'report': str(output)}, indent=2))
