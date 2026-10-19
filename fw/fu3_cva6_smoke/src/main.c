@@ -1,16 +1,12 @@
 /*
- * FU3 CVA6 smoke test (FU3 Hardware Architecture Specification V2.0).
- *
  * Kiểm tra cấu hình CVA6 trên VP:
  *   - misa = RV32IMC, chỉ M-mode (Table 8-1);
  *   - lệnh AMO báo illegal instruction (RVA = 0);
  *   - truy cập vùng reserved -> load/store access fault;
  *   - ngắt PLIC -> machine external interrupt, cause 11 (Table 11-2).
  *
- * Kết quả ghi vào fu3_result ở 0x0100_0000 (đầu DSRAM). status = FU3_STATUS_PASS
- * khi mọi kiểm tra bắt buộc đạt. Kiểm tra IRQ chỉ có kết quả khi platform/test
- * assert đường PLIC sau khi thấy irq_request = 1; không ai assert thì
- * irq_result = IRQ_NOT_TESTED và không tính là lỗi.
+ * Kết quả ghi vào fu3_result ở 0x0100_0000 (đầu DSRAM). status = FU3_STATUS_PASS <=> Khi mọi kiểm tra bắt buộc đạt. 
+ * Kiểm tra IRQ chỉ có kết quả khi platform/test Assert đường PLIC sau khi thấy irq_request = 1. Nếu không ai Assert thì irq_result = IRQ_NOT_TESTED và không tính là lỗi.
  */
 
 #include <stdint.h>
