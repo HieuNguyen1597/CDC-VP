@@ -44,10 +44,10 @@ inline cpu_config cva6_cpu_config()
     return cfg;
 }
 
-// Bảng 8-1: RVA = RVF = RVD = RVS = RVU = 0. 
+// Table 8-1: RVA = RVF = RVD = RVS = RVU = 0. 
 // ISS mặc định IMACF + NUS, 
 // FU3: RVA=0, RVF=0, RVD=0, RVS=0, RVU=0
-// Bỏ "AFNSU" còn RV32IMC, chỉ M-mode do N không có trên CVA6
+// Bỏ AFNSU còn RV32IMC, chỉ M-mode do N không có trên CVA6
 inline constexpr const char* kCva6DisableExtensions = "AFNSU";
 
 }  // namespace cdc::cpu::fu3
