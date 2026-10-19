@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(syscsr_consumer LANGUAGES CXX)
+find_package(fu3-syscsr CONFIG REQUIRED)
+add_executable(syscsr_consumer ../behavior.cpp)
+target_link_libraries(syscsr_consumer PRIVATE fu3::syscsr)
+enable_testing()
+add_test(NAME installed_syscsr_behavior COMMAND syscsr_consumer)
+set_tests_properties(installed_syscsr_behavior PROPERTIES TIMEOUT 30)
