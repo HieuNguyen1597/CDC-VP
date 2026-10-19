@@ -15,6 +15,4 @@ Instructions for adding released modules and the full-pipeline testbench:
 Regression tests currently live in tests because they require host + DDR + top. Run from components/h264:
 `ctest --test-dir build/vp --output-on-failure`. Relevant tests: the complete CTest regression.
 
-Read `interfaces/docs/interface_contracts.md` before
-changing an interface. All headers use .h. Do not duplicate source files across tasks.
-
+Read `interfaces/docs/interface_contracts.md` before changing an interface. All headers use .h. Do not duplicate source files across tasks.
