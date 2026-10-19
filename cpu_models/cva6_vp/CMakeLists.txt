@@ -36,6 +36,9 @@ target_include_directories(cdc_cpu_cva6 PUBLIC
     ${CMAKE_SOURCE_DIR}/third_party/riscv-vp/vp/src/core/common
 
     ${CMAKE_SOURCE_DIR}/third_party/softfloat/source/include
+
+    # fu3_bus/access.h (header-only) để gắn Access cho transaction của CPU
+    ${CMAKE_SOURCE_DIR}/components/FU3_Components/bus/include
 )
 
 target_link_libraries(cdc_cpu_cva6 PUBLIC 

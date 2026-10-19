@@ -7,6 +7,8 @@
 
 #include <cdc/cpu/elf_loader.h>
 
+#include <fu3_bus/access.h>
+
 #include "core/rv32/iss.h"
 
 #include "core/common/clint_if.h"
@@ -20,7 +22,7 @@ struct stub_clint : public clint_if {
 };
 
 // Đổi chữ cái extension cần bỏ thành mask misa của ISS (mặc định IMACF + NUS).
-// Bitmanip (Bảng 8-1 dòng 8, RVB = 1) không có trong ISS Bremen nên không bật được.
+// Bitmanip (RVB = 1) không có trong ISS Bremen nên không bật được.
 static std::uint32_t misa_mask_from_letters(const std::string& letters) {
     std::uint32_t mask = 0;
     for (char c : letters) {
@@ -54,7 +56,8 @@ struct CVA6_InstrAdapter : public rv32::instr_memory_if {
     CVA6_InstrAdapter(tlm_utils::simple_initiator_socket<cva6_wrapper, 32>& socket) 
         : i_socket(socket) {}
 
-    uint32_t load_instr(uint64_t addr) override {
+    // Đọc 1 word lệnh căn 4: fault_addr = địa chỉ báo vào mtval khi bus lỗi
+    uint32_t fetch_word(uint64_t addr, uint64_t fault_addr)  {
         uint32_t instruction = 0;
         tlm::tlm_generic_payload trans;
         sc_core::sc_time delay = sc_core::sc_time(10, sc_core::SC_NS); // Đồng bộ 10ns cho Global Quantum
@@ -67,15 +70,30 @@ struct CVA6_InstrAdapter : public rv32::instr_memory_if {
         trans.set_byte_enable_ptr(0);
         trans.set_response_status(tlm::TLM_INCOMPLETE_RESPONSE);
 
+        fu3_bus::ScopedAccess access(trans, 4, fu3_bus::Burst::Increment, /*instruction=*/true);
+
         i_socket->b_transport(trans, delay);
 
         if (trans.is_response_error()) {
             // Nếu Bus báo lỗi, ném ngoại lệ để ISS bắt thành trap Access Fault
             // throw std::runtime_error("Bus error luc fetch lenh tai dia chi: " + std::to_string(addr));
             // ISS chỉ bắt SimulationTrap, runtime_error làm dừng cả VP thay vì sinh trap.
-            raise_trap(EXC_INSTR_ACCESS_FAULT, addr);   // mcause 1
+            raise_trap(EXC_INSTR_ACCESS_FAULT, fault_addr);   // mcause 1
         }
         return instruction;
+    }
+
+    // Bus FU3 chỉ nhận fetch 4 byte căn 4, nhưng có RVC thì PC có thể chỉ căn 2 => đọc word căn hàng rồi ghép, giống fetch thật của CVA6/Ibex.
+    uint32_t load_instr(uint64_t addr) override {
+        if ((addr & 3) == 0) {
+            return fetch_word(addr, addr);
+        }
+        const uint64_t base = addr & ~uint64_t{3};
+        const uint32_t low = fetch_word(base, addr) >> 16;
+        if ((low & 3) != 3) {
+            return low;   // Lệnh nén 16 bit: không đọc word sau (tránh fault giả ở cuối vùng nhớ)
+        }
+        return low | (fetch_word(base + 4, base + 4) << 16);
     }
 };
 
@@ -112,6 +130,9 @@ struct CVA6_DataAdapter : public rv32::data_memory_if {
         trans.set_byte_enable_ptr(0);
         trans.set_response_status(tlm::TLM_INCOMPLETE_RESPONSE);
 
+        // 1 beat = len byte (1/2/4). 
+        // Truy cập lệch hàng => bus trả ADDRESS_ERROR => access fault.
+        fu3_bus::ScopedAccess access(trans, len, fu3_bus::Burst::Increment);
         d_socket->b_transport(trans, delay);
 
         if (trans.is_response_error()) {
@@ -202,8 +223,10 @@ struct cva6_wrapper::impl {
         }
     } quantum_init_;
 
-    tlm_utils::simple_initiator_socket<cva6_wrapper, 32> i_socket;
-    tlm_utils::simple_initiator_socket<cva6_wrapper, 32> d_socket;
+    // tlm_utils::simple_initiator_socket<cva6_wrapper, 32> i_socket;
+    // tlm_utils::simple_initiator_socket<cva6_wrapper, 32> d_socket;
+    // FU3: 1 AXI4 master/CPU => Fetch và Data dùng chung 1 socket.
+    tlm_utils::simple_initiator_socket<cva6_wrapper, 32> bus_socket;
 
     CVA6_InstrAdapter instr_adapter;
     CVA6_DataAdapter data_adapter;
@@ -213,10 +236,14 @@ struct cva6_wrapper::impl {
     // Con trỏ chứa ISS
     std::unique_ptr<rv32::ISS> iss_core;
 
-    impl(const cpu_config& config, const std::string& disable_extensions) : i_socket("i_socket"), 
+    /* impl(const cpu_config& config, const std::string& disable_extensions) : i_socket("i_socket"), 
                                                                             d_socket("d_socket"),
                                                                             instr_adapter(i_socket),  // i_socket cho Fetch
-                                                                            data_adapter(d_socket)    // d_socket cho Data
+                                                                            data_adapter(d_socket)    // d_socket cho Data */
+    impl(const cpu_config& config, const std::string& disable_extensions) : bus_socket("bus_socket"),
+                                                                            instr_adapter(bus_socket),  // Fetch
+                                                                            data_adapter(bus_socket)    // Data
+    
     {
         // VP++ đòi hỏi truyền hart_id vào constructor
         // Truyền giá trị hart_id từ cfg vào, tham số thứ 2 (use_E_base_isa) để mặc định là false
@@ -245,13 +272,18 @@ cva6_wrapper::cva6_wrapper(sc_core::sc_module_name name, const cpu_config& confi
 
 cva6_wrapper::~cva6_wrapper() = default;
 
+// Gộp I/D: cả hai trả về cùng 1 socket (has_unified_bus() = true).
 tlm::tlm_initiator_socket<>& cva6_wrapper::instr_bus() {
-    return impl_->i_socket;
+    // return impl_->i_socket;
+    return impl_->bus_socket;
 }
 
 tlm::tlm_initiator_socket<>& cva6_wrapper::data_bus() {
-    return impl_->d_socket;
+    // return impl_->d_socket;
+    return impl_->bus_socket;
 }
+
+
 
 void cva6_wrapper::set_irq(unsigned cause, bool level) {
     if (cause == 7) {
@@ -279,7 +311,9 @@ void cva6_wrapper::reset_cpu() {
     uint64_t start_pc = cfg.reset_pc_specified() ? cfg.reset_pc
                       : (elf_loaded_ ? elf_entry_pc_ : 0x80000000);   
 
-    std::cout << "[CVA6] reset PC = 0x" << std::hex << start_pc << std::dec << std::endl;
+    // std::cout << "[CVA6] reset PC = 0x" << std::hex << start_pc << std::dec << std::endl;
+    // Ibex dùng chung wrapper => In tên instance để log 2 CPU không lẫn nhau.
+    std::cout << "[" << name() << "] reset PC = 0x" << std::hex << start_pc << std::dec << std::endl;
     
     impl_->iss_core->init(
         &(impl_->instr_adapter),
@@ -318,7 +352,7 @@ void cva6_wrapper::start_of_simulation() {
         // Lúc này cáp Bus đã nối xong, ta mới bơm dữ liệu và lấy entry_pc chuẩn
         // cfg.reset_pc = cdc::cpu::load_elf(impl_->d_socket, elf_path_);
         // Dòng trên không dùng vì ghi đè vector reset do platform đặt (FU3 boot_addr_i = 0x0001_0000)
-        elf_entry_pc_ = cdc::cpu::load_elf(impl_->d_socket, elf_path_);
+        elf_entry_pc_ = cdc::cpu::load_elf(impl_->bus_socket, elf_path_);
         elf_loaded_ = true;
     }
     // Gọi reset 1 lần duy nhất ở đây

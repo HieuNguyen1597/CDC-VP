@@ -52,7 +52,9 @@ struct riscv_cpu_eval_top::impl : public sc_core::sc_module {
              cfg.reset_pc = kRamBase;
             return cfg;
         }()) // Khởi tạo một struct tạm để đẩy vào CVA6
-         , bus("bus",/*num_targets=*/3, /*num_initiators=*/2u) // CVA6b xài Dual Bus = 2 cổng
+         // , bus("bus",/*num_targets=*/3, /*num_initiators=*/2u) // CVA6b xài Dual Bus = 2 cổng
+         // CVA6 đã gộp I/D thành 1 socket (khớp bus FU3) => cổng thứ 2 để trống sẽ lỗi elaboration.
+         , bus("bus",/*num_targets=*/3, /*num_initiators=*/cpu.has_unified_bus() ? 1u : 2u) // Default
          , ram("ram", kRamSize)
          , uart("uart")
          , uart_tx("uart_tx")

@@ -11,24 +11,32 @@ namespace cdc::cpu {
 
 class cva6_wrapper : public cpu_base {
 public:
-    // FU3 (Bảng 8-1): truyền AFNSU để misa = RV32IMC (chỉ M-mode)
-    // Mặc định rỗng = giữ misa IMACF + NUS 
+    // FU3: truyền AFNSU để misa = RV32IMC (chỉ M-mode)
+    // Default: rỗng = giữ misa IMACF + NUS 
     explicit cva6_wrapper(sc_core::sc_module_name name, const cpu_config& config = cpu_config{},
                           const std::string& disable_extensions = "");
     ~cva6_wrapper() override;
 
-    // 2 cổng AXI riêng biệt cho lệnh và dữ liệu
+    // Default: 2 cổng AXI riêng biệt cho lệnh và dữ liệu
     tlm::tlm_initiator_socket<>& instr_bus() override;
     tlm::tlm_initiator_socket<>& data_bus() override;
 
-    // Hệ thống không xài bus gộp vì 2 cổng AXI riêng biệt
-    bool has_unified_bus() const override { return false; }
+    /* Hệ thống không xài bus gộp vì 2 cổng AXI riêng biệt
+    bool has_unified_bus() const override { 
+        return false; 
+    } */
+   
+    // FU3: Mỗi CPU chỉ có 1 AXi4 Master (bus FU3 có 1 Initiator "CVA6"/"IBEX") => instr_bus() và data_bus() trả về cùng 1 socket
+    // Đã gộp I/D để khớp bus FU3 => platform chỉ bind data_bus().
+    bool has_unified_bus() const override { 
+        return true; 
+    }
 
     // Nhận ngắt từ bộ điều khiển ngắt (CLINT/PLIC - Soft, Timer, External)
     // Đẩy vào MIP register của CVA6
-    /* FU3 (Bảng 11-2): Case 3 = ipi_i (SYSCSR), 
-                        Case 7 = time_irq_i (TIMER0), 
-                        Case 11 = irq_i[0] (PLIC target 0) */
+    /* FU3: Case 3 = ipi_i (SYSCSR), 
+            Case 7 = time_irq_i (TIMER0), 
+            Case 11 = irq_i[0] (PLIC target 0) */
 
     void set_irq(unsigned cause, bool level) override;
 
